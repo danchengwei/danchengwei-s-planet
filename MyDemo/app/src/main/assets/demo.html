@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebView JavaScript Interface Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        button {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 15px 32px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 10px 2px;
+            cursor: pointer;
+            border-radius: 5px;
+            width: 100%;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .danger {
+            background-color: #f44336;
+        }
+        .danger:hover {
+            background-color: #d32f2f;
+        }
+        .info {
+            background-color: #e7f3ff;
+            border-left: 6px solid #2196F3;
+            padding: 10px;
+            margin: 20px 0;
+        }
+        .result {
+            margin-top: 20px; 
+            padding: 10px; 
+            background-color: #f9f9f9; 
+            border-radius: 5px;
+            word-wrap: break-word;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WebView JavaScript Interface Demo</h1>
+        
+        <div class="info">
+            <p>这个页面演示了如何在JavaScript中调用Android方法。</p>
+        </div>
+        
+        <button onclick="showAndroidToast('Hello from JavaScript!')">
+            显示Toast消息
+        </button>
+        
+        <button onclick="getDeviceInfo()">
+            获取设备信息
+        </button>
+        
+        <button onclick="getDeviceId()">
+            获取设备ID
+        </button>
+        
+        <button onclick="getScreenInfo()">
+            获取屏幕信息
+        </button>
+        
+        <button onclick="getAppVersion()">
+            获取应用版本
+        </button>
+        
+        <button onclick="sendDataToAndroid()">
+            发送数据到Android
+        </button>
+        
+        <button onclick="setPageTitle('新标题: ' + new Date().toLocaleTimeString())">
+            设置页面标题
+        </button>
+        
+        <button class="danger" onclick="closeApp()">
+            关闭应用
+        </button>
+        
+        <div id="result" class="result">
+            <p>结果将显示在这里...</p>
+        </div>
+    </div>
+
+    <script>
+        // 检查Android接口是否可用
+        function isAndroidAvailable() {
+            return typeof NativeAndroid !== 'undefined';
+        }
+        
+        function showAndroidToast(toast) {
+            if (!isAndroidAvailable()) {
+                alert('Android接口不可用');
+                return;
+            }
+            
+            try {
+                NativeAndroid.showToast(toast);
+            } catch(e) {
+                alert('Error: ' + e.message);
+            }
+        }
+        
+        function getDeviceInfo() {
+            if (!isAndroidAvailable()) {
+                alert('Android接口不可用');
+                return;
+            }
+            
+            try {
+                var deviceInfo = NativeAndroid.getDeviceInfo();
+                document.getElementById('result').innerHTML = '<p>设备信息: ' + deviceInfo + '</p>';
+            } catch(e) {
+                alert('Error: ' + e.message);
+            }
+        }
+        
+        function getDeviceId() {
+            if (!isAndroidAvailable()) {
+                alert('Android接口不可用');
+                return;
+            }
+            
+            try {
+                var deviceId = NativeAndroid.getDeviceId();
+                document.getElementById('result').innerHTML = '<p>设备ID: ' + deviceId + '</p>';
+            } catch(e) {
+                alert('Error: ' + e.message);
+            }
+        }
+        
+        function getScreenInfo() {
+            if (!isAndroidAvailable()) {
+                alert('Android接口不可用');
+                return;
+            }
+            
+            try {
+                var screenInfo = NativeAndroid.getScreenInfo();
+                document.getElementById('result').innerHTML = '<p>屏幕信息: ' + screenInfo + '</p>';
+            } catch(e) {
+                alert('Error: ' + e.message);
+            }
+        }
+        
+        function getAppVersion() {
+            if (!isAndroidAvailable()) {
+                alert('Android接口不可用');
+                return;
+            }
+            
+            try {
+                var appVersion = NativeAndroid.getAppVersion();
+                document.getElementById('result').innerHTML = '<p>应用版本: ' + appVersion + '</p>';
+            } catch(e) {
+                alert('Error: ' + e.message);
+            }
+        }
+        
+        function sendDataToAndroid() {
+            if (!isAndroidAvailable()) {
+                alert('Android接口不可用');
+                return;
+            }
+            
+            try {
+                var data = '当前时间: ' + new Date().toString();
+                NativeAndroid.sendData(data);
+                document.getElementById('result').innerHTML = '<p>已发送数据到Android</p>';
+            } catch(e) {
+                alert('Error: ' + e.message);
+            }
+        }
+        
+        function setPageTitle(title) {
+            if (!isAndroidAvailable()) {
+                alert('Android接口不可用');
+                return;
+            }
+            
+            try {
+                NativeAndroid.setPageTitle(title);
+                document.getElementById('result').innerHTML = '<p>已设置页面标题为: ' + title + '</p>';
+            } catch(e) {
+                alert('Error: ' + e.message);
+            }
+        }
+        
+        function closeApp() {
+            if (!isAndroidAvailable()) {
+                alert('Android接口不可用');
+                return;
+            }
+            
+            try {
+                if(confirm('确定要关闭应用吗?')) {
+                    NativeAndroid.closeApp();
+                }
+            } catch(e) {
+                alert('Error: ' + e.message);
+            }
+        }
+        
+        // 页面加载完成后通知Android
+        window.onload = function() {
+            console.log('页面加载完成');
+        };
+    </script>
+</body>
+</html>
