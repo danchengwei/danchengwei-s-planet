@@ -43,10 +43,15 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
     private TextView meetingTitle;
     private TextView participantCount;
 
+    private String roomId; // 新增房间ID字段
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_webrtc);
+
+        // 获取从MainActivity传递过来的房间号
+        roomId = getIntent().getStringExtra("ROOM_ID");
 
         // 初始化UI组件
         initUI();
@@ -65,6 +70,11 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
 
         // 3. 设置按钮点击事件
         setupButtonListeners();
+        
+        // 如果房间号不为空，则直接加入房间
+        if (roomId != null && !roomId.isEmpty()) {
+            meetingTitle.setText("房间号: " + roomId);
+        }
     }
 
     private void initUI() {
@@ -94,12 +104,7 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
 
         // 加入房间
         joinRoomButton.setOnClickListener(v -> {
-            try {
-                signalingClient.joinRoom("test_room_123");
-                Toast.makeText(this, "加入房间", Toast.LENGTH_SHORT).show();
-            } catch (Exception e) {
-                Toast.makeText(this, "加入房间失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-            }
+            joinRoom();
         });
 
         // 挂断
@@ -120,6 +125,22 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
             // 实现切换摄像头逻辑
             Toast.makeText(this, "切换摄像头", Toast.LENGTH_SHORT).show();
         });
+    }
+    
+    // 新增加入房间方法
+    private void joinRoom() {
+        try {
+            if (roomId == null || roomId.isEmpty()) {
+                Toast.makeText(this, "请先输入房间号", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            
+            signalingClient.joinRoom(roomId);
+            Toast.makeText(this, "加入房间: " + roomId, Toast.LENGTH_SHORT).show();
+            meetingTitle.setText("房间号: " + roomId);
+        } catch (Exception e) {
+            Toast.makeText(this, "加入房间失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
     }
 
     // 初始化 PeerConnectionFactory（WebRTC 核心，之前已详细讲解）
@@ -143,7 +164,13 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
     // -------------------------- WebRtcSignalingClient.SignalingCallback 实现 --------------------------
     @Override
     public void onConnectSuccess() {
-        runOnUiThread(() -> Toast.makeText(this, "WebSocket 连接成功", Toast.LENGTH_SHORT).show());
+        runOnUiThread(() -> {
+            Toast.makeText(this, "WebSocket 连接成功", Toast.LENGTH_SHORT).show();
+            // 如果有房间号，在连接成功后自动加入房间
+            if (roomId != null && !roomId.isEmpty()) {
+                joinRoom();
+            }
+        });
     }
 
     @Override
