@@ -1,5 +1,5 @@
 import express from 'express';
-import WebSocket from 'ws';
+import { WebSocketServer } from 'ws';
 import http from 'http';
 
 // 创建Express应用
@@ -7,7 +7,7 @@ const app = express();
 // 创建HTTP服务器
 const server = http.createServer(app);
 // 创建WebSocket服务器
-const wss = new WebSocket.Server({ noServer: true });
+const wss = new WebSocketServer({ noServer: true });
 
 // 房间管理
 const rooms = new Map(); // 房间ID -> 房间对象
@@ -165,7 +165,7 @@ function forwardSignalingMessage(ws, message) {
       }
     }
     
-    if (targetClient && targetClient.readyState === WebSocket.OPEN) {
+    if (targetClient && targetClient.readyState === WebSocketServer.OPEN) {
       targetClient.send(JSON.stringify(message));
     } else {
       console.log(`目标用户 ${targetUserId} 不在房间内或连接已关闭`);
@@ -187,7 +187,7 @@ function broadcastToRoom(ws, message) {
     };
     
     for (const client of room.participants.keys()) {
-      if (client.readyState === WebSocket.OPEN) {
+      if (client.readyState === WebSocketServer.OPEN) {
         client.send(JSON.stringify(broadcastMessage));
       }
     }
@@ -197,7 +197,7 @@ function broadcastToRoom(ws, message) {
 // 广播消息到房间内除了指定用户外的所有用户
 function broadcastToRoomExcept(ws, message, room) {
   for (const client of room.participants.keys()) {
-    if (client !== ws && client.readyState === WebSocket.OPEN) {
+    if (client !== ws && client.readyState === WebSocketServer.OPEN) {
       client.send(JSON.stringify(message));
     }
   }

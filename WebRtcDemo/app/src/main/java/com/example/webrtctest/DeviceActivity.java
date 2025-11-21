@@ -13,6 +13,7 @@ import android.widget.Toast;
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -181,7 +182,7 @@ public class DeviceActivity extends AppCompatActivity {
     
     // 检查权限状态
     private boolean checkPermission(String permission) {
-        return ActivityCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED;
+        return ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED;
     }
     
     // 检查并请求权限
@@ -189,14 +190,12 @@ public class DeviceActivity extends AppCompatActivity {
         List<String> permissionsList = new ArrayList<>();
         
         // 检查摄像头权限
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) 
-            != PackageManager.PERMISSION_GRANTED) {
+        if (!checkPermission(Manifest.permission.CAMERA)) {
             permissionsList.add(Manifest.permission.CAMERA);
         }
         
         // 检查录音权限
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) 
-            != PackageManager.PERMISSION_GRANTED) {
+        if (!checkPermission(Manifest.permission.RECORD_AUDIO)) {
             permissionsList.add(Manifest.permission.RECORD_AUDIO);
         }
         
@@ -241,8 +240,7 @@ public class DeviceActivity extends AppCompatActivity {
             }
             
             // 检查摄像头权限
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) 
-                != PackageManager.PERMISSION_GRANTED) {
+            if (!checkPermission(Manifest.permission.CAMERA)) {
                 cameraStatusText.setText("缺少摄像头权限");
                 return;
             }
@@ -350,8 +348,7 @@ public class DeviceActivity extends AppCompatActivity {
             }
             
             // 检查录音权限
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) 
-                != PackageManager.PERMISSION_GRANTED) {
+            if (!checkPermission(Manifest.permission.RECORD_AUDIO)) {
                 audioStatusText.setText("缺少录音权限");
                 return;
             }
