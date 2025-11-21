@@ -652,20 +652,7 @@ function App() {
     })
   }
   
-  // 处理收到的用户状态更新
-  const handleUserStatusUpdate = (message) => {
-    if (message.from === userId) return // 忽略自己的状态更新
-    
-    // 更新其他用户的状态
-    setUserStatuses(prev => ({
-      ...prev,
-      [message.from]: {
-        ...prev[message.from],
-        ...message.status,
-        updatedAt: Date.now()
-      }
-    }))
-  }
+  // 已在前面定义了handleUserStatusUpdate函数，此处省略重复定义
   
   // 已在前面定义了handleStatusBroadcast函数，此处省略重复定义
   
