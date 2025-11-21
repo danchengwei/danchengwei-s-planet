@@ -26,6 +26,7 @@ import org.webrtc.DefaultVideoDecoderFactory;
 import org.webrtc.DefaultVideoEncoderFactory;
 import org.webrtc.EglBase;
 import org.webrtc.PeerConnectionFactory;
+import org.webrtc.SurfaceTextureHelper;
 import org.webrtc.SurfaceViewRenderer;
 import org.webrtc.VideoSource;
 import org.webrtc.VideoTrack;
@@ -56,6 +57,7 @@ public class DeviceActivity extends AppCompatActivity {
     private VideoTrack videoTrack;
     private AudioSource audioSource;
     private AudioTrack audioTrack;
+    private SurfaceTextureHelper surfaceTextureHelper; // 添加SurfaceTextureHelper引用
     private boolean isCameraActive = false;
     private boolean isAudioTestActive = false;
 
@@ -274,7 +276,10 @@ public class DeviceActivity extends AppCompatActivity {
             
             // 创建视频源和轨道
             videoSource = peerConnectionFactory.createVideoSource(false);
-            cameraVideoCapturer.initialize(eglBase.getEglBaseContext(), this, videoSource.getCapturerObserver());
+            
+            // 创建SurfaceTextureHelper并正确初始化摄像头捕获器
+            surfaceTextureHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.getEglBaseContext());
+            cameraVideoCapturer.initialize(surfaceTextureHelper, this, videoSource.getCapturerObserver());
             cameraVideoCapturer.startCapture(640, 480, 30);
             
             videoTrack = peerConnectionFactory.createVideoTrack("local_video_track", videoSource);
@@ -313,6 +318,12 @@ public class DeviceActivity extends AppCompatActivity {
             if (videoSource != null) {
                 videoSource.dispose();
                 videoSource = null;
+            }
+            
+            // 释放SurfaceTextureHelper
+            if (surfaceTextureHelper != null) {
+                surfaceTextureHelper.dispose();
+                surfaceTextureHelper = null;
             }
             
             isCameraActive = false;
@@ -402,6 +413,12 @@ public class DeviceActivity extends AppCompatActivity {
         
         if (eglBase != null) {
             eglBase.release();
+        }
+        
+        // 确保释放SurfaceTextureHelper
+        if (surfaceTextureHelper != null) {
+            surfaceTextureHelper.dispose();
+            surfaceTextureHelper = null;
         }
     }
 }
