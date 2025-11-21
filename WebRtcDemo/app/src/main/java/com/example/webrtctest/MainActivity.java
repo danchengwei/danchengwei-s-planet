@@ -21,6 +21,7 @@ import androidx.core.view.WindowInsetsCompat;
 import com.google.android.material.textfield.TextInputEditText;
 
 import java.net.URISyntaxException;
+import java.util.UUID;
 
 public class MainActivity extends AppCompatActivity implements WebSocketClientWrapper.WebSocketListener {
     private static final String TAG = "MainActivity";
@@ -28,6 +29,7 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
     
     private WebSocketClientWrapper webSocketClient;
     private TextInputEditText roomIdInput;
+    private Button createRoomButton;
     private Button joinRoomButton;
     private Button checkDeviceButton;
     private TextView connectionStatus;
@@ -52,10 +54,18 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
 
     private void initViews() {
         roomIdInput = findViewById(R.id.room_id_input);
+        createRoomButton = findViewById(R.id.create_room_button);
         joinRoomButton = findViewById(R.id.join_room_button);
         checkDeviceButton = findViewById(R.id.check_device_button);
         connectionStatus = findViewById(R.id.connection_status);
         deviceInfoText = findViewById(R.id.device_info_text);
+
+        createRoomButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                createRoom();
+            }
+        });
 
         joinRoomButton.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -74,6 +84,7 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
         });
 
         joinRoomButton.setEnabled(false); // 默认禁用，等WebSocket连接成功后再启用
+        createRoomButton.setEnabled(false); // 默认禁用，等WebSocket连接成功后再启用
     }
 
     private void initWebSocket() {
@@ -94,6 +105,17 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
                              NetworkConfig.getSignalingServerPort();
             connectionStatus.setText(errorInfo);
         }
+    }
+
+    private void createRoom() {
+        String roomId = roomIdInput.getText().toString().trim();
+        if (roomId.isEmpty()) {
+            Toast.makeText(this, "请输入房间号", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        // 直接加入用户输入的房间号
+        joinRoom();
     }
 
     private void joinRoom() {
@@ -170,6 +192,7 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
                               NetworkConfig.getSignalingServerPort();
             connectionStatus.setText(serverInfo);
             joinRoomButton.setEnabled(true);
+            createRoomButton.setEnabled(true);
             Toast.makeText(this, "信令服务器连接成功", Toast.LENGTH_SHORT).show();
         });
     }
@@ -190,6 +213,7 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
                               "\n原因: " + reason;
             connectionStatus.setText(serverInfo);
             joinRoomButton.setEnabled(false);
+            createRoomButton.setEnabled(false);
         });
     }
 
@@ -203,6 +227,7 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
                               "\n错误: " + error.getMessage();
             connectionStatus.setText(serverInfo);
             joinRoomButton.setEnabled(false);
+            createRoomButton.setEnabled(false);
         });
     }
 

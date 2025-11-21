@@ -15,7 +15,8 @@ function App() {
   const [videoFrameRate, setVideoFrameRate] = useState('--')
   const [toasts, setToasts] = useState([])
   const [retryCount, setRetryCount] = useState(0) // 新增：重试次数
-  const [roomId, setRoomId] = useState('') // 新增：房间号
+  const [roomId, setRoomId] = useState('') // 当前房间ID
+  const [roomToJoin, setRoomToJoin] = useState('') // 要加入的房间ID
   const maxRetries = 3 // 最大重试次数
   // WebSocket相关状态
   const [wsConnection, setWsConnection] = useState(null)
@@ -30,12 +31,23 @@ function App() {
   const [newMessage, setNewMessage] = useState('')
   const [userStatuses, setUserStatuses] = useState({}) // 存储用户状态，如麦克风、摄像头开关状态
   
+  // 音量测试相关状态
+  const [isMicTesting, setIsMicTesting] = useState(false)
+  const [micVolume, setMicVolume] = useState(0)
+  const [isSpeakerTesting, setIsSpeakerTesting] = useState(false)
+  const [audioContext, setAudioContext] = useState(null)
+  const [mediaStreamSource, setMediaStreamSource] = useState(null)
+  const [analyser, setAnalyser] = useState(null)
+  const [dataArray, setDataArray] = useState(null)
+  const [animationFrameId, setAnimationFrameId] = useState(null)
+  
   // 引用
   const videoRef = useRef(null)
   const remoteVideoRef = useRef(null) // 新增：用于显示远端视频
   const mediaStreamRef = useRef(null)
   const peerConnectionRef = useRef(null) // 新增：用于WebRTC连接
   const toastRef = useRef(null)
+  const audioTestRef = useRef(null) // 用于音频测试
 
   // 检查WebRTC支持
   const checkWebRTCSupport = () => {
@@ -51,6 +63,212 @@ function App() {
       return true
     }
   }
+  
+  // 开始麦克风音量测试
+  const startMicTest = async () => {
+    try {
+      // 停止之前可能存在的测试
+      stopMicTest();
+      
+      // 请求麦克风权限
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      // 创建音频上下文
+      const context = new (window.AudioContext || window.webkitAudioContext)();
+      setAudioContext(context);
+      
+      // 手动激活音频上下文（解决浏览器限制）
+      await context.resume();
+      
+      // 创建媒体流源
+      const source = context.createMediaStreamSource(stream);
+      setMediaStreamSource(source);
+      
+      // 创建音频分析器
+      const audioAnalyser = context.createAnalyser();
+      audioAnalyser.fftSize = 256;
+      audioAnalyser.smoothingTimeConstant = 0.8; // 添加平滑处理
+      const bufferLength = audioAnalyser.frequencyBinCount;
+      const array = new Uint8Array(bufferLength);
+      
+      setAnalyser(audioAnalyser);
+      setDataArray(array);
+      
+      // 连接音频节点
+      source.connect(audioAnalyser);
+      
+      // 设置测试状态
+      setIsMicTesting(true);
+      showToast('麦克风测试已开始，请说话测试音量', 'success');
+      
+      // 使用局部变量追踪动画状态，避免useState更新不同步的问题
+      let isActive = true;
+      animationActiveRef.current = true;
+      
+      // 音量检测函数
+      const detectVolume = () => {
+        // 检查是否仍在活动状态
+        if (!animationActiveRef.current) return;
+        
+        if (audioAnalyser && array) {
+          try {
+            // 使用getByteTimeDomainData更适合检测音量
+            audioAnalyser.getByteTimeDomainData(array);
+            
+            // 计算RMS音量（更准确的音量测量）
+            let sum = 0;
+            for (let i = 0; i < bufferLength; i++) {
+              const normalized = (array[i] - 128) / 128;
+              sum += normalized * normalized;
+            }
+            const rms = Math.sqrt(sum / bufferLength);
+            
+            // 映射到0-100的范围，使用对数刻度更符合人耳感知
+            let volume = 0;
+            if (rms > 0) {
+              volume = Math.round(Math.max(0, Math.min(100, 20 * Math.log10(rms) + 70)));
+            }
+            setMicVolume(volume);
+          } catch (e) {
+            console.log('音量检测错误:', e);
+          }
+        }
+        
+        // 继续下一帧
+        if (animationActiveRef.current) {
+          const id = requestAnimationFrame(detectVolume);
+          setAnimationFrameId(id);
+        }
+      };
+      
+      // 开始音量检测动画
+      const id = requestAnimationFrame(detectVolume);
+      setAnimationFrameId(id);
+      
+      // 保存媒体流引用以便后续停止
+      audioTestRef.current = stream;
+      
+    } catch (error) {
+      console.error('麦克风测试失败:', error);
+      showToast(`麦克风测试失败: ${error.message}`, 'error');
+    }
+  };
+  
+  // 用于跟踪动画状态的ref
+  const animationActiveRef = useRef(false);
+  
+  // 停止麦克风音量测试
+  const stopMicTest = () => {
+    // 立即标记动画为非活动状态，确保下一个动画帧不会继续执行
+    if (animationActiveRef.current) {
+      animationActiveRef.current = false;
+    }
+    
+    // 取消动画帧
+    if (animationFrameId) {
+      cancelAnimationFrame(animationFrameId);
+      setAnimationFrameId(null);
+    }
+    
+    // 清理音频节点连接
+    if (mediaStreamSource) {
+      try {
+        mediaStreamSource.disconnect();
+      } catch (e) {
+        console.log('媒体流源已断开连接', e);
+      }
+      setMediaStreamSource(null);
+    }
+    
+    // 关闭音频上下文
+    if (audioContext) {
+      try {
+        audioContext.close();
+      } catch (e) {
+        console.log('音频上下文已关闭', e);
+      }
+      setAudioContext(null);
+    }
+    
+    // 停止媒体流
+    if (audioTestRef.current) {
+      try {
+        audioTestRef.current.getTracks().forEach(track => {
+          if (track.readyState !== 'ended') {
+            track.stop();
+          }
+        });
+      } catch (e) {
+        console.log('媒体流已停止', e);
+      }
+      audioTestRef.current = null;
+    }
+    
+    // 重置状态
+    setIsMicTesting(false);
+    setMicVolume(0);
+    showToast('麦克风测试已停止', 'info');
+    setAnalyser(null);
+    setDataArray(null);
+  };
+  
+  // 开始扬声器测试
+  const startSpeakerTest = async () => {
+    try {
+      setIsSpeakerTesting(true);
+      showToast('扬声器测试已开始，请检查是否有声音', 'success');
+      
+      // 创建音频上下文
+      const context = new (window.AudioContext || window.webkitAudioContext)();
+      setAudioContext(context);
+      
+      // 创建振荡器
+      const oscillator = context.createOscillator();
+      const gainNode = context.createGain();
+      
+      // 设置测试频率（1kHz正弦波）
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(1000, context.currentTime);
+      
+      // 设置音量
+      gainNode.gain.setValueAtTime(0.3, context.currentTime);
+      
+      // 连接音频节点
+      oscillator.connect(gainNode);
+      gainNode.connect(context.destination);
+      
+      // 开始播放
+      oscillator.start();
+      
+      // 保存引用
+      audioTestRef.current = {
+        oscillator,
+        gainNode,
+        context
+      };
+      
+    } catch (error) {
+      console.error('扬声器测试失败:', error);
+      showToast(`扬声器测试失败: ${error.message}`, 'error');
+      setIsSpeakerTesting(false);
+    }
+  };
+  
+  // 停止扬声器测试
+  const stopSpeakerTest = () => {
+    if (audioTestRef.current && audioTestRef.current.oscillator) {
+      audioTestRef.current.oscillator.stop();
+    }
+    
+    if (audioContext) {
+      audioContext.close();
+      setAudioContext(null);
+    }
+    
+    setIsSpeakerTesting(false);
+    audioTestRef.current = null;
+    showToast('扬声器测试已停止', 'info');
+  };
   
   // 显示提示信息
   const showToast = (message, type = 'info') => {
@@ -70,7 +288,7 @@ function App() {
     try {
       // 注意：实际使用时需要替换为真实的WebSocket服务器地址
       // 这里使用模拟地址，实际部署时需要配置真实的信令服务器
-      const wsUrl = process.env.REACT_APP_SIGNALING_SERVER || 'ws://localhost:8080/webrtc'
+      const wsUrl = import.meta.env.VITE_SIGNALING_SERVER || 'ws://localhost:8081/webrtc'
       
       // 创建WebSocket连接
       const ws = new WebSocket(wsUrl)
@@ -175,7 +393,13 @@ function App() {
       return
     }
     
-    const newRoomId = `room_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`
+    // 使用用户输入的房间号
+    if (!roomToJoin.trim()) {
+      showToast('请输入房间号', 'error')
+      return
+    }
+    
+    const newRoomId = roomToJoin.trim()
     
     // 发送创建房间请求
     sendSignalingMessage({
@@ -188,7 +412,7 @@ function App() {
   }
   
   // 房间加入逻辑
-  const joinRoom = (roomToJoin) => {
+  const joinRoom = () => {
     if (!wsConnection || !wsConnected) {
       showToast('请先连接信令服务器', 'error')
       return
@@ -1131,43 +1355,56 @@ function App() {
           
           {/* 房间管理控件 */}
           <div className="room-controls">
-            <div className="room-form">
-              <input
-                type="text"
-                placeholder="输入房间号或留空自动生成"
-                value={roomId}
-                onChange={(e) => setRoomId(e.target.value)}
-                className="room-input"
-              />
-              <div className="room-buttons">
-                {!roomId ? (
-                  <>
-                    <button 
-                      onClick={createRoom} 
-                      disabled={!wsConnected}
-                      className="btn btn-primary"
-                    >
-                      创建房间
-                    </button>
-                    <button 
-                      onClick={joinRoom} 
-                      disabled={!wsConnected || !roomId.trim()}
-                      className="btn btn-secondary"
-                    >
-                      加入房间
-                    </button>
-                  </>
-                ) : (
+            {!roomId ? (
+              <div className="room-form">
+                <input
+                  type="text"
+                  placeholder="输入要加入的房间号"
+                  value={roomToJoin}
+                  onChange={(e) => setRoomToJoin(e.target.value)}
+                  className="room-input"
+                />
+                <div className="room-buttons">
                   <button 
-                    onClick={leaveRoom} 
-                    className="btn btn-danger"
+                    onClick={createRoom} 
+                    disabled={!wsConnected}
+                    className="btn btn-primary"
                   >
-                    离开房间
+                    创建新房间
                   </button>
-                )}
+                  <button 
+                    onClick={joinRoom} 
+                    disabled={!wsConnected || !roomToJoin.trim()}
+                    className="btn btn-secondary"
+                  >
+                    加入房间
+                  </button>
+                </div>
               </div>
-            </div>
-            
+            ) : (
+              <div className="room-info">
+                <div className="room-details">
+                  <span className="room-label">当前房间ID:</span>
+                  <span className="room-id">{roomId}</span>
+                  <button 
+                    onClick={() => {
+                      navigator.clipboard.writeText(roomId)
+                      showToast('房间ID已复制到剪贴板', 'success')
+                    }}
+                    className="btn btn-sm btn-outline"
+                  >
+                    复制
+                  </button>
+                </div>
+                <button 
+                  onClick={leaveRoom} 
+                  className="btn btn-danger"
+                >
+                  离开房间
+                </button>
+              </div>
+            )}
+          </div>  
             {/* 摄像头控制 */}
             <div className="camera-controls">
               {!isCameraActive ? (
@@ -1200,7 +1437,6 @@ function App() {
                 </>
               )}
             </div>
-          </div>
           
           <div className="connection-status">
             <span>信令服务器: </span>
@@ -1363,6 +1599,75 @@ function App() {
                  connectionStatus === 'failed' ? '连接失败' : 
                  connectionStatus === 'connecting' ? '连接中...' : '未连接'}
               </span>
+            </div>
+          </div>
+
+          {/* 音量测试部分 */}
+          <div className="audio-test-container">
+            <h3>
+              <FontAwesomeIcon icon={faMicrophone} /> 音量测试
+            </h3>
+            
+            {/* 麦克风测试 */}
+            <div className="audio-test-card">
+              <h4>麦克风测试</h4>
+              <div className="test-controls">
+                {!isMicTesting ? (
+                  <button 
+                    className="btn btn-primary"
+                    onClick={startMicTest}
+                  >
+                    开始测试
+                  </button>
+                ) : (
+                  <button 
+                    className="btn btn-danger"
+                    onClick={stopMicTest}
+                  >
+                    停止测试
+                  </button>
+                )}
+              </div>
+              
+              {/* 音量指示器 */}
+              <div className="volume-indicator">
+                <div className="volume-label">音量: {micVolume}%</div>
+                <div className="volume-bar-container">
+                  <div 
+                    className="volume-bar"
+                    style={{
+                      width: `${micVolume}%`,
+                      backgroundColor: micVolume > 70 ? '#ff4757' : 
+                                     micVolume > 30 ? '#ffa502' : '#2ed573'
+                    }}
+                  ></div>
+                </div>
+              </div>
+            </div>
+            
+            {/* 扬声器测试 */}
+            <div className="audio-test-card">
+              <h4>扬声器测试</h4>
+              <div className="test-controls">
+                {!isSpeakerTesting ? (
+                  <button 
+                    className="btn btn-primary"
+                    onClick={startSpeakerTest}
+                  >
+                    开始测试
+                  </button>
+                ) : (
+                  <button 
+                    className="btn btn-danger"
+                    onClick={stopSpeakerTest}
+                  >
+                    停止测试
+                  </button>
+                )}
+              </div>
+              <p className="test-tip">
+                {isSpeakerTesting ? '正在播放1kHz测试音，请检查您的扬声器' : '点击开始测试以播放测试音'}
+              </p>
             </div>
           </div>
 

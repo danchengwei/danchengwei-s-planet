@@ -22,6 +22,7 @@ constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayo
 webrtc = { group = "com.infobip", name = "google-webrtc", version.ref = "webrtc" }
 javawebsocket = { group = "org.java-websocket", name = "Java-WebSocket", version.ref = "javawebsocket" }
 core = { group = "androidx.core", name = "core", version.ref = "core" }
+core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "core" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

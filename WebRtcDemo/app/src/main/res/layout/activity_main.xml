@@ -31,6 +31,14 @@
     </com.google.android.material.textfield.TextInputLayout>
 
     <Button
+        android:id="@+id/create_room_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="创建房间"
+        android:textSize="18sp"
+        android:layout_marginBottom="8dp" />
+
+    <Button
         android:id="@+id/join_room_button"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

@@ -240,7 +240,7 @@ function handleDisconnection(ws) {
 }
 
 // 启动服务器
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 8081;
 server.listen(PORT, () => {
   console.log(`信令服务器运行在 http://localhost:${PORT}`);
   console.log(`WebSocket服务地址: ws://localhost:${PORT}/webrtc`);
