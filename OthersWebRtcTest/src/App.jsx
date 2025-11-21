@@ -15,6 +15,7 @@ function App() {
   const [videoFrameRate, setVideoFrameRate] = useState('--')
   const [toasts, setToasts] = useState([])
   const [retryCount, setRetryCount] = useState(0) // 新增：重试次数
+  const [roomId, setRoomId] = useState('') // 新增：房间号
   const maxRetries = 3 // 最大重试次数
   
   // 引用
@@ -128,7 +129,7 @@ function App() {
 
       setIsCameraActive(true)
       setVideoStatus('连接中...')
-      showToast('摄像头启动成功，正在建立连接...', 'success')
+      showToast(`摄像头启动成功，正在加入房间 ${roomId.trim()}...`, 'success')
     } catch (error) {
       console.error('启动摄像头失败:', error)
       handleCameraError(error)
@@ -376,6 +377,10 @@ function App() {
       // 创建新的PeerConnection
       const pc = createPeerConnection()
       if (!pc) return
+      
+      // 设置房间信息标识
+      pc.roomId = roomId.trim()
+      console.log(`创建WebRTC连接，房间号: ${roomId.trim()}`)
 
       // 添加本地轨道到连接
       if (mediaStreamRef.current) {
@@ -412,8 +417,9 @@ function App() {
           // 设置远程描述
           pc.setRemoteDescription(answer)
             .then(() => {
-              console.log('远程描述设置成功')
-              showToast('本地连接模拟已建立', 'success')
+              console.log('远程描述设置成功，房间号:', pc.roomId)
+              showToast(`房间 ${pc.roomId} 连接模拟已建立`, 'success')
+              setConnectionStatus(`已连接到房间 ${pc.roomId}`)
             })
             .catch(error => {
               console.error('设置远程描述失败:', error)
@@ -490,9 +496,19 @@ function App() {
       <main className="main">
         <section className="demo-section">
           <div className="controls">
+            <div className="room-input-container">
+              <input
+                type="text"
+                placeholder="请输入房间号"
+                value={roomId}
+                onChange={(e) => setRoomId(e.target.value)}
+                disabled={isCameraActive}
+                className="room-input"
+              />
+            </div>
             <button 
               onClick={startCamera} 
-              disabled={isCameraActive}
+              disabled={isCameraActive || !roomId.trim()}
               className="btn btn-primary"
             >
               <FontAwesomeIcon icon={faPlay} /> 开始摄像头
