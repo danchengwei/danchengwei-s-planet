@@ -31,6 +31,7 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
     private String targetUserId; // 通话对方的用户 ID
     private String signalingServerUrl = "ws://your-signaling-server.com:8080/webrtc-signal"; // 项目信令服务器地址
     private Object mediaProjection; // 需要从其他地方获取该对象
+    private String roomId; // 新增房间ID字段
 
     // UI组件
     private SurfaceViewRenderer localVideoView;
@@ -39,11 +40,10 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
     private ImageButton muteVideoButton;
     private ImageButton joinRoomButton;
     private ImageButton hangupButton;
+    private ImageButton leaveRoomButton; // 新增退出房间按钮
     private ImageButton switchCameraButton;
     private TextView meetingTitle;
     private TextView participantCount;
-
-    private String roomId; // 新增房间ID字段
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -84,6 +84,7 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
         muteVideoButton = findViewById(R.id.btn_mute_video);
         joinRoomButton = findViewById(R.id.btn_join_room);
         hangupButton = findViewById(R.id.btn_hangup);
+        leaveRoomButton = findViewById(R.id.btn_leave_room); // 添加退出房间按钮引用
         switchCameraButton = findViewById(R.id.btn_switch_camera);
         meetingTitle = findViewById(R.id.meeting_title);
         participantCount = findViewById(R.id.participant_count);
@@ -117,6 +118,21 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
                 Toast.makeText(this, "挂断", Toast.LENGTH_SHORT).show();
             } catch (Exception e) {
                 Toast.makeText(this, "挂断失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        // 退出房间
+        leaveRoomButton.setOnClickListener(v -> {
+            // 实现退出房间逻辑
+            try {
+                if (signalingClient != null) {
+                    signalingClient.leaveRoom();
+                    Toast.makeText(this, "已退出房间: " + roomId, Toast.LENGTH_SHORT).show();
+                    // 可以选择关闭当前Activity或者重置界面
+                    finish(); // 退出房间后关闭当前Activity
+                }
+            } catch (Exception e) {
+                Toast.makeText(this, "退出房间失败: " + e.getMessage(), Toast.LENGTH_SHORT).show();
             }
         });
 

@@ -114,6 +114,15 @@
             android:background="@drawable/ic_call_end"
             android:contentDescription="挂断" />
 
+        <!-- 退出房间 -->
+        <ImageButton
+            android:id="@+id/btn_leave_room"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_margin="8dp"
+            android:background="@drawable/ic_exit_to_app"
+            android:contentDescription="退出房间" />
+
         <!-- 切换摄像头 -->
         <ImageButton
             android:id="@+id/btn_switch_camera"
