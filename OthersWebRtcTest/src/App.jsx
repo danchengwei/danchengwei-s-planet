@@ -1076,65 +1076,7 @@ function App() {
   }
   
   // 房间事件处理函数
-  const handleRoomCreated = (message) => {
-    console.log('房间创建成功:', message)
-    setConnectionStatus(`已创建房间: ${message.roomId}`)
-    showToast(`房间创建成功: ${message.roomId}`, 'success')
-    setUsersInRoom([{
-      id: userId,
-      name: `用户_${userId.slice(-6)}`,
-      isSelf: true
-    }])
-  }
-  
-  const handleRoomJoined = (message) => {
-    console.log('加入房间成功:', message)
-    setConnectionStatus(`已加入房间: ${message.roomId}`)
-    showToast(`成功加入房间: ${message.roomId}`, 'success')
-    
-    // 更新房间内用户列表
-    const users = message.users.map(user => ({
-      ...user,
-      isSelf: user.id === userId
-    }))
-    setUsersInRoom(users)
-    
-    // 如果房间内有其他用户，向他们发送offer
-    if (isCameraActive && localStream) {
-      message.users
-        .filter(user => user.id !== userId)
-        .forEach(user => {
-          setupLocalConnection(user.id)
-        })
-    }
-  }
-  
-  const handleUserJoined = (message) => {
-    console.log('新用户加入:', message)
-    showToast(`${message.userInfo.name} 加入了房间`, 'info')
-    
-    // 更新用户列表
-    setUsersInRoom(prevUsers => [...prevUsers, {
-      ...message.userInfo,
-      isSelf: false
-    }])
-    
-    // 如果当前用户已激活摄像头，向新用户发送offer
-    if (isCameraActive && localStream) {
-      setupLocalConnection(message.userInfo.id)
-    }
-  }
-  
-  const handleUserLeft = (message) => {
-    console.log('用户离开:', message)
-    showToast(`${message.userInfo?.name || message.userId} 离开了房间`, 'info')
-    
-    // 更新用户列表
-    setUsersInRoom(prevUsers => prevUsers.filter(user => user.id !== message.userId))
-    
-    // 清理与离开用户的连接
-    handleDisconnect(message.userId)
-  }
+  // 这些函数已在文件前面部分定义，删除重复定义
   
   // 组件挂载时连接WebSocket
   useEffect(() => {

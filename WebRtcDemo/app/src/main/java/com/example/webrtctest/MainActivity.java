@@ -1,7 +1,8 @@
 package com.example.webrtctest;
 
 import android.content.Intent;
-import android.content.pm.PackageManager;import android.os.Build;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
@@ -28,7 +29,7 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
     private WebSocketClientWrapper webSocketClient;
     private TextInputEditText roomIdInput;
     private Button joinRoomButton;
-    private Button checkPermissionsButton;
+    private Button checkDeviceButton;
     private TextView connectionStatus;
     private TextView deviceInfoText;
 
@@ -44,6 +45,7 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
         });
 
         initViews();
+        checkAndRequestPermissions(); // 应用启动时自动请求权限
         initWebSocket();
         updateDeviceInfo(); // 初始化时就显示设备信息
     }
@@ -51,7 +53,7 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
     private void initViews() {
         roomIdInput = findViewById(R.id.room_id_input);
         joinRoomButton = findViewById(R.id.join_room_button);
-        checkPermissionsButton = findViewById(R.id.check_permissions_button);
+        checkDeviceButton = findViewById(R.id.check_device_button);
         connectionStatus = findViewById(R.id.connection_status);
         deviceInfoText = findViewById(R.id.device_info_text);
 
@@ -62,10 +64,12 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
             }
         });
 
-        checkPermissionsButton.setOnClickListener(new View.OnClickListener() {
+        checkDeviceButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                checkAndRequestPermissions();
+                // 跳转到设备信息页面
+                Intent intent = new Intent(MainActivity.this, DeviceActivity.class);
+                startActivity(intent);
             }
         });
 
@@ -123,8 +127,6 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
 
         if (!allPermissionsGranted) {
             ActivityCompat.requestPermissions(this, permissions, PERMISSION_REQUEST_CODE);
-        } else {
-            Toast.makeText(this, "所有权限已授予", Toast.LENGTH_SHORT).show();
         }
     }
 
