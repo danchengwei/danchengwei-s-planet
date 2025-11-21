@@ -461,7 +461,7 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
         
         // 创建PeerConnection
         PeerConnection peerConnection = peerConnectionFactory.createPeerConnection(rtcConfig, 
-            new PeerConnectionAdapter(userId));
+            new PeerConnectionObserver(userId));
         
         // 添加本地音视频轨道
         if (localAudioTrack != null) {
@@ -511,11 +511,11 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
         @Override public void onSetFailure(String s) {}
     }
     
-    // PeerConnection 回调适配器
-    private class PeerConnectionAdapter extends PeerConnection.Observer {
+    // PeerConnection 回调观察者
+    private class PeerConnectionObserver implements PeerConnection.Observer {
         private String userId;
         
-        public PeerConnectionAdapter(String userId) {
+        public PeerConnectionObserver(String userId) {
             this.userId = userId;
         }
         
