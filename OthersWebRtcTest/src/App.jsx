@@ -17,6 +17,15 @@ function App() {
   const [retryCount, setRetryCount] = useState(0) // 新增：重试次数
   const [roomId, setRoomId] = useState('') // 新增：房间号
   const maxRetries = 3 // 最大重试次数
+  // WebSocket相关状态
+  const [wsConnection, setWsConnection] = useState(null)
+  const [wsConnected, setWsConnected] = useState(false)
+  const [usersInRoom, setUsersInRoom] = useState([])
+  const [userId] = useState(`user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`) // 生成唯一用户ID
+  // 消息和状态同步相关
+  const [messages, setMessages] = useState([])
+  const [newMessage, setNewMessage] = useState('')
+  const [userStatuses, setUserStatuses] = useState({}) // 存储用户状态，如麦克风、摄像头开关状态
   
   // 引用
   const videoRef = useRef(null)
@@ -52,6 +61,538 @@ function App() {
       setToasts(prevToasts => prevToasts.filter(toast => toast.id !== id))
     }, 3000)
   }
+  
+  // 建立WebSocket连接
+  const connectToSignalingServer = () => {
+    try {
+      // 注意：实际使用时需要替换为真实的WebSocket服务器地址
+      // 这里使用模拟地址，实际部署时需要配置真实的信令服务器
+      const wsUrl = process.env.REACT_APP_SIGNALING_SERVER || 'ws://localhost:8080/webrtc'
+      
+      // 创建WebSocket连接
+      const ws = new WebSocket(wsUrl)
+      
+      // 设置WebSocket事件处理
+      ws.onopen = () => {
+        console.log('WebSocket连接已建立')
+        setWsConnected(true)
+        setConnectionStatus('信令服务器已连接')
+        showToast('信令服务器连接成功', 'success')
+      }
+      
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data)
+          handleSignalingMessage(message)
+        } catch (error) {
+          console.error('解析WebSocket消息失败:', error)
+        }
+      }
+      
+      ws.onclose = () => {
+        console.log('WebSocket连接已关闭')
+        setWsConnected(false)
+        setConnectionStatus('信令服务器连接已断开')
+        showToast('信令服务器连接已断开', 'error')
+      }
+      
+      ws.onerror = (error) => {
+        console.error('WebSocket错误:', error)
+        setWsConnected(false)
+        showToast('信令服务器连接错误', 'error')
+      }
+      
+      setWsConnection(ws)
+    } catch (error) {
+      console.error('建立WebSocket连接失败:', error)
+      showToast('无法连接到信令服务器', 'error')
+    }
+  }
+  
+  // 处理信令消息
+  const handleSignalingMessage = (message) => {
+    console.log('收到信令消息:', message)
+    
+    switch (message.type) {
+      case 'room_created':
+        handleRoomCreated(message)
+        break
+      case 'room_joined':
+        handleRoomJoined(message)
+        break
+      case 'user_joined':
+        handleUserJoined(message)
+        break
+      case 'user_left':
+        handleUserLeft(message)
+        break
+      case 'offer':
+        handleOffer(message)
+        break
+      case 'answer':
+        handleAnswer(message)
+        break
+      case 'ice_candidate':
+        handleIceCandidate(message)
+        break
+      case 'message':
+        handleChatMessage(message)
+        break
+      case 'user_status_update':
+        handleUserStatusUpdate(message)
+        break
+      case 'status_broadcast':
+        handleStatusBroadcast(message)
+        break
+      case 'error':
+        showToast(`错误: ${message.message}`, 'error')
+        break
+      default:
+        console.log('未知的信令消息类型:', message.type)
+    }
+  }
+  
+  // 发送聊天消息
+  const sendChatMessage = (content) => {
+    if (!content.trim() || !roomId.trim()) return
+    
+    const message = {
+      content: content.trim(),
+      timestamp: new Date().toLocaleString()
+    }
+    
+    // 添加到本地消息列表
+    setMessages(prevMessages => [...prevMessages, {
+      ...message,
+      from: userId,
+      isSelf: true,
+      userInfo: {
+        id: userId,
+        name: `用户_${userId.slice(-6)}`
+      }
+    }])
+    
+    // 发送到服务器进行转发
+    sendSignalingMessage({
+      type: 'message',
+      roomId: roomId,
+      content: message
+    })
+    
+    // 清空输入框
+    setNewMessage('')
+  }
+  
+  // 处理收到的聊天消息
+  const handleChatMessage = (message) => {
+    if (message.from === userId) return // 忽略自己发送的消息
+    
+    // 添加到消息列表
+    setMessages(prevMessages => [...prevMessages, {
+      ...message.content,
+      from: message.from,
+      isSelf: false,
+      userInfo: message.userInfo
+    }])
+  }
+  
+  // 更新并广播本地用户状态
+  const updateAndBroadcastStatus = (statusUpdates) => {
+    // 更新本地状态
+    setUserStatuses(prev => ({
+      ...prev,
+      [userId]: {
+        ...prev[userId],
+        ...statusUpdates,
+        updatedAt: Date.now()
+      }
+    }))
+    
+    // 广播给房间内其他用户
+    sendSignalingMessage({
+      type: 'user_status_update',
+      roomId: roomId,
+      status: statusUpdates
+    })
+  }
+  
+  // 处理收到的用户状态更新
+  const handleUserStatusUpdate = (message) => {
+    if (message.from === userId) return // 忽略自己的状态更新
+    
+    // 更新其他用户的状态
+    setUserStatuses(prev => ({
+      ...prev,
+      [message.from]: {
+        ...prev[message.from],
+        ...message.status,
+        updatedAt: Date.now()
+      }
+    }))
+  }
+  
+  // 处理状态广播（服务器广播给房间内所有用户）
+  const handleStatusBroadcast = (message) => {
+    // 更新所有用户的状态
+    setUserStatuses(message.userStatuses)
+  }
+  
+  // 发送信令消息
+  const sendSignalingMessage = (message) => {
+    if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+      wsConnection.send(JSON.stringify({
+        ...message,
+        from: userId,
+        timestamp: Date.now()
+      }))
+    } else {
+      console.error('WebSocket未连接，无法发送消息')
+      showToast('信令服务器未连接，请稍后重试', 'error')
+    }
+  }
+  
+  // 创建房间
+  const createRoom = () => {
+    if (!wsConnected) {
+      showToast('请先连接到信令服务器', 'error')
+      return
+    }
+    
+    const roomName = roomId.trim() || `room_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`
+    setRoomId(roomName)
+    
+    sendSignalingMessage({
+      type: 'create_room',
+      roomId: roomName,
+      userInfo: {
+        id: userId,
+        name: `用户_${userId.slice(-6)}`
+      }
+    })
+    
+    setConnectionStatus(`正在创建房间: ${roomName}`)
+  }
+  
+  // 加入房间
+  const joinRoom = () => {
+    if (!wsConnected) {
+      showToast('请先连接到信令服务器', 'error')
+      return
+    }
+    
+    const targetRoomId = roomId.trim()
+    if (!targetRoomId) {
+      showToast('请输入房间号', 'error')
+      return
+    }
+    
+    sendSignalingMessage({
+      type: 'join_room',
+      roomId: targetRoomId,
+      userInfo: {
+        id: userId,
+        name: `用户_${userId.slice(-6)}`
+      }
+    })
+    
+    setConnectionStatus(`正在加入房间: ${targetRoomId}`)
+  }
+  
+  // 离开房间
+  const leaveRoom = () => {
+    if (!roomId.trim()) return
+    
+    sendSignalingMessage({
+      type: 'leave_room',
+      roomId: roomId.trim(),
+    })
+    
+    // 清理连接和状态
+    Object.values(peerConnections).forEach(pc => pc.close())
+    setPeerConnections({})
+    setUsersInRoom([])
+    setConnectionStatus('未连接')
+    showToast('已离开房间', 'info')
+  }
+  
+  // 远程流状态管理
+  const [remoteStreams, setRemoteStreams] = useState({})
+  
+  // 处理Offer消息
+  const handleOffer = async (message) => {
+    console.log('收到Offer:', message)
+    
+    try {
+      // 创建或获取与发送者的PeerConnection
+      let pc = peerConnections[message.from]
+      if (!pc) {
+        pc = setupPeerConnection(message.from)
+      }
+      
+      // 设置远程描述
+      await pc.setRemoteDescription(new RTCSessionDescription(message.offer))
+      
+      // 创建Answer
+      const answer = await pc.createAnswer()
+      await pc.setLocalDescription(answer)
+      
+      // 发送Answer给发送者
+      sendSignalingMessage({
+        type: 'answer',
+        to: message.from,
+        roomId: roomId,
+        answer: answer
+      })
+      
+      console.log('已发送Answer给用户:', message.from)
+    } catch (error) {
+      console.error('处理Offer失败:', error)
+      showToast('处理连接请求失败', 'error')
+    }
+  }
+  
+  // 处理Answer消息
+  const handleAnswer = async (message) => {
+    console.log('收到Answer:', message)
+    
+    try {
+      const pc = peerConnections[message.from]
+      if (!pc) {
+        console.error('找不到对应的PeerConnection:', message.from)
+        return
+      }
+      
+      // 设置远程描述
+      await pc.setRemoteDescription(new RTCSessionDescription(message.answer))
+      console.log('已设置远程描述，连接建立中...')
+    } catch (error) {
+      console.error('处理Answer失败:', error)
+      showToast('处理连接应答失败', 'error')
+    }
+  }
+  
+  // 处理ICE候选
+  const handleIceCandidate = async (message) => {
+    console.log('收到ICE候选:', message)
+    
+    try {
+      const pc = peerConnections[message.from]
+      if (!pc) {
+        console.error('找不到对应的PeerConnection:', message.from)
+        return
+      }
+      
+      // 添加ICE候选
+      await pc.addIceCandidate(new RTCIceCandidate(message.candidate))
+    } catch (error) {
+      console.error('添加ICE候选失败:', error)
+    }
+  }
+  
+  // 设置PeerConnection
+  const setupPeerConnection = (remoteUserId) => {
+    console.log('为用户', remoteUserId, '创建PeerConnection')
+    
+    // 创建PeerConnection配置
+    const pcConfig = {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+        // 可以在这里添加TURN服务器配置
+      ]
+    }
+    
+    // 创建PeerConnection
+    const pc = new RTCPeerConnection(pcConfig)
+    
+    // 添加本地流
+    if (localStream) {
+      localStream.getTracks().forEach(track => {
+        pc.addTrack(track, localStream)
+      })
+    }
+    
+    // 监听ICE候选
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        sendSignalingMessage({
+          type: 'ice_candidate',
+          to: remoteUserId,
+          roomId: roomId,
+          candidate: event.candidate
+        })
+      }
+    }
+    
+    // 监听ICE连接状态
+    pc.oniceconnectionstatechange = () => {
+      console.log('ICE连接状态:', pc.iceConnectionState)
+      
+      if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+        console.log('与用户', remoteUserId, '的连接断开')
+        // 清理资源
+        if (remoteStreams[remoteUserId]) {
+          remoteStreams[remoteUserId].getTracks().forEach(track => track.stop())
+          setRemoteStreams(prev => {
+            const newStreams = { ...prev }
+            delete newStreams[remoteUserId]
+            return newStreams
+          })
+        }
+      }
+    }
+    
+    // 监听远程流
+    pc.ontrack = (event) => {
+      console.log('收到远程流:', remoteUserId)
+      
+      // 处理远程流
+      const stream = event.streams[0]
+      setRemoteStreams(prev => ({
+        ...prev,
+        [remoteUserId]: stream
+      }))
+      
+      // 通知用户连接成功
+      const remoteUser = usersInRoom.find(user => user.id === remoteUserId)
+      if (remoteUser) {
+        showToast(`与 ${remoteUser.name} 建立了视频连接`, 'success')
+      }
+    }
+    
+    // 存储PeerConnection
+    setPeerConnections(prev => ({
+      ...prev,
+      [remoteUserId]: pc
+    }))
+    
+    return pc
+  }
+  
+  // 修改setupLocalConnection函数，使其支持多用户
+  const setupLocalConnection = async (remoteUserId) => {
+    try {
+      console.log(`正在设置与用户 ${remoteUserId} 的连接...`)
+      
+      // 获取或创建PeerConnection
+      let pc = peerConnections[remoteUserId]
+      if (!pc) {
+        pc = setupPeerConnection(remoteUserId)
+      }
+      
+      // 创建Offer
+      const offer = await pc.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true
+      })
+      
+      // 设置本地描述
+      await pc.setLocalDescription(offer)
+      
+      // 发送Offer
+      sendSignalingMessage({
+        type: 'offer',
+        to: remoteUserId,
+        roomId: roomId,
+        offer: offer
+      })
+      
+      console.log('已发送Offer给用户:', remoteUserId)
+    } catch (error) {
+      console.error('设置本地连接失败:', error)
+      showToast('建立视频连接失败', 'error')
+    }
+  }
+  
+  // 房间事件处理函数
+  const handleRoomCreated = (message) => {
+    console.log('房间创建成功:', message)
+    setConnectionStatus(`已创建房间: ${message.roomId}`)
+    showToast(`房间创建成功: ${message.roomId}`, 'success')
+    setUsersInRoom([{
+      id: userId,
+      name: `用户_${userId.slice(-6)}`,
+      isSelf: true
+    }])
+  }
+  
+  const handleRoomJoined = (message) => {
+    console.log('加入房间成功:', message)
+    setConnectionStatus(`已加入房间: ${message.roomId}`)
+    showToast(`成功加入房间: ${message.roomId}`, 'success')
+    
+    // 更新房间内用户列表
+    const users = message.users.map(user => ({
+      ...user,
+      isSelf: user.id === userId
+    }))
+    setUsersInRoom(users)
+    
+    // 如果房间内有其他用户，向他们发送offer
+    if (isCameraActive && localStream) {
+      message.users
+        .filter(user => user.id !== userId)
+        .forEach(user => {
+          setupLocalConnection(user.id)
+        })
+    }
+  }
+  
+  const handleUserJoined = (message) => {
+    console.log('新用户加入:', message)
+    showToast(`${message.userInfo.name} 加入了房间`, 'info')
+    
+    // 更新用户列表
+    setUsersInRoom(prevUsers => [...prevUsers, {
+      ...message.userInfo,
+      isSelf: false
+    }])
+    
+    // 如果当前用户已激活摄像头，向新用户发送offer
+    if (isCameraActive && localStream) {
+      setupLocalConnection(message.userInfo.id)
+    }
+  }
+  
+  const handleUserLeft = (message) => {
+    console.log('用户离开:', message)
+    showToast(`${message.userInfo?.name || message.userId} 离开了房间`, 'info')
+    
+    // 更新用户列表
+    setUsersInRoom(prevUsers => prevUsers.filter(user => user.id !== message.userId))
+    
+    // 关闭对应的P2P连接
+    if (peerConnections[message.userId]) {
+      peerConnections[message.userId].close()
+      setPeerConnections(prev => {
+        const newConnections = { ...prev }
+        delete newConnections[message.userId]
+        return newConnections
+      })
+    }
+    
+    // 清理远程流
+    if (remoteStreams[message.userId]) {
+      remoteStreams[message.userId].getTracks().forEach(track => track.stop())
+      setRemoteStreams(prev => {
+        const newStreams = { ...prev }
+        delete newStreams[message.userId]
+        return newStreams
+      })
+    }
+  }
+  
+  // 组件挂载时连接WebSocket
+  useEffect(() => {
+    connectToSignalingServer()
+    
+    // 组件卸载时关闭WebSocket连接
+    return () => {
+      if (wsConnection) {
+        wsConnection.close()
+      }
+    }
+  }, [])
 
   // 获取设备信息
   const getDeviceInfo = async () => {
@@ -198,6 +739,9 @@ function App() {
       mediaStreamRef.current = null
     }
     
+    // 广播摄像头关闭状态
+    updateAndBroadcastStatus({ cameraEnabled: false })
+    
     // 清除视频源
     if (videoRef.current) {
       videoRef.current.srcObject = null
@@ -222,6 +766,38 @@ function App() {
     
     // 显示提示
     showToast('摄像头已停止', 'info')
+  }
+  
+  // 切换麦克风
+  const toggleMicrophone = () => {
+    if (!mediaStreamRef.current) return
+    
+    const audioTracks = mediaStreamRef.current.getAudioTracks()
+    if (audioTracks.length === 0) return
+    
+    const isEnabled = !audioTracks[0].enabled
+    audioTracks[0].enabled = isEnabled
+    
+    // 广播麦克风状态
+    updateAndBroadcastStatus({ audioEnabled: isEnabled })
+    
+    showToast(isEnabled ? '麦克风已开启' : '麦克风已静音', 'info')
+  }
+  
+  // 切换摄像头
+  const toggleCamera = () => {
+    if (!mediaStreamRef.current) return
+    
+    const videoTracks = mediaStreamRef.current.getVideoTracks()
+    if (videoTracks.length === 0) return
+    
+    const isEnabled = !videoTracks[0].enabled
+    videoTracks[0].enabled = isEnabled
+    
+    // 广播摄像头状态
+    updateAndBroadcastStatus({ cameraEnabled: isEnabled })
+    
+    showToast(isEnabled ? '摄像头已开启' : '摄像头已关闭', 'info')
   }
 
   // WebRTC配置
@@ -493,80 +1069,221 @@ function App() {
         <p>使用Vite代理的React WebRTC应用</p>
       </header>
 
-      <main className="main">
+      <main className="main-content">
         <section className="demo-section">
-          <div className="controls">
-            <div className="room-input-container">
+          <h2>WebRTC 视频会议系统</h2>
+          
+          {/* 房间管理控件 */}
+          <div className="room-controls">
+            <div className="room-form">
               <input
                 type="text"
-                placeholder="请输入房间号"
+                placeholder="输入房间号或留空自动生成"
                 value={roomId}
                 onChange={(e) => setRoomId(e.target.value)}
-                disabled={isCameraActive}
                 className="room-input"
               />
+              <div className="room-buttons">
+                {!roomId ? (
+                  <>
+                    <button 
+                      onClick={createRoom} 
+                      disabled={!wsConnected}
+                      className="btn btn-primary"
+                    >
+                      创建房间
+                    </button>
+                    <button 
+                      onClick={joinRoom} 
+                      disabled={!wsConnected || !roomId.trim()}
+                      className="btn btn-secondary"
+                    >
+                      加入房间
+                    </button>
+                  </>
+                ) : (
+                  <button 
+                    onClick={leaveRoom} 
+                    className="btn btn-danger"
+                  >
+                    离开房间
+                  </button>
+                )}
+              </div>
             </div>
-            <button 
-              onClick={startCamera} 
-              disabled={isCameraActive || !roomId.trim()}
-              className="btn btn-primary"
-            >
-              <FontAwesomeIcon icon={faPlay} /> 开始摄像头
-            </button>
-            <button 
-              onClick={stopCamera} 
-              disabled={!isCameraActive}
-              className="btn btn-error"
-            >
-              <FontAwesomeIcon icon={faStop} /> 停止摄像头
-            </button>
-
-          </div>
-
-          <div className="video-container">
-            <div className="video-wrapper">
-              {!isCameraActive && (
-                <div className="video-placeholder">
-                  <FontAwesomeIcon icon={faVideo} />
-                  <p>点击"开始摄像头"按钮启动视频流</p>
-                </div>
-              )}
-              <video 
-                ref={videoRef} 
-                autoPlay 
-                muted 
-                playsInline 
-                className={isCameraActive ? 'active' : 'hidden'}
-              />
-              <div className={`status-badge pulse ${isCameraActive ? 'toast-success' : 'toast-error'}`}>
-              <span className="status-dot"></span>
-              {videoStatus}
-            </div>
-            </div>
-
-            <div className="video-wrapper">
-              <h3>远端画面</h3>
+            
+            {/* 摄像头控制 */}
+            <div className="camera-controls">
               {!isCameraActive ? (
-                <div className="video-placeholder">
-                  <FontAwesomeIcon icon={faGlobe} />
-                  <p>等待接收远端视频流</p>
-                </div>
+                <button 
+                  onClick={startCamera} 
+                  className="btn btn-primary"
+                >
+                  <FontAwesomeIcon icon={faVideo} /> 开始摄像头
+                </button>
               ) : (
                 <>
-                  <video 
-                    ref={remoteVideoRef} 
-                    autoPlay 
-                    playsInline 
-                    className="remote-video"
-                  />
-                  <div className={`status-badge ${connectionStatus === 'connected' ? 'toast-success' : 'toast-error'}`}>
-                    <span className="status-dot"></span>
-                    {connectionStatus === 'connected' ? '已连接' : 
-                     connectionStatus === 'disconnected' ? '已断开' :
-                     connectionStatus === 'failed' ? '连接失败' : '未连接'}
-                  </div>
+                  <button 
+                    onClick={toggleMicrophone} 
+                    className="btn btn-secondary"
+                  >
+                    <FontAwesomeIcon icon={faMicrophone} /> 麦克风
+                  </button>
+                  <button 
+                    onClick={toggleCamera} 
+                    className="btn btn-secondary"
+                  >
+                    <FontAwesomeIcon icon={faVideo} /> 摄像头
+                  </button>
+                  <button 
+                    onClick={stopCamera} 
+                    className="btn btn-danger"
+                  >
+                    <FontAwesomeIcon icon={faStop} /> 停止
+                  </button>
                 </>
               )}
+            </div>
+          </div>
+          
+          <div className="connection-status">
+            <span>信令服务器: </span>
+            <span className={`status-indicator ${wsConnected ? 'connected' : 'disconnected'}`}>
+              {wsConnected ? '已连接' : '未连接'}
+            </span>
+            {roomId && (
+              <span className="room-info">当前房间: {roomId}</span>
+            )}
+          </div>
+
+          {/* 视频会议区域 */}
+          <div className="meeting-container">
+            {/* 视频网格 */}
+            <div className="video-grid">
+              {/* 本地视频 */}
+              <div className="video-wrapper local-video">
+                <span className="video-label">我 ({usersInRoom.find(u => u.isSelf)?.name || '本地'})</span>
+                {!isCameraActive ? (
+                  <div className="video-placeholder">
+                    <FontAwesomeIcon icon={faVideo} />
+                    <p>点击"开始摄像头"按钮启动视频</p>
+                  </div>
+                ) : (
+                  <video 
+                    ref={videoRef} 
+                    autoPlay 
+                    muted 
+                    playsInline 
+                    className="active"
+                  />
+                )}
+                <div className={`status-badge ${isCameraActive ? 'toast-success' : 'toast-error'}`}>
+                  <span className="status-dot"></span>
+                  {videoStatus}
+                </div>
+              </div>
+              
+              {/* 远程视频列表 */}
+              {Object.entries(remoteStreams).map(([userId, stream]) => {
+                const user = usersInRoom.find(u => u.id === userId);
+                return (
+                  <div key={userId} className="video-wrapper remote-video">
+                    <span className="video-label">{user?.name || `用户_${userId.slice(-6)}`}</span>
+                    <video 
+                      autoPlay 
+                      playsInline 
+                      className="remote-video"
+                      key={userId}
+                      ref={(video) => {
+                        if (video && stream && video.srcObject !== stream) {
+                          video.srcObject = stream;
+                        }
+                      }}
+                    />
+                    <div className="status-badge toast-success">
+                      <span className="status-dot"></span>
+                      已连接
+                    </div>
+                  </div>
+                );
+              })}
+              
+              {/* 未连接的用户占位 */}
+              {usersInRoom.filter(u => !u.isSelf && !remoteStreams[u.id]).map(user => (
+                <div key={user.id} className="video-wrapper remote-video">
+                  <span className="video-label">{user.name}</span>
+                  <div className="video-placeholder">
+                    <FontAwesomeIcon icon={faGlobe} />
+                    <p>等待视频连接...</p>
+                  </div>
+                  <div className="status-badge toast-warning">
+                    <span className="status-dot"></span>
+                    连接中
+                  </div>
+                </div>
+              ))}
+            </div>
+            
+            {/* 用户列表和聊天区域 */}
+            <div className="meeting-sidebar">
+              {/* 用户列表 */}
+              <div className="users-list">
+                <h3>会议成员 ({usersInRoom.length})</h3>
+                <ul>
+                  {usersInRoom.map(user => (
+                    <li key={user.id} className={user.isSelf ? 'self' : ''}>
+                      <span className="user-name">{user.name}</span>
+                      {user.isSelf && <span className="self-tag">(自己)</span>}
+                      <div className="user-status">
+                        {userStatuses[user.id]?.audioEnabled ? '🎤' : '🔇'}
+                        {userStatuses[user.id]?.cameraEnabled ? '📹' : '📷'}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              
+              {/* 聊天区域 */}
+              <div className="chat-container">
+                <h3>聊天</h3>
+                <div className="chat-messages">
+                  {messages.length === 0 ? (
+                    <div className="no-messages">暂无消息</div>
+                  ) : (
+                    messages.map((msg, index) => (
+                      <div key={index} className={`message ${msg.isSelf ? 'self' : 'other'}`}>
+                        <div className="message-header">
+                          <span className="message-sender">{msg.userInfo?.name || '用户'}</span>
+                          <span className="message-time">{msg.timestamp}</span>
+                        </div>
+                        <div className="message-content">{msg.content}</div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className="chat-input-container">
+                  <input
+                    type="text"
+                    placeholder="输入消息..."
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter') {
+                        sendChatMessage(newMessage);
+                      }
+                    }}
+                    disabled={!roomId}
+                    className="chat-input"
+                  />
+                  <button 
+                    onClick={() => sendChatMessage(newMessage)}
+                    disabled={!roomId || !newMessage.trim()}
+                    className="btn btn-primary send-button"
+                  >
+                    发送
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 

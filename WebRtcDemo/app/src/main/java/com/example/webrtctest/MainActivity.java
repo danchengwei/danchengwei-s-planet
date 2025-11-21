@@ -58,6 +58,13 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
     private void initWebSocket() {
         try {
             // 注意：这里需要替换为实际的信令服务器地址
+            // 示例：如果服务器在本地网络中的另一台机器上
+            // webSocketClient = new WebSocketClientWrapper("ws://192.168.1.100:8080");
+            
+            // 示例：如果使用内网穿透服务
+            // webSocketClient = new WebSocketClientWrapper("ws://your-ngrok-url.ngrok.io");
+            
+            // 当前配置：连接宿主机上的信令服务器
             webSocketClient = new WebSocketClientWrapper("ws://10.0.2.2:8080");
             webSocketClient.setWebSocketListener(this);
             webSocketClient.connect();
