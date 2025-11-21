@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebRTC 摄像头调用演示</title>
+  <link href="https://cdn.bootcdn.net/ajax/libs/daisyui/4.12.10/full.min.css" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.bootcdn.net/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <style>
+    .video-container {
+      position: relative;
+      border-radius: 1rem;
+      overflow: hidden;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    }
+    
+    .video-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: linear-gradient(45deg, #667eea 0%, #764ba2 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 1.5rem;
+      transition: opacity 0.3s ease;
+    }
+    
+    .status-indicator {
+      position: absolute;
+      top: 1rem;
+      right: 1rem;
+      z-index: 10;
+    }
+    
+    .pulse {
+      animation: pulse 2s infinite;
+    }
+    
+    @keyframes pulse {
+      0%, 100% {
+        opacity: 1;
+      }
+      50% {
+        opacity: 0.5;
+      }
+    }
+    
+    .feature-card {
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+    
+    .feature-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+    }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
+  <!-- 导航栏 -->
+  <div class="navbar bg-white shadow-lg">
+    <div class="navbar-start">
+      <div class="dropdown">
+        <div tabindex="0" role="button" class="btn btn-ghost lg:hidden">
+          <i class="fas fa-bars text-xl"></i>
+        </div>
+        <ul tabindex="0" class="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow bg-base-100 rounded-box w-52">
+          <li><a href="#demo">摄像头演示</a></li>
+          <li><a href="#features">功能特性</a></li>
+          <li><a href="#architecture">技术架构</a></li>
+        </ul>
+      </div>
+      <a class="btn btn-ghost text-xl font-bold text-primary">
+        <i class="fas fa-video mr-2"></i>
+        WebRTC 演示
+      </a>
+    </div>
+    <div class="navbar-center hidden lg:flex">
+      <ul class="menu menu-horizontal px-1">
+        <li><a href="#demo" class="hover:text-primary">摄像头演示</a></li>
+        <li><a href="#features" class="hover:text-primary">功能特性</a></li>
+        <li><a href="#architecture" class="hover:text-primary">技术架构</a></li>
+      </ul>
+    </div>
+    <div class="navbar-end">
+      <div class="badge badge-primary badge-outline">实时通信技术</div>
+    </div>
+  </div>
+
+  <!-- 主要内容 -->
+  <div class="container mx-auto px-4 py-8">
+    <!-- 标题区域 -->
+    <div class="text-center mb-12">
+      <h1 class="text-5xl font-bold text-gray-800 mb-4">
+        WebRTC 摄像头调用演示
+      </h1>
+      <p class="text-xl text-gray-600 max-w-3xl mx-auto">
+        体验网页实时通信技术，通过浏览器直接访问本地摄像头设备，实现高质量的视频采集和显示
+      </p>
+    </div>
+
+    <!-- 摄像头演示区域 -->
+    <section id="demo" class="mb-16">
+      <div class="card bg-white shadow-2xl">
+        <div class="card-body">
+          <h2 class="card-title text-3xl mb-6 justify-center">
+            <i class="fas fa-camera text-primary mr-3"></i>
+            实时摄像头演示
+          </h2>
+          
+          <!-- 控制按钮 -->
+          <div class="flex justify-center gap-4 mb-8">
+            <button id="startBtn" class="btn btn-primary btn-lg">
+              <i class="fas fa-play mr-2"></i>
+              开始摄像头
+            </button>
+            <button id="stopBtn" class="btn btn-error btn-lg" disabled>
+              <i class="fas fa-stop mr-2"></i>
+              停止摄像头
+            </button>
+            <button id="captureBtn" class="btn btn-success btn-lg" disabled>
+              <i class="fas fa-camera mr-2"></i>
+              拍照
+            </button>
+          </div>
+
+          <!-- 视频显示区域 -->
+          <div class="flex flex-col lg:flex-row gap-8">
+            <!-- 实时视频 -->
+            <div class="flex-1">
+              <div class="video-container bg-gray-900 aspect-video relative">
+                <div id="videoOverlay" class="video-overlay">
+                  <div class="text-center">
+                    <i class="fas fa-video text-6xl mb-4 opacity-50"></i>
+                    <p>点击"开始摄像头"按钮启动视频流</p>
+                  </div>
+                </div>
+                <video id="videoElement" class="w-full h-full object-cover" autoplay muted playsinline style="display: none;"></video>
+                <div id="statusIndicator" class="status-indicator">
+                  <div class="badge badge-error">
+                    <i class="fas fa-circle mr-1"></i>
+                    未连接
+                  </div>
+                </div>
+              </div>
+              <div class="mt-4 text-center">
+                <div class="stats shadow">
+                  <div class="stat">
+                    <div class="stat-title">视频状态</div>
+                    <div id="videoStatus" class="stat-value text-lg">未连接</div>
+                  </div>
+                  <div class="stat">
+                    <div class="stat-title">分辨率</div>
+                    <div id="videoResolution" class="stat-value text-lg">--</div>
+                  </div>
+                  <div class="stat">
+                    <div class="stat-title">帧率</div>
+                    <div id="videoFrameRate" class="stat-value text-lg">--</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 拍照预览 -->
+            <div class="flex-1">
+              <div class="video-container bg-gray-100 aspect-video relative">
+                <div id="captureOverlay" class="video-overlay bg-gray-200 text-gray-600">
+                  <div class="text-center">
+                    <i class="fas fa-image text-6xl mb-4 opacity-50"></i>
+                    <p>拍照后的图片将显示在这里</p>
+                  </div>
+                </div>
+                <canvas id="captureCanvas" class="w-full h-full object-cover" style="display: none;"></canvas>
+              </div>
+              <div class="mt-4 text-center">
+                <button id="downloadBtn" class="btn btn-outline btn-primary" disabled>
+                  <i class="fas fa-download mr-2"></i>
+                  下载图片
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 设备信息 -->
+          <div class="mt-8">
+            <h3 class="text-xl font-semibold mb-4">
+              <i class="fas fa-info-circle text-info mr-2"></i>
+              设备信息
+            </h3>
+            <div id="deviceInfo" class="bg-base-200 p-4 rounded-lg">
+              <p class="text-gray-600">正在检测可用的媒体设备...</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- WebRTC 功能特性 -->
+    <section id="features" class="mb-16">
+      <h2 class="text-3xl font-bold text-center mb-8">WebRTC 功能特性</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div class="feature-card card bg-white shadow-lg">
+          <div class="card-body text-center">
+            <i class="fas fa-video text-4xl text-primary mb-4"></i>
+            <h3 class="card-title justify-center">视频采集</h3>
+            <p>支持多种视频格式和分辨率，实时采集摄像头数据</p>
+          </div>
+        </div>
+        
+        <div class="feature-card card bg-white shadow-lg">
+          <div class="card-body text-center">
+            <i class="fas fa-microphone text-4xl text-success mb-4"></i>
+            <h3 class="card-title justify-center">音频处理</h3>
+            <p>回声消除、降噪处理、自动增益控制</p>
+          </div>
+        </div>
+        
+        <div class="feature-card card bg-white shadow-lg">
+          <div class="card-body text-center">
+            <i class="fas fa-compress text-4xl text-warning mb-4"></i>
+            <h3 class="card-title justify-center">编解码</h3>
+            <p>VP8/VP9视频编码，Opus音频编码</p>
+          </div>
+        </div>
+        
+        <div class="feature-card card bg-white shadow-lg">
+          <div class="card-body text-center">
+            <i class="fas fa-network-wired text-4xl text-info mb-4"></i>
+            <h3 class="card-title justify-center">网络传输</h3>
+            <p>RTP/RTCP协议，P2P直连通信</p>
+          </div>
+        </div>
+        
+        <div class="feature-card card bg-white shadow-lg">
+          <div class="card-body text-center">
+            <i class="fas fa-shield-alt text-4xl text-error mb-4"></i>
+            <h3 class="card-title justify-center">安全加密</h3>
+            <p>SRTP加密传输，保障数据安全</p>
+          </div>
+        </div>
+        
+        <div class="feature-card card bg-white shadow-lg">
+          <div class="card-body text-center">
+            <i class="fas fa-globe text-4xl text-secondary mb-4"></i>
+            <h3 class="card-title justify-center">跨平台兼容</h3>
+            <p>支持Windows、Linux、Mac、Android等平台</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 技术架构 -->
+    <section id="architecture" class="mb-16">
+      <div class="card bg-white shadow-2xl">
+        <div class="card-body">
+          <h2 class="card-title text-3xl mb-6 justify-center">
+            <i class="fas fa-sitemap text-primary mr-3"></i>
+            WebRTC 技术架构
+          </h2>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div>
+              <h3 class="text-xl font-semibold mb-4">核心API</h3>
+              <div class="space-y-3">
+                <div class="alert alert-info">
+                  <i class="fas fa-code"></i>
+                  <span><strong>getUserMedia:</strong> 获取媒体流</span>
+                </div>
+                <div class="alert alert-success">
+                  <i class="fas fa-handshake"></i>
+                  <span><strong>RTCPeerConnection:</strong> 建立P2P连接</span>
+                </div>
+                <div class="alert alert-warning">
+                  <i class="fas fa-exchange-alt"></i>
+                  <span><strong>RTCDataChannel:</strong> 数据通道传输</span>
+                </div>
+              </div>
+            </div>
+            <div>
+              <h3 class="text-xl font-semibold mb-4">协议栈</h3>
+              <div class="space-y-3">
+                <div class="alert alert-primary">
+                  <i class="fas fa-layer-group"></i>
+                  <span><strong>SDP:</strong> 会话描述协议</span>
+                </div>
+                <div class="alert alert-secondary">
+                  <i class="fas fa-route"></i>
+                  <span><strong>ICE:</strong> 交互式连接建立</span>
+                </div>
+                <div class="alert alert-accent">
+                  <i class="fas fa-server"></i>
+                  <span><strong>STUN/TURN:</strong> NAT穿透</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="mt-8">
+            <h3 class="text-xl font-semibold mb-4">数据流程</h3>
+            <div class="steps steps-vertical lg:steps-horizontal">
+              <div class="step step-primary">采集编码</div>
+              <div class="step step-primary">网络传输</div>
+              <div class="step step-primary">接收解码</div>
+              <div class="step step-primary">解码显示</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 使用说明 -->
+    <section class="mb-16">
+      <div class="card bg-gradient-to-r from-primary to-secondary text-white shadow-2xl">
+        <div class="card-body">
+          <h2 class="card-title text-3xl mb-6 justify-center">
+            <i class="fas fa-lightbulb mr-3"></i>
+            使用说明
+          </h2>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <h3 class="text-xl font-semibold mb-3">操作步骤</h3>
+              <ol class="list-decimal list-inside space-y-2 opacity-90">
+                <li>点击"开始摄像头"按钮</li>
+                <li>浏览器会请求摄像头权限，请点击"允许"</li>
+                <li>摄像头启动后可以看到实时视频</li>
+                <li>点击"拍照"按钮可以截取当前画面</li>
+                <li>点击"下载图片"可以保存照片</li>
+              </ol>
+            </div>
+            <div>
+              <h3 class="text-xl font-semibold mb-3">注意事项</h3>
+              <ul class="list-disc list-inside space-y-2 opacity-90">
+                <li>需要使用HTTPS协议或Localhost访问</li>
+                <li>确保浏览器支持WebRTC API</li>
+                <li>首次使用需要授权摄像头权限</li>
+                <li>建议使用Chrome、Firefox等现代浏览器</li>
+                <li>确保设备连接了可用的摄像头</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- 页脚 -->
+  <footer class="footer footer-center p-10 bg-white text-base-content">
+    <div class="grid grid-flow-col gap-4">
+      <i class="fab fa-github text-2xl hover:text-primary cursor-pointer"></i>
+      <i class="fab fa-chrome text-2xl hover:text-primary cursor-pointer"></i>
+      <i class="fas fa-globe text-2xl hover:text-primary cursor-pointer"></i>
+    </div>
+    <p class="font-semibold">WebRTC 摄像头调用演示</p>
+    <p class="opacity-70">基于原博客文章实现的完整功能演示</p>
+    <p class="text-sm opacity-50">
+      源文章：<a href="https://blog.csdn.net/qq_41839588/article/details/134351619" class="link link-primary" target="_blank">WebRTC简介及使用</a>
+    </p>
+  </footer>
+
+  <script src="webrtc_demo.js"></script>
+</body>
+</html>
