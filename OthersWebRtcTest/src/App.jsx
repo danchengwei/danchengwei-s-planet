@@ -22,6 +22,9 @@ function App() {
   const [wsConnected, setWsConnected] = useState(false)
   const [usersInRoom, setUsersInRoom] = useState([])
   const [userId] = useState(`user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`) // 生成唯一用户ID
+  // WebRTC相关状态
+  const [peerConnections, setPeerConnections] = useState({}) // 多用户P2P连接管理
+  const [localStream, setLocalStream] = useState(null) // 本地媒体流
   // 消息和状态同步相关
   const [messages, setMessages] = useState([])
   const [newMessage, setNewMessage] = useState('')
@@ -133,7 +136,7 @@ function App() {
         handleAnswer(message)
         break
       case 'ice_candidate':
-        handleIceCandidate(message)
+        handleIceCandidateMessage(message)
         break
       case 'message':
         handleChatMessage(message)
@@ -149,6 +152,450 @@ function App() {
         break
       default:
         console.log('未知的信令消息类型:', message.type)
+    }
+  }
+  
+  // 发送信令消息
+  const sendSignalingMessage = (data) => {
+    if (wsConnection && wsConnected) {
+      wsConnection.send(JSON.stringify({
+        ...data,
+        userId: userId,
+        timestamp: Date.now()
+      }))
+    } else {
+      console.error('WebSocket未连接，无法发送信令消息')
+    }
+  }
+  
+  // 房间创建逻辑
+  const createRoom = () => {
+    if (!wsConnection || !wsConnected) {
+      showToast('请先连接信令服务器', 'error')
+      return
+    }
+    
+    const newRoomId = `room_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`
+    
+    // 发送创建房间请求
+    sendSignalingMessage({
+      type: 'create_room',
+      roomId: newRoomId
+    })
+    
+    showToast(`正在创建房间: ${newRoomId}`, 'info')
+    setConnectionStatus('正在创建房间...')
+  }
+  
+  // 房间加入逻辑
+  const joinRoom = (roomToJoin) => {
+    if (!wsConnection || !wsConnected) {
+      showToast('请先连接信令服务器', 'error')
+      return
+    }
+    
+    if (!roomToJoin.trim()) {
+      showToast('请输入房间ID', 'error')
+      return
+    }
+    
+    // 发送加入房间请求
+    sendSignalingMessage({
+      type: 'join_room',
+      roomId: roomToJoin.trim()
+    })
+    
+    showToast(`正在加入房间: ${roomToJoin}`, 'info')
+    setConnectionStatus('正在加入房间...')
+  }
+  
+  // 离开房间逻辑
+  const leaveRoom = () => {
+    if (!roomId) {
+      showToast('您还未加入任何房间', 'info')
+      return
+    }
+    
+    // 发送离开房间请求
+    sendSignalingMessage({
+      type: 'leave_room',
+      roomId: roomId
+    })
+    
+    // 清理所有P2P连接
+    Object.keys(peerConnections).forEach(remoteUserId => {
+      handleDisconnect(remoteUserId)
+    })
+    
+    // 重置房间相关状态
+    setRoomId('')
+    setUsersInRoom([])
+    setConnectionStatus('未连接')
+    setMessages([])
+    
+    showToast('已离开房间', 'success')
+  }
+  
+  // 处理房间创建成功
+  const handleRoomCreated = (message) => {
+    console.log('房间创建成功:', message)
+    setRoomId(message.roomId)
+    setConnectionStatus('已创建房间')
+    setUsersInRoom([{
+      id: userId,
+      name: `用户_${userId.slice(-6)}`,
+      isSelf: true,
+      connected: true
+    }])
+    showToast(`房间创建成功: ${message.roomId}`, 'success')
+  }
+  
+  // 处理房间加入成功
+  const handleRoomJoined = (message) => {
+    console.log('加入房间成功:', message)
+    setRoomId(message.roomId)
+    setConnectionStatus('已加入房间')
+    
+    // 更新房间内用户列表
+    const users = [
+      { id: userId, name: `用户_${userId.slice(-6)}`, isSelf: true, connected: true },
+      ...message.existingUsers.map(user => ({
+        id: user.userId,
+        name: `用户_${user.userId.slice(-6)}`,
+        isSelf: false,
+        connected: false
+      }))
+    ]
+    setUsersInRoom(users)
+    showToast(`成功加入房间: ${message.roomId}`, 'success')
+    
+    // 如果有本地流，向房间内其他用户发起连接
+    if (localStream && message.existingUsers.length > 0) {
+      message.existingUsers.forEach(user => {
+        setupLocalConnection(user.userId)
+      })
+    }
+  }
+  
+  // 处理新用户加入
+  const handleUserJoined = (message) => {
+    console.log('新用户加入:', message)
+    
+    // 添加新用户到列表
+    setUsersInRoom(prev => [...prev, {
+      id: message.userId,
+      name: `用户_${message.userId.slice(-6)}`,
+      isSelf: false,
+      connected: false
+    }])
+    
+    // 通知用户有新用户加入
+    showToast(`用户 ${message.userId.slice(-6)} 加入房间`, 'info')
+    
+    // 如果有本地流，向新用户发起连接
+    if (localStream) {
+      setupLocalConnection(message.userId)
+    }
+  }
+  
+  // 处理用户离开
+  const handleUserLeft = (message) => {
+    console.log('用户离开:', message)
+    
+    // 移除离开的用户
+    setUsersInRoom(prev => prev.filter(user => user.id !== message.userId))
+    
+    // 通知用户有用户离开
+    showToast(`用户 ${message.userId.slice(-6)} 离开房间`, 'info')
+    
+    // 清理与离开用户的连接
+    handleDisconnect(message.userId)
+  }
+  
+  // 多用户连接管理 - 创建本地连接
+  const setupLocalConnection = async (remoteUserId) => {
+    try {
+      // 检查是否已存在连接
+      if (peerConnections[remoteUserId]) {
+        console.log(`与用户 ${remoteUserId} 的连接已存在`)
+        return
+      }
+      
+      // 创建新的RTCPeerConnection
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' }
+        ]
+      })
+      
+      // 添加本地流到连接
+      if (localStream) {
+        localStream.getTracks().forEach(track => {
+          pc.addTrack(track, localStream)
+        })
+      }
+      
+      // 设置ICE候选处理
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          sendSignalingMessage({
+            type: 'ice_candidate',
+            to: remoteUserId,
+            roomId: roomId,
+            candidate: event.candidate
+          })
+        }
+      }
+      
+      // 设置轨道处理
+      pc.ontrack = (event) => {
+        console.log('收到远程流:', remoteUserId)
+        
+        // 处理远程流
+        const stream = event.streams[0]
+        setRemoteStreams(prev => ({
+          ...prev,
+          [remoteUserId]: stream
+        }))
+        
+        // 通知用户连接成功
+        const remoteUser = usersInRoom.find(user => user.id === remoteUserId)
+        if (remoteUser) {
+          showToast(`与 ${remoteUser.name} 建立了视频连接`, 'success')
+        }
+      }
+      
+      // 设置连接状态变化处理
+      pc.onconnectionstatechange = () => {
+        const state = pc.connectionState
+        console.log(`与用户 ${remoteUserId} 的连接状态: ${state}`)
+        
+        if (state === 'connected') {
+          // 更新连接状态
+          setConnectionStatus('已连接')
+        } else if (state === 'disconnected' || state === 'failed' || state === 'closed') {
+          // 清理连接
+          handleDisconnect(remoteUserId)
+        }
+      }
+      
+      // 设置ICE连接状态
+      pc.oniceconnectionstatechange = () => {
+        console.log('ICE连接状态:', pc.iceConnectionState)
+        
+        if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+          console.log('与用户', remoteUserId, '的连接断开')
+          handleDisconnect(remoteUserId)
+        }
+      }
+      
+      // 存储新的连接
+      setPeerConnections(prev => ({
+        ...prev,
+        [remoteUserId]: pc
+      }))
+      
+      // 创建offer并发送给远程用户
+      try {
+        const offer = await pc.createOffer({
+          offerToReceiveVideo: true,
+          offerToReceiveAudio: true
+        })
+        
+        await pc.setLocalDescription(offer)
+        
+        // 发送offer给远程用户
+        sendSignalingMessage({
+          type: 'offer',
+          to: remoteUserId,
+          roomId: roomId,
+          offer: offer
+        })
+        
+      } catch (offerError) {
+        console.error('创建offer失败:', offerError)
+        handleDisconnect(remoteUserId)
+      }
+      
+    } catch (error) {
+      console.error(`设置与用户 ${remoteUserId} 的连接失败:`, error)
+    }
+  }
+  
+  // 处理收到的offer
+  const handleOffer = async (message) => {
+    try {
+      const { from: remoteUserId, offer } = message
+      
+      console.log('收到来自', remoteUserId, '的offer')
+      
+      // 获取或创建与该用户的连接
+      let pc = peerConnections[remoteUserId]
+      if (!pc) {
+        // 创建新的RTCPeerConnection
+        pc = new RTCPeerConnection({
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' }
+          ]
+        })
+        
+        // 添加本地流到连接
+        if (localStream) {
+          localStream.getTracks().forEach(track => {
+            pc.addTrack(track, localStream)
+          })
+        }
+        
+        // 设置ICE候选处理
+        pc.onicecandidate = (event) => {
+          if (event.candidate) {
+            sendSignalingMessage({
+              type: 'ice_candidate',
+              to: remoteUserId,
+              roomId: roomId,
+              candidate: event.candidate
+            })
+          }
+        }
+        
+        // 设置轨道处理
+        pc.ontrack = (event) => {
+          console.log('收到远程流:', remoteUserId)
+          
+          // 处理远程流
+          const stream = event.streams[0]
+          setRemoteStreams(prev => ({
+            ...prev,
+            [remoteUserId]: stream
+          }))
+          
+          // 通知用户连接成功
+          const remoteUser = usersInRoom.find(user => user.id === remoteUserId)
+          if (remoteUser) {
+            showToast(`与 ${remoteUser.name} 建立了视频连接`, 'success')
+          }
+        }
+        
+        // 设置连接状态变化处理
+        pc.onconnectionstatechange = () => {
+          const state = pc.connectionState
+          console.log(`与用户 ${remoteUserId} 的连接状态: ${state}`)
+          
+          if (state === 'connected') {
+            setConnectionStatus('已连接')
+          } else if (state === 'disconnected' || state === 'failed' || state === 'closed') {
+            handleDisconnect(remoteUserId)
+          }
+        }
+        
+        // 设置ICE连接状态
+        pc.oniceconnectionstatechange = () => {
+          console.log('ICE连接状态:', pc.iceConnectionState)
+          
+          if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+            handleDisconnect(remoteUserId)
+          }
+        }
+        
+        // 存储连接
+        setPeerConnections(prev => ({
+          ...prev,
+          [remoteUserId]: pc
+        }))
+      }
+      
+      // 设置远程描述
+      await pc.setRemoteDescription(new RTCSessionDescription(offer))
+      
+      // 创建answer
+      const answer = await pc.createAnswer({
+        offerToReceiveVideo: true,
+        offerToReceiveAudio: true
+      })
+      
+      // 设置本地描述
+      await pc.setLocalDescription(answer)
+      
+      // 发送answer给远程用户
+      sendSignalingMessage({
+        type: 'answer',
+        to: remoteUserId,
+        roomId: roomId,
+        answer: answer
+      })
+      
+    } catch (error) {
+      console.error('处理offer失败:', error)
+    }
+  }
+  
+  // 处理收到的answer
+  const handleAnswer = async (message) => {
+    try {
+      const { from: remoteUserId, answer } = message
+      
+      console.log('收到来自', remoteUserId, '的answer')
+      
+      // 获取与该用户的连接
+      const pc = peerConnections[remoteUserId]
+      if (pc) {
+        // 设置远程描述
+        await pc.setRemoteDescription(new RTCSessionDescription(answer))
+      } else {
+        console.error(`未找到与用户 ${remoteUserId} 的连接`)
+      }
+    } catch (error) {
+      console.error('处理answer失败:', error)
+    }
+  }
+  
+  // 处理收到的ICE候选
+  const handleIceCandidateMessage = async (message) => {
+    try {
+      const { from: remoteUserId, candidate } = message
+      
+      console.log('收到来自', remoteUserId, '的ICE候选')
+      
+      // 获取与该用户的连接
+      const pc = peerConnections[remoteUserId]
+      if (pc && pc.remoteDescription) {
+        // 添加ICE候选
+        await pc.addIceCandidate(new RTCIceCandidate(candidate))
+      } else {
+        console.error(`未找到与用户 ${remoteUserId} 的连接或远程描述未设置`)
+      }
+    } catch (error) {
+      console.error('处理ICE候选失败:', error)
+    }
+  }
+  
+  // 处理用户断开连接
+  const handleDisconnect = (remoteUserId) => {
+    // 关闭并移除连接
+    const pc = peerConnections[remoteUserId]
+    if (pc) {
+      pc.close()
+    }
+    
+    // 更新连接状态
+    setPeerConnections(prev => {
+      const newConnections = { ...prev }
+      delete newConnections[remoteUserId]
+      return newConnections
+    })
+    
+    // 更新远程流
+    setRemoteStreams(prev => {
+      const newStreams = { ...prev }
+      delete newStreams[remoteUserId]
+      return newStreams
+    })
+    
+    // 更新连接状态显示
+    if (Object.keys(peerConnections).length === 0 && roomId) {
+      setConnectionStatus('已加入房间')
     }
   }
   
@@ -194,6 +641,21 @@ function App() {
       isSelf: false,
       userInfo: message.userInfo
     }])
+  }
+  
+  // 处理用户状态更新
+  const handleUserStatusUpdate = (message) => {
+    const { userId: targetUserId, status } = message
+    setUserStatuses(prev => ({
+      ...prev,
+      [targetUserId]: { ...prev[targetUserId], ...status }
+    }))
+  }
+  
+  // 处理状态广播
+  const handleStatusBroadcast = (message) => {
+    const { statuses } = message
+    setUserStatuses(prev => ({ ...prev, ...statuses }))
   }
   
   // 更新并广播本地用户状态
@@ -300,19 +762,29 @@ function App() {
   
   // 离开房间
   const leaveRoom = () => {
-    if (!roomId.trim()) return
+    if (!roomId.trim()) {
+      showToast('您还未加入任何房间', 'info')
+      return
+    }
     
+    // 发送离开房间请求
     sendSignalingMessage({
       type: 'leave_room',
       roomId: roomId.trim(),
     })
     
-    // 清理连接和状态
-    Object.values(peerConnections).forEach(pc => pc.close())
-    setPeerConnections({})
+    // 清理所有P2P连接
+    Object.keys(peerConnections).forEach(userId => {
+      handleDisconnect(userId)
+    })
+    
+    // 重置房间相关状态
     setUsersInRoom([])
     setConnectionStatus('未连接')
-    showToast('已离开房间', 'info')
+    setRoomId('')
+    setMessages([])
+    
+    showToast('已离开房间', 'success')
   }
   
   // 远程流状态管理
@@ -371,8 +843,8 @@ function App() {
     }
   }
   
-  // 处理ICE候选
-  const handleIceCandidate = async (message) => {
+  // 处理ICE候选消息
+  const handleIceCandidateMessage = async (message) => {
     console.log('收到ICE候选:', message)
     
     try {
@@ -469,38 +941,137 @@ function App() {
     return pc
   }
   
-  // 修改setupLocalConnection函数，使其支持多用户
+  // 多用户连接设置 - 为每个远程用户创建P2P连接
   const setupLocalConnection = async (remoteUserId) => {
     try {
-      console.log(`正在设置与用户 ${remoteUserId} 的连接...`)
-      
-      // 获取或创建PeerConnection
-      let pc = peerConnections[remoteUserId]
-      if (!pc) {
-        pc = setupPeerConnection(remoteUserId)
+      // 检查是否已存在连接
+      if (peerConnections[remoteUserId]) {
+        console.log(`与用户 ${remoteUserId} 的连接已存在`)
+        return
       }
       
-      // 创建Offer
-      const offer = await pc.createOffer({
-        offerToReceiveAudio: true,
-        offerToReceiveVideo: true
-      })
+      // 创建新的RTCPeerConnection
+      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
       
-      // 设置本地描述
-      await pc.setLocalDescription(offer)
+      // 添加本地流到连接
+      if (localStream) {
+        localStream.getTracks().forEach(track => {
+          pc.addTrack(track, localStream)
+        })
+      }
       
-      // 发送Offer
-      sendSignalingMessage({
-        type: 'offer',
-        to: remoteUserId,
-        roomId: roomId,
-        offer: offer
-      })
+      // 设置ICE候选处理
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          sendSignalingMessage({
+            type: 'ice_candidate',
+            to: remoteUserId,
+            roomId: roomId,
+            candidate: event.candidate
+          })
+        }
+      }
       
-      console.log('已发送Offer给用户:', remoteUserId)
+      // 设置轨道处理
+      pc.ontrack = (event) => {
+        console.log('收到远程流:', remoteUserId)
+        
+        // 处理远程流
+        const stream = event.streams[0]
+        setRemoteStreams(prev => ({
+          ...prev,
+          [remoteUserId]: stream
+        }))
+        
+        // 通知用户连接成功
+        const remoteUser = usersInRoom.find(user => user.id === remoteUserId)
+        if (remoteUser) {
+          showToast(`与 ${remoteUser.name} 建立了视频连接`, 'success')
+        }
+      }
+      
+      // 设置连接状态变化处理
+      pc.onconnectionstatechange = () => {
+        const state = pc.connectionState
+        console.log(`与用户 ${remoteUserId} 的连接状态: ${state}`)
+        
+        if (state === 'connected') {
+          // 更新连接状态
+          setConnectionStatus('已连接')
+        } else if (state === 'disconnected' || state === 'failed' || state === 'closed') {
+          // 清理连接
+          handleDisconnect(remoteUserId)
+        }
+      }
+      
+      // 设置ICE连接状态
+      pc.oniceconnectionstatechange = () => {
+        console.log('ICE连接状态:', pc.iceConnectionState)
+        
+        if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+          console.log('与用户', remoteUserId, '的连接断开')
+          handleDisconnect(remoteUserId)
+        }
+      }
+      
+      // 存储新的连接
+      setPeerConnections(prev => ({
+        ...prev,
+        [remoteUserId]: pc
+      }))
+      
+      // 创建offer并发送给远程用户
+      try {
+        const offer = await pc.createOffer({
+          offerToReceiveVideo: true,
+          offerToReceiveAudio: true
+        })
+        
+        await pc.setLocalDescription(offer)
+        
+        // 发送offer给远程用户
+        sendSignalingMessage({
+          type: 'offer',
+          to: remoteUserId,
+          roomId: roomId,
+          offer: offer
+        })
+        
+      } catch (offerError) {
+        console.error('创建offer失败:', offerError)
+        handleDisconnect(remoteUserId)
+      }
+      
     } catch (error) {
-      console.error('设置本地连接失败:', error)
-      showToast('建立视频连接失败', 'error')
+      console.error(`设置与用户 ${remoteUserId} 的连接失败:`, error)
+    }
+  }
+  
+  // 处理用户断开连接
+  const handleDisconnect = (remoteUserId) => {
+    // 关闭并移除连接
+    const pc = peerConnections[remoteUserId]
+    if (pc) {
+      pc.close()
+    }
+    
+    // 更新连接状态
+    setPeerConnections(prev => {
+      const newConnections = { ...prev }
+      delete newConnections[remoteUserId]
+      return newConnections
+    })
+    
+    // 更新远程流
+    setRemoteStreams(prev => {
+      const newStreams = { ...prev }
+      delete newStreams[remoteUserId]
+      return newStreams
+    })
+    
+    // 更新连接状态显示
+    if (Object.keys(peerConnections).length === 0) {
+      setConnectionStatus('未连接')
     }
   }
   
@@ -561,25 +1132,8 @@ function App() {
     // 更新用户列表
     setUsersInRoom(prevUsers => prevUsers.filter(user => user.id !== message.userId))
     
-    // 关闭对应的P2P连接
-    if (peerConnections[message.userId]) {
-      peerConnections[message.userId].close()
-      setPeerConnections(prev => {
-        const newConnections = { ...prev }
-        delete newConnections[message.userId]
-        return newConnections
-      })
-    }
-    
-    // 清理远程流
-    if (remoteStreams[message.userId]) {
-      remoteStreams[message.userId].getTracks().forEach(track => track.stop())
-      setRemoteStreams(prev => {
-        const newStreams = { ...prev }
-        delete newStreams[message.userId]
-        return newStreams
-      })
-    }
+    // 清理与离开用户的连接
+    handleDisconnect(message.userId)
   }
   
   // 组件挂载时连接WebSocket
@@ -652,6 +1206,7 @@ function App() {
 
       const stream = await navigator.mediaDevices.getUserMedia(constraints)
       mediaStreamRef.current = stream
+      setLocalStream(stream) // 设置localStream状态用于多用户连接
 
       // 设置视频源
       if (videoRef.current) {
@@ -806,14 +1361,18 @@ function App() {
     { urls: 'stun:stun1.l.google.com:19302' }
   ]
 
-  // 创建WebRTC连接
+  // 创建WebRTC连接（单用户版本，保留但不再使用）
   const createPeerConnection = () => {
     try {
       // 创建RTCPeerConnection实例
       const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
       
       // 设置事件处理程序
-      pc.onicecandidate = handleIceCandidate
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          console.log('ICE Candidate:', event.candidate)
+        }
+      }
       pc.ontrack = handleTrack
       pc.onconnectionstatechange = handleConnectionStateChange
       pc.ondatachannel = handleDataChannel
@@ -827,15 +1386,7 @@ function App() {
     }
   }
 
-  // 处理ICE候选
-  const handleIceCandidate = (event) => {
-    if (event.candidate) {
-      // 在实际应用中，这里会将候选信息发送到信令服务器
-      console.log('ICE Candidate:', event.candidate)
-      // 模拟发送给对端
-      simulateReceiveIceCandidate(event.candidate)
-    }
-  }
+  // WebRTC连接处理函数在多用户部分已重新实现
 
   // 处理收到的轨道（远端视频/音频）
   const handleTrack = (event) => {
@@ -947,72 +1498,7 @@ function App() {
     }
   }
 
-  // 模拟创建和接受Offer（本地测试用）
-  const setupLocalConnection = async () => {
-    try {
-      // 创建新的PeerConnection
-      const pc = createPeerConnection()
-      if (!pc) return
-      
-      // 设置房间信息标识
-      pc.roomId = roomId.trim()
-      console.log(`创建WebRTC连接，房间号: ${roomId.trim()}`)
-
-      // 添加本地轨道到连接
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach(track => {
-          try {
-            pc.addTrack(track, mediaStreamRef.current)
-            console.log('添加轨道到连接:', track.kind)
-          } catch (error) {
-            console.error('添加轨道失败:', error)
-          }
-        })
-      } else {
-        console.error('没有可用的媒体流')
-        showToast('没有可用的媒体流，请重启摄像头', 'error')
-        return
-      }
-
-      // 创建Offer
-      const offer = await pc.createOffer({
-        offerToReceiveVideo: true,
-        offerToReceiveAudio: false
-      })
-      await pc.setLocalDescription(offer)
-      console.log('已创建Offer并设置本地描述')
-      
-      // 模拟发送Offer给对端并接收Answer
-      setTimeout(() => {
-        if (pc.localDescription) {
-          // 模拟对端创建Answer
-          const answer = new RTCSessionDescription({
-            type: 'answer',
-            sdp: pc.localDescription.sdp
-          })
-          // 设置远程描述
-          pc.setRemoteDescription(answer)
-            .then(() => {
-              console.log('远程描述设置成功，房间号:', pc.roomId)
-              showToast(`房间 ${pc.roomId} 连接模拟已建立`, 'success')
-              setConnectionStatus(`已连接到房间 ${pc.roomId}`)
-            })
-            .catch(error => {
-              console.error('设置远程描述失败:', error)
-              showToast('设置远程描述失败', 'error')
-              // 触发重连
-              handleReconnect()
-            })
-        }
-      }, 1000)
-
-    } catch (error) {
-      console.error('设置本地连接失败:', error)
-      showToast(`设置连接失败: ${error.message}`, 'error')
-      // 触发重连
-      handleReconnect()
-    }
-  }
+  // 单用户版本的setupLocalConnection已移除，保留多用户版本
 
   // 请求媒体权限以获取完整设备信息
   const requestMediaPermissions = async () => {

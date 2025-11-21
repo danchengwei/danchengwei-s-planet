@@ -58,6 +58,19 @@ WebRtcDemo/
 - 支持房间管理功能
 - 处理用户加入/离开事件
 
+### 3. 权限管理
+
+- 摄像头权限 (CAMERA)
+- 麦克风权限 (RECORD_AUDIO)
+- 音频设置权限 (MODIFY_AUDIO_SETTINGS)
+- 运行时权限请求
+
+### 4. 设备信息显示
+
+- 设备名称 (制造商 + 型号)
+- Android 版本信息
+- 设备制造商信息
+
 ## 技术框架
 
 ### Android 端
@@ -76,12 +89,15 @@ WebRtcDemo/
 
 1. 用户打开应用，进入 MainActivity
 2. MainActivity 自动连接本地信令服务器 (ws://10.0.2.2:8080)
-3. 用户输入房间号并点击"加入房间"
-4. 应用跳转到 WebRtcActivity，并传递房间号参数
-5. WebRtcActivity 连接信令服务器并加入指定房间
-6. 当有其他用户加入同一房间时，开始 WebRTC 连接过程
-7. 通过信令服务器交换 offer/answer 和 ICE candidates
-8. 建立点对点的音视频连接
+3. MainActivity 显示设备信息（设备名称、Android版本等）
+4. MainActivity 显示服务器连接状态，包括IP地址和端口号
+5. 用户可以点击"检查并获取权限"按钮检查和获取摄像头、麦克风等权限
+6. 用户输入房间号并点击"加入房间"
+7. 应用跳转到 WebRtcActivity，并传递房间号参数
+8. WebRtcActivity 连接信令服务器并加入指定房间
+9. 当有其他用户加入同一房间时，开始 WebRTC 连接过程
+10. 通过信令服务器交换 offer/answer 和 ICE candidates
+11. 建立点对点的音视频连接
 
 ## 运行环境
 
@@ -90,6 +106,7 @@ WebRtcDemo/
 - Android 7.0 (API Level 24) 或更高版本
 - 摄像头和麦克风权限
 - 网络访问权限
+- 扬声器和音频设置权限
 
 ### 服务端要求
 
@@ -100,26 +117,93 @@ WebRtcDemo/
 
 ### 启动信令服务器
 
+#### 方法一：使用 npm 命令（推荐）
+
 ```bash
 cd signaling-server
-npm install
 npm start
 ```
 
+#### 方法二：直接使用 node 命令
+
+```bash
+cd signaling-server
+node server.js
+```
+
 服务器将监听 8080 端口。
+
+### 验证服务器是否运行
+
+启动服务器后，您会看到类似以下的输出：
+
+```
+信令服务器运行在端口 8080
+在Android模拟器中使用地址: ws://10.0.2.2:8080
+在真机调试中，请替换为您的本机IP地址
+```
+
+您也可以通过以下命令验证服务器是否在运行：
+
+```bash
+netstat -an | grep 8080
+```
+
+如果服务器正在运行，您应该能看到类似这样的输出：
+```
+tcp4       0      0  *.8080                 *.*                    LISTEN
+```
+
+### 停止服务器
+
+在服务器运行的终端窗口中按 `Ctrl+C` 可以停止服务器。
+
+### 开发模式运行（可选）
+
+如果您正在开发服务器代码并希望在文件更改时自动重启服务器，可以使用：
+
+```bash
+cd signaling-server
+npm run dev
+```
+
+这需要先安装 nodemon：
+```bash
+npm install -g nodemon
+```
 
 ### 运行 Android 应用
 
 1. 确保信令服务器正在运行
 2. 在 Android Studio 中打开项目
 3. 构建并运行应用
-4. 在设备或模拟器上测试功能
+4. 应用启动后会自动连接信令服务器，并在UI上显示连接状态、IP地址和端口号
+5. 在设备或模拟器上点击"检查并获取权限"按钮获取必要权限
+6. 测试功能
 
 ## 网络配置
 
-- 信令服务器地址: `ws://10.0.2.2:8080` (适用于 Android 模拟器)
-- 局域网访问: 需要将地址修改为实际的服务器 IP
-- 外网访问: 需要使用内网穿透工具或部署到公网服务器
+项目使用 [NetworkConfig.java](file:///Users/xiwang/danchangwei/MyRespository/danchengwei-s-planet/WebRtcDemo/app/src/main/java/com/example/webrtctest/NetworkConfig.java) 类来集中管理网络配置，包括服务器地址和端口。
+
+### 默认配置
+
+- 信令服务器地址: `ws://10.8.193.53:8080` (适用于真机调试)
+- 模拟器地址: `ws://10.0.2.2:8080` (适用于 Android 模拟器)
+
+### 配置说明
+
+1. **真机调试**: 确保 Android 设备与开发机在同一局域网中，并在 [NetworkConfig.java](file:///Users/xiwang/danchangwei/MyRespository/danchengwei-s-planet/WebRtcDemo/app/src/main/java/com/example/webrtctest/NetworkConfig.java) 中设置正确的开发机 IP 地址
+2. **模拟器调试**: 使用默认的 `10.0.2.2` 地址
+3. **外网访问**: 需要使用内网穿透工具或部署到公网服务器
+
+### 修改配置
+
+如需修改服务器地址，可以编辑 [NetworkConfig.java](file:///Users/xiwang/danchangwei/MyRespository/danchengwei-s-planet/WebRtcDemo/app/src/main/java/com/example/webrtctest/NetworkConfig.java) 文件中的 `signalingServerHost` 变量，或者在代码中动态设置：
+
+```java
+NetworkConfig.setSignalingServerHost("your.server.ip.address");
+NetworkConfig.setSignalingServerPort(8080);
+```
 
 ## 注意事项
 
@@ -127,6 +211,7 @@ npm start
 2. 如需外网访问，需要部署公网可访问的信令服务器
 3. 需要授予应用摄像头和麦克风权限
 4. Android 9.0 及以上版本需要处理网络权限问题
+5. 应用启动后应首先点击"检查并获取权限"按钮获取必要权限
 
 ## 依赖库
 

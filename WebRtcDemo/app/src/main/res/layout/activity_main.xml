@@ -38,6 +38,22 @@
         android:textSize="18sp"
         android:layout_marginBottom="16dp" />
 
+    <Button
+        android:id="@+id/check_permissions_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="检查并获取权限"
+        android:textSize="18sp"
+        android:layout_marginBottom="16dp" />
+
+    <TextView
+        android:id="@+id/device_info_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="设备信息: \n- 设备名称: \n- Android版本: \n- 设备制造商: "
+        android:textSize="14sp"
+        android:layout_marginBottom="16dp" />
+
     <TextView
         android:id="@+id/connection_status"
         android:layout_width="wrap_content"
