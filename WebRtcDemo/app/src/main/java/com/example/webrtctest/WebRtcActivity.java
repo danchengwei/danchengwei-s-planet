@@ -12,6 +12,7 @@ import org.webrtc.AudioTrack;
 import org.webrtc.Camera1Enumerator;
 import org.webrtc.CameraEnumerator;
 import org.webrtc.CameraVideoCapturer;
+import org.webrtc.DataChannel;
 import org.webrtc.DefaultVideoDecoderFactory;
 import org.webrtc.DefaultVideoEncoderFactory;
 import org.webrtc.EglBase;
@@ -537,14 +538,14 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
             });
         }
         
-        // 其他必须实现的方法（空实现）
+        // 其他必须实现的方法
         @Override public void onSignalingChange(PeerConnection.SignalingState signalingState) {}
         @Override public void onIceConnectionChange(PeerConnection.IceConnectionState iceConnectionState) {}
         @Override public void onIceConnectionReceivingChange(boolean b) {}
         @Override public void onIceGatheringChange(PeerConnection.IceGatheringState iceGatheringState) {}
         @Override public void onIceCandidatesRemoved(IceCandidate[] iceCandidates) {}
         @Override public void onRemoveStream(MediaStream mediaStream) {}
-        @Override public void onDataChannel(PeerConnection.DataChannel dataChannel) {}
+        @Override public void onDataChannel(DataChannel dataChannel) {}
         @Override public void onRenegotiationNeeded() {}
     }
 
