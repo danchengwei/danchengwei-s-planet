@@ -49,8 +49,9 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
     private VideoTrack localVideoTrack;
     private AudioTrack localAudioTrack;
     private boolean isAudioMuted = false;
-    private boolean isVideoMuted = false;
+    private boolean isVideoMuted = true; // 默认关闭摄像头
     private boolean isFrontCamera = true;
+    private boolean isVideoInitialized = false; // 标记视频是否已初始化
     
     // 多人连接管理
     private Map<String, PeerConnection> peerConnections = new HashMap<>();

@@ -6,7 +6,7 @@ package com.example.webrtctest;
  */
 public class NetworkConfig {
     // 信令服务器地址
-    private static String signalingServerHost = "10.8.193.53"; // 默认使用当前获取到的IP地址
+    private static String signalingServerHost = "10.8.193.57"; // 默认使用当前获取到的IP地址
     private static int signalingServerPort = 8080;
     
     // 是否为真机调试模式

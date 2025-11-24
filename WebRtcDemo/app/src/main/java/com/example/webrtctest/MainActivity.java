@@ -114,8 +114,16 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
             return;
         }
         
-        // 直接加入用户输入的房间号
-        joinRoom();
+        // 直接创建房间并跳转
+        if (webSocketClient != null && webSocketClient.isOpen()) {
+            webSocketClient.createRoom(roomId);
+            // 跳转到WebRtcActivity
+            Intent intent = new Intent(MainActivity.this, WebRtcActivity.class);
+            intent.putExtra("ROOM_ID", roomId);
+            startActivity(intent);
+        } else {
+            Toast.makeText(this, "信令服务器未连接，请稍后再试", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void joinRoom() {
@@ -125,10 +133,16 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
             return;
         }
 
-        // 跳转到WebRtcActivity
-        Intent intent = new Intent(MainActivity.this, WebRtcActivity.class);
-        intent.putExtra("ROOM_ID", roomId);
-        startActivity(intent);
+        // 直接加入房间并跳转
+        if (webSocketClient != null && webSocketClient.isOpen()) {
+            webSocketClient.joinRoom(roomId);
+            // 跳转到WebRtcActivity
+            Intent intent = new Intent(MainActivity.this, WebRtcActivity.class);
+            intent.putExtra("ROOM_ID", roomId);
+            startActivity(intent);
+        } else {
+            Toast.makeText(this, "信令服务器未连接，请稍后再试", Toast.LENGTH_SHORT).show();
+        }
     }
 
     // 检查并请求权限
