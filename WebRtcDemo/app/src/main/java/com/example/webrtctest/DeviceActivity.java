@@ -2,11 +2,19 @@ package com.example.webrtctest;
 
 import android.Manifest;
 import android.content.pm.PackageManager;
+import android.media.AudioFormat;
+import android.media.AudioManager;
+import android.media.AudioRecord;
+import android.media.AudioTrack;
+import android.media.MediaRecorder;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -18,49 +26,68 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
-import org.webrtc.AudioSource;
-import org.webrtc.AudioTrack;
 import org.webrtc.Camera1Enumerator;
 import org.webrtc.CameraEnumerator;
 import org.webrtc.CameraVideoCapturer;
 import org.webrtc.DefaultVideoDecoderFactory;
 import org.webrtc.DefaultVideoEncoderFactory;
 import org.webrtc.EglBase;
+import org.webrtc.MediaConstraints;
 import org.webrtc.PeerConnectionFactory;
 import org.webrtc.SurfaceTextureHelper;
 import org.webrtc.SurfaceViewRenderer;
 import org.webrtc.VideoSource;
-import org.webrtc.VideoTrack;
 import org.webrtc.audio.JavaAudioDeviceModule;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 
-public class DeviceActivity extends AppCompatActivity {
+public class DeviceActivity extends AppCompatActivity implements View.OnClickListener {
     private static final String TAG = "DeviceActivity";
     private static final int PERMISSION_REQUEST_CODE = 1002;
+    
+    // View IDs缓存，避免在onClick中使用R.id.*导致编译错误
+    private static final int START_CAMERA_BUTTON_ID = 1;
+    private static final int STOP_CAMERA_BUTTON_ID = 2;
+    private static final int START_MICROPHONE_TEST_BUTTON_ID = 3;
+    private static final int STOP_MICROPHONE_TEST_BUTTON_ID = 4;
+    private static final int START_SPEAKER_TEST_BUTTON_ID = 5;
+    private static final int STOP_SPEAKER_TEST_BUTTON_ID = 6;
     
     private TextView deviceInfoText;
     private SurfaceViewRenderer cameraPreview;
     private TextView cameraStatusText;
-    private TextView audioStatusText;
+    private TextView microphoneStatusText;
+    private TextView speakerStatusText;
+    private ProgressBar microphoneVolumeProgress;
     private Button startCameraButton;
     private Button stopCameraButton;
-    private Button startAudioTestButton;
-    private Button stopAudioTestButton;
+    private Button startMicrophoneTestButton;
+    private Button stopMicrophoneTestButton;
+    private Button startSpeakerTestButton;
+    private Button stopSpeakerTestButton;
     
     // WebRTC相关
     private EglBase eglBase;
     private PeerConnectionFactory peerConnectionFactory;
     private CameraVideoCapturer cameraVideoCapturer;
     private VideoSource videoSource;
-    private VideoTrack videoTrack;
-    private AudioSource audioSource;
-    private AudioTrack audioTrack;
-    private SurfaceTextureHelper surfaceTextureHelper; // 添加SurfaceTextureHelper引用
+    private org.webrtc.VideoTrack videoTrack;
+    private org.webrtc.AudioSource audioSource;
+    private org.webrtc.AudioTrack audioTrack;
+    private SurfaceTextureHelper surfaceTextureHelper;
     private boolean isCameraActive = false;
-    private boolean isAudioTestActive = false;
+    private boolean isMicrophoneTestActive = false;
+    private boolean isSpeakerTestActive = false;
+    
+    // 音频测试相关
+    private Handler audioHandler = new Handler(Looper.getMainLooper());
+    private Runnable audioLevelRunnable;
+    private AudioTrack audioPlayer;
+    private AudioRecord audioRecord;
+    private Thread audioRecordThread;
+    // 生成测试音频数据（440Hz正弦波）
+    private byte[] audioTestData;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -75,6 +102,7 @@ public class DeviceActivity extends AppCompatActivity {
         
         initViews();
         initWebRTC();
+        generateAudioTestData();
         checkAndRequestPermissions();
         showDeviceInfo();
     }
@@ -83,39 +111,55 @@ public class DeviceActivity extends AppCompatActivity {
         deviceInfoText = findViewById(R.id.device_info_text);
         cameraPreview = findViewById(R.id.camera_preview);
         cameraStatusText = findViewById(R.id.camera_status_text);
-        audioStatusText = findViewById(R.id.audio_status_text);
+        microphoneStatusText = findViewById(R.id.microphone_status_text);
+        speakerStatusText = findViewById(R.id.speaker_status_text);
+        microphoneVolumeProgress = findViewById(R.id.microphone_volume_progress);
         startCameraButton = findViewById(R.id.start_camera_button);
         stopCameraButton = findViewById(R.id.stop_camera_button);
-        startAudioTestButton = findViewById(R.id.start_audio_test_button);
-        stopAudioTestButton = findViewById(R.id.stop_audio_test_button);
+        startMicrophoneTestButton = findViewById(R.id.start_microphone_test_button);
+        stopMicrophoneTestButton = findViewById(R.id.stop_microphone_test_button);
+        startSpeakerTestButton = findViewById(R.id.start_speaker_test_button);
+        stopSpeakerTestButton = findViewById(R.id.stop_speaker_test_button);
         
-        startCameraButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
+        // 设置按钮ID以避免使用R.id.*
+        startCameraButton.setId(START_CAMERA_BUTTON_ID);
+        stopCameraButton.setId(STOP_CAMERA_BUTTON_ID);
+        startMicrophoneTestButton.setId(START_MICROPHONE_TEST_BUTTON_ID);
+        stopMicrophoneTestButton.setId(STOP_MICROPHONE_TEST_BUTTON_ID);
+        startSpeakerTestButton.setId(START_SPEAKER_TEST_BUTTON_ID);
+        stopSpeakerTestButton.setId(STOP_SPEAKER_TEST_BUTTON_ID);
+        
+        startCameraButton.setOnClickListener(this);
+        stopCameraButton.setOnClickListener(this);
+        startMicrophoneTestButton.setOnClickListener(this);
+        stopMicrophoneTestButton.setOnClickListener(this);
+        startSpeakerTestButton.setOnClickListener(this);
+        stopSpeakerTestButton.setOnClickListener(this);
+    }
+    
+    // 实现OnClickListener接口
+    @Override
+    public void onClick(View v) {
+        switch (v.getId()) {
+            case START_CAMERA_BUTTON_ID:
                 startCameraPreview();
-            }
-        });
-        
-        stopCameraButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
+                break;
+            case STOP_CAMERA_BUTTON_ID:
                 stopCameraPreview();
-            }
-        });
-        
-        startAudioTestButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                startAudioTest();
-            }
-        });
-        
-        stopAudioTestButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                stopAudioTest();
-            }
-        });
+                break;
+            case START_MICROPHONE_TEST_BUTTON_ID:
+                startMicrophoneTest();
+                break;
+            case STOP_MICROPHONE_TEST_BUTTON_ID:
+                stopMicrophoneTest();
+                break;
+            case START_SPEAKER_TEST_BUTTON_ID:
+                startSpeakerTest();
+                break;
+            case STOP_SPEAKER_TEST_BUTTON_ID:
+                stopSpeakerTest();
+                break;
+        }
     }
     
     private void initWebRTC() {
@@ -335,66 +379,256 @@ public class DeviceActivity extends AppCompatActivity {
         }
     }
     
-    // 启动音频测试
-    private void startAudioTest() {
-        if (isAudioTestActive) {
-            return;
-        }
+    // 生成测试音频数据
+    private void generateAudioTestData() {
+        int sampleRate = 44100;
+        int frequency = 440; // 440Hz 正弦波 (A4音符)
+        int durationMillis = 1000; // 1秒
+        int numSamples = sampleRate * durationMillis / 1000;
         
-        try {
-            if (peerConnectionFactory == null) {
-                audioStatusText.setText("PeerConnectionFactory未初始化");
-                return;
-            }
+        audioTestData = new byte[numSamples * 2]; // 16位音频 = 2字节/采样
+        
+        for (int i = 0; i < numSamples; i++) {
+            // 生成正弦波
+            double angle = 2 * Math.PI * i * frequency / sampleRate;
+            short sample = (short) (Math.sin(angle) * Short.MAX_VALUE * 0.1); // 降低音量避免刺耳
             
-            // 检查录音权限
-            if (!checkPermission(Manifest.permission.RECORD_AUDIO)) {
-                audioStatusText.setText("缺少录音权限");
-                return;
-            }
-            
-            // 创建音频源和轨道
-            audioSource = peerConnectionFactory.createAudioSource(null);
-            audioTrack = peerConnectionFactory.createAudioTrack("local_audio_track", audioSource);
-            audioTrack.setEnabled(true);
-            
-            isAudioTestActive = true;
-            audioStatusText.setText("音频测试运行中 - 正在录制和播放音频");
-            startAudioTestButton.setEnabled(false);
-            stopAudioTestButton.setEnabled(true);
-            
-        } catch (Exception e) {
-            Log.e(TAG, "启动音频测试失败", e);
-            audioStatusText.setText("启动音频测试失败: " + e.getMessage());
+            // 转换为小端序字节
+            audioTestData[i * 2] = (byte) (sample & 0xFF);
+            audioTestData[i * 2 + 1] = (byte) ((sample >> 8) & 0xFF);
         }
     }
     
-    // 停止音频测试
-    private void stopAudioTest() {
-        if (!isAudioTestActive) {
+    // 启动麦克风测试
+    private void startMicrophoneTest() {
+        if (isMicrophoneTestActive) {
             return;
         }
         
         try {
-            if (audioTrack != null) {
-                audioTrack.setEnabled(false);
-                audioTrack.dispose();
-                audioTrack = null;
+            // 检查录音权限
+            if (!checkPermission(Manifest.permission.RECORD_AUDIO)) {
+                microphoneStatusText.setText("缺少录音权限");
+                return;
             }
             
-            if (audioSource != null) {
-                audioSource.dispose();
-                audioSource = null;
+            int sampleRate = 44100;
+            int channelConfig = AudioFormat.CHANNEL_IN_MONO;
+            int audioFormat = AudioFormat.ENCODING_PCM_16BIT;
+            
+            int bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat);
+            if (bufferSize == AudioRecord.ERROR || bufferSize == AudioRecord.ERROR_BAD_VALUE) {
+                bufferSize = sampleRate * 2; // 默认缓冲区大小
             }
             
-            isAudioTestActive = false;
-            audioStatusText.setText("音频测试已停止");
-            startAudioTestButton.setEnabled(true);
-            stopAudioTestButton.setEnabled(false);
+            // 创建AudioRecord用于录制测试音频
+            audioRecord = new AudioRecord(
+                MediaRecorder.AudioSource.MIC,
+                sampleRate,
+                channelConfig,
+                audioFormat,
+                bufferSize
+            );
+            
+            isMicrophoneTestActive = true;
+            microphoneStatusText.setText("麦克风测试运行中 - 监听中...");
+            microphoneVolumeProgress.setVisibility(View.VISIBLE);
+            startMicrophoneTestButton.setEnabled(false);
+            stopMicrophoneTestButton.setEnabled(true);
+            
+            // 开始监听音频级别
+            startAudioLevelMonitoring();
             
         } catch (Exception e) {
-            Log.e(TAG, "停止音频测试失败", e);
-            audioStatusText.setText("停止音频测试失败: " + e.getMessage());
+            Log.e(TAG, "启动麦克风测试失败", e);
+            microphoneStatusText.setText("启动麦克风测试失败: " + e.getMessage());
+            isMicrophoneTestActive = false;
+        }
+    }
+    
+    // 停止麦克风测试
+    private void stopMicrophoneTest() {
+        if (!isMicrophoneTestActive) {
+            return;
+        }
+        
+        try {
+            // 停止监听音频级别
+            stopAudioLevelMonitoring();
+            
+            if (audioRecord != null) {
+                if (audioRecord.getRecordingState() == AudioRecord.RECORDSTATE_RECORDING) {
+                    audioRecord.stop();
+                }
+                audioRecord.release();
+                audioRecord = null;
+            }
+            
+            isMicrophoneTestActive = false;
+            microphoneStatusText.setText("麦克风测试已停止");
+            microphoneVolumeProgress.setVisibility(View.GONE);
+            microphoneVolumeProgress.setProgress(0);
+            startMicrophoneTestButton.setEnabled(true);
+            stopMicrophoneTestButton.setEnabled(false);
+            
+        } catch (Exception e) {
+            Log.e(TAG, "停止麦克风测试失败", e);
+            microphoneStatusText.setText("停止麦克风测试失败: " + e.getMessage());
+        }
+    }
+    
+    // 开始监听音频级别
+    private void startAudioLevelMonitoring() {
+        if (audioRecord != null) {
+            audioRecord.startRecording();
+        }
+        
+        audioRecordThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_AUDIO);
+                short[] buffer = new short[1024];
+                
+                while (isMicrophoneTestActive && audioRecord != null) {
+                    try {
+                        int readSize = audioRecord.read(buffer, 0, buffer.length);
+                        if (readSize > 0) {
+                            // 计算音量级别
+                            long sum = 0;
+                            for (int i = 0; i < readSize; i++) {
+                                sum += Math.abs(buffer[i]);
+                            }
+                            double average = sum / (double) readSize;
+                            final int levelPercent = (int) (average / 32768.0 * 100); // 转换为百分比
+                            
+                            // 更新UI显示音量级别
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    microphoneStatusText.setText("麦克风测试运行中 - 音量级别: " + levelPercent + "%");
+                                    microphoneVolumeProgress.setProgress(levelPercent);
+                                }
+                            });
+                        }
+                        
+                        // 短暂休眠以控制更新频率
+                        Thread.sleep(100);
+                    } catch (Exception e) {
+                        Log.e(TAG, "音频级别监测异常", e);
+                        break;
+                    }
+                }
+            }
+        });
+        audioRecordThread.start();
+    }
+    
+    // 停止监听音频级别
+    private void stopAudioLevelMonitoring() {
+        if (audioRecordThread != null) {
+            try {
+                audioRecordThread.join(1000); // 等待最多1秒
+            } catch (InterruptedException e) {
+                Log.w(TAG, "等待音频记录线程结束时被中断", e);
+            }
+            audioRecordThread = null;
+        }
+    }
+    
+    // 启动扬声器测试
+    private void startSpeakerTest() {
+        if (isSpeakerTestActive) {
+            return;
+        }
+        
+        try {
+            // 创建AudioTrack用于播放测试音频
+            int sampleRate = 44100;
+            int channelConfig = AudioFormat.CHANNEL_OUT_MONO;
+            int audioFormat = AudioFormat.ENCODING_PCM_16BIT;
+            
+            int bufferSize = AudioTrack.getMinBufferSize(sampleRate, channelConfig, audioFormat);
+            if (bufferSize == AudioTrack.ERROR || bufferSize == AudioTrack.ERROR_BAD_VALUE) {
+                bufferSize = sampleRate * 2; // 默认缓冲区大小
+            }
+            
+            // 兼容性处理：在不同Android版本上使用不同的创建方式
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                audioPlayer = new AudioTrack.Builder()
+                    .setAudioAttributes(new android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build())
+                    .setAudioFormat(new AudioFormat.Builder()
+                        .setSampleRate(sampleRate)
+                        .setChannelMask(channelConfig)
+                        .setEncoding(audioFormat)
+                        .build())
+                    .setBufferSizeInBytes(bufferSize)
+                    .setTransferMode(AudioTrack.MODE_STATIC)
+                    .build();
+            } else {
+                audioPlayer = new AudioTrack(
+                    AudioManager.STREAM_MUSIC,
+                    sampleRate,
+                    channelConfig,
+                    audioFormat,
+                    bufferSize,
+                    AudioTrack.MODE_STATIC
+                );
+            }
+            
+            // 加载测试音频数据
+            audioPlayer.write(audioTestData, 0, audioTestData.length);
+            
+            isSpeakerTestActive = true;
+            speakerStatusText.setText("扬声器测试运行中 - 播放测试音频...");
+            startSpeakerTestButton.setEnabled(false);
+            stopSpeakerTestButton.setEnabled(true);
+            
+            // 开始播放
+            audioPlayer.play();
+            
+            // 播放完成后自动停止
+            audioHandler.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    stopSpeakerTest();
+                }
+            }, 1000); // 1秒后停止
+            
+        } catch (Exception e) {
+            Log.e(TAG, "启动扬声器测试失败", e);
+            speakerStatusText.setText("启动扬声器测试失败: " + e.getMessage());
+            isSpeakerTestActive = false;
+            startSpeakerTestButton.setEnabled(true);
+            stopSpeakerTestButton.setEnabled(false);
+        }
+    }
+    
+    // 停止扬声器测试
+    private void stopSpeakerTest() {
+        if (!isSpeakerTestActive) {
+            return;
+        }
+        
+        try {
+            if (audioPlayer != null) {
+                if (audioPlayer.getPlayState() == AudioTrack.PLAYSTATE_PLAYING) {
+                    audioPlayer.stop();
+                }
+                audioPlayer.release();
+                audioPlayer = null;
+            }
+            
+            isSpeakerTestActive = false;
+            speakerStatusText.setText("扬声器测试已停止");
+            startSpeakerTestButton.setEnabled(true);
+            stopSpeakerTestButton.setEnabled(false);
+            
+        } catch (Exception e) {
+            Log.e(TAG, "停止扬声器测试失败", e);
+            speakerStatusText.setText("停止扬声器测试失败: " + e.getMessage());
         }
     }
     
@@ -402,7 +636,8 @@ public class DeviceActivity extends AppCompatActivity {
     protected void onDestroy() {
         super.onDestroy();
         stopCameraPreview();
-        stopAudioTest();
+        stopMicrophoneTest();
+        stopSpeakerTest();
         
         if (cameraPreview != null) {
             cameraPreview.release();
@@ -416,6 +651,11 @@ public class DeviceActivity extends AppCompatActivity {
         if (surfaceTextureHelper != null) {
             surfaceTextureHelper.dispose();
             surfaceTextureHelper = null;
+        }
+        
+        // 清理音频处理相关的Handler回调
+        if (audioHandler != null) {
+            audioHandler.removeCallbacksAndMessages(null);
         }
     }
 }

@@ -23,6 +23,7 @@ import org.webrtc.PeerConnection;
 import org.webrtc.PeerConnectionFactory;
 import org.webrtc.SdpObserver;
 import org.webrtc.SessionDescription;
+import org.webrtc.SurfaceTextureHelper;
 import org.webrtc.SurfaceViewRenderer;
 import org.webrtc.VideoSource;
 import org.webrtc.VideoTrack;
@@ -52,6 +53,7 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
     private boolean isVideoMuted = true; // 默认关闭摄像头
     private boolean isFrontCamera = true;
     private boolean isVideoInitialized = false; // 标记视频是否已初始化
+    private SurfaceTextureHelper surfaceTextureHelper; // 添加SurfaceTextureHelper引用
     
     // 多人连接管理
     private Map<String, PeerConnection> peerConnections = new HashMap<>();
@@ -156,7 +158,9 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
         videoCapturer = createVideoCapturer();
         videoSource = peerConnectionFactory.createVideoSource(false);
         if (videoCapturer != null) {
-            videoCapturer.initialize(null, getApplicationContext(), videoSource.getCapturerObserver());
+            // 创建SurfaceTextureHelper并正确初始化摄像头捕获器
+            surfaceTextureHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.getEglBaseContext());
+            videoCapturer.initialize(surfaceTextureHelper, getApplicationContext(), videoSource.getCapturerObserver());
             videoCapturer.startCapture(640, 480, 30);
             localVideoTrack = peerConnectionFactory.createVideoTrack("local_video_track", videoSource);
             localVideoTrack.addSink(localVideoView);
@@ -570,6 +574,10 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
             }
             if (videoCapturer != null) {
                 videoCapturer.dispose();
+            }
+            // 释放SurfaceTextureHelper
+            if (surfaceTextureHelper != null) {
+                surfaceTextureHelper.dispose();
             }
             if (localAudioTrack != null) {
                 localAudioTrack.dispose();

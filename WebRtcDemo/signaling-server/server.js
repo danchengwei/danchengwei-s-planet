@@ -74,11 +74,29 @@ wss.on('connection', (ws) => {
             return;
         }
         
+        // 记录尝试加入房间的日志
+        console.log(`用户 ${userId} 尝试加入房间 ${roomId}`);
+        
         currentUser = { roomId, userId };
         
         // 创建房间（如果不存在）
         if (!rooms.has(roomId)) {
             rooms.set(roomId, new Set());
+            console.log(`创建新房间: ${roomId}`);
+        } else {
+            // 检查用户是否已在房间中
+            const room = rooms.get(roomId);
+            for (const client of room) {
+                if (client.userId === userId) {
+                    console.log(`警告: 用户 ${userId} 已在房间 ${roomId} 中`);
+                    ws.send(JSON.stringify({
+                        type: 'error',
+                        message: '用户已在房间中'
+                    }));
+                    return;
+                }
+            }
+            console.log(`房间 ${roomId} 已存在，当前人数: ${room.size}`);
         }
         
         // 将用户添加到房间
@@ -104,11 +122,15 @@ wss.on('connection', (ws) => {
             }
         });
         
-        console.log(`用户 ${userId} 加入房间 ${roomId}，房间内共有 ${room.size} 人`);
+        console.log(`用户 ${userId} 成功加入房间 ${roomId}，房间内共有 ${room.size} 人`);
+        logCurrentRoomInfo();
     }
     
     function handleLeaveRoom(ws, data) {
-        if (!currentUser) return;
+        if (!currentUser) {
+            console.log('用户未加入任何房间，无法执行离开操作');
+            return;
+        }
         
         const { roomId, userId } = currentUser;
         
@@ -116,11 +138,18 @@ wss.on('connection', (ws) => {
             const room = rooms.get(roomId);
             
             // 从房间中移除用户
+            let userFound = false;
             for (const client of room) {
                 if (client.userId === userId) {
                     room.delete(client);
+                    userFound = true;
                     break;
                 }
+            }
+            
+            if (!userFound) {
+                console.log(`用户 ${userId} 不在房间 ${roomId} 中`);
+                return;
             }
             
             // 通知房间内的其他用户有用户离开
@@ -138,24 +167,33 @@ wss.on('connection', (ws) => {
             // 如果房间为空，删除房间
             if (room.size === 0) {
                 rooms.delete(roomId);
+                console.log(`房间 ${roomId} 已清空，删除房间`);
+            } else {
+                console.log(`用户 ${userId} 离开房间 ${roomId}，房间剩余人数: ${room.size}`);
             }
             
-            console.log(`用户 ${userId} 离开房间 ${roomId}`);
+            logCurrentRoomInfo();
+        } else {
+            console.log(`尝试离开不存在的房间: ${roomId}`);
         }
         
         currentUser = null;
     }
     
     function handleOffer(ws, data) {
-        if (!currentUser) return;
+        if (!currentUser) {
+            console.log('用户未加入任何房间，无法发送offer');
+            return;
+        }
         
         const { targetUserId, sdp } = data;
-        const { roomId } = currentUser;
+        const { roomId, userId } = currentUser;
         
         if (rooms.has(roomId)) {
             const room = rooms.get(roomId);
             
             // 查找目标用户并转发offer
+            let targetUserFound = false;
             for (const client of room) {
                 if (client.userId === targetUserId && client.ws.readyState === WebSocket.OPEN) {
                     client.ws.send(JSON.stringify({
@@ -163,22 +201,34 @@ wss.on('connection', (ws) => {
                         sdp: sdp,
                         fromUserId: currentUser.userId
                     }));
+                    targetUserFound = true;
+                    console.log(`转发offer: ${userId} -> ${targetUserId} (房间: ${roomId})`);
                     break;
                 }
             }
+            
+            if (!targetUserFound) {
+                console.log(`在房间 ${roomId} 中未找到目标用户: ${targetUserId}`);
+            }
+        } else {
+            console.log(`尝试在不存在的房间中发送offer: ${roomId}`);
         }
     }
     
     function handleAnswer(ws, data) {
-        if (!currentUser) return;
+        if (!currentUser) {
+            console.log('用户未加入任何房间，无法发送answer');
+            return;
+        }
         
         const { targetUserId, sdp } = data;
-        const { roomId } = currentUser;
+        const { roomId, userId } = currentUser;
         
         if (rooms.has(roomId)) {
             const room = rooms.get(roomId);
             
             // 查找目标用户并转发answer
+            let targetUserFound = false;
             for (const client of room) {
                 if (client.userId === targetUserId && client.ws.readyState === WebSocket.OPEN) {
                     client.ws.send(JSON.stringify({
@@ -186,22 +236,34 @@ wss.on('connection', (ws) => {
                         sdp: sdp,
                         fromUserId: currentUser.userId
                     }));
+                    targetUserFound = true;
+                    console.log(`转发answer: ${userId} -> ${targetUserId} (房间: ${roomId})`);
                     break;
                 }
             }
+            
+            if (!targetUserFound) {
+                console.log(`在房间 ${roomId} 中未找到目标用户: ${targetUserId}`);
+            }
+        } else {
+            console.log(`尝试在不存在的房间中发送answer: ${roomId}`);
         }
     }
     
     function handleIceCandidate(ws, data) {
-        if (!currentUser) return;
+        if (!currentUser) {
+            console.log('用户未加入任何房间，无法发送ICE候选');
+            return;
+        }
         
         const { targetUserId, candidate, sdpMid, sdpMLineIndex } = data;
-        const { roomId } = currentUser;
+        const { roomId, userId } = currentUser;
         
         if (rooms.has(roomId)) {
             const room = rooms.get(roomId);
             
             // 查找目标用户并转发ICE候选
+            let targetUserFound = false;
             for (const client of room) {
                 if (client.userId === targetUserId && client.ws.readyState === WebSocket.OPEN) {
                     client.ws.send(JSON.stringify({
@@ -211,16 +273,41 @@ wss.on('connection', (ws) => {
                         sdpMLineIndex: sdpMLineIndex,
                         fromUserId: currentUser.userId
                     }));
+                    targetUserFound = true;
+                    console.log(`转发ICE候选: ${userId} -> ${targetUserId} (房间: ${roomId})`);
                     break;
                 }
             }
+            
+            if (!targetUserFound) {
+                console.log(`在房间 ${roomId} 中未找到目标用户: ${targetUserId}`);
+            }
+        } else {
+            console.log(`尝试在不存在的房间中发送ICE候选: ${roomId}`);
         }
     }
     
     function handleDisconnect(ws) {
+        console.log('处理客户端断开连接');
         if (currentUser) {
+            console.log(`用户 ${currentUser.userId} 断开连接，自动离开房间 ${currentUser.roomId}`);
             handleLeaveRoom(ws, {});
         }
+    }
+    
+    // 记录当前房间信息
+    function logCurrentRoomInfo() {
+        console.log('=== 当前房间信息 ===');
+        if (rooms.size === 0) {
+            console.log('暂无活跃房间');
+        } else {
+            console.log(`共有 ${rooms.size} 个活跃房间:`);
+            rooms.forEach((room, roomId) => {
+                const userIds = Array.from(room).map(client => client.userId);
+                console.log(`  房间 ${roomId}: ${room.size} 人 [${userIds.join(', ')}]`);
+            });
+        }
+        console.log('==================');
     }
 });
 

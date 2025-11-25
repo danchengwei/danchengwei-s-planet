@@ -89,11 +89,11 @@
 
     </LinearLayout>
 
-    <!-- 音频测试部分 -->
+    <!-- 麦克风测试部分 -->
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="音频测试"
+        android:text="麦克风测试"
         android:textSize="18sp"
         android:textStyle="bold"
         android:layout_marginBottom="8dp" />
@@ -105,29 +105,82 @@
         android:layout_marginBottom="16dp">
 
         <Button
-            android:id="@+id/start_audio_test_button"
+            android:id="@+id/start_microphone_test_button"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="开始音频测试"
+            android:text="开始麦克风测试"
             android:layout_marginEnd="4dp" />
 
         <Button
-            android:id="@+id/stop_audio_test_button"
+            android:id="@+id/stop_microphone_test_button"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="停止音频测试"
+            android:text="停止麦克风测试"
             android:layout_marginStart="4dp"
             android:enabled="false" />
 
     </LinearLayout>
 
     <TextView
-        android:id="@+id/audio_status_text"
+        android:id="@+id/microphone_status_text"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="音频测试未启动"
+        android:text="麦克风测试未启动"
+        android:textSize="14sp"
+        android:padding="8dp"
+        android:background="#F5F5F5"
+        android:layout_marginBottom="8dp" />
+
+    <ProgressBar
+        android:id="@+id/microphone_volume_progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
+        android:max="100"
+        android:visibility="gone" />
+
+    <!-- 扬声器测试部分 -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="扬声器测试"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="8dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="16dp">
+
+        <Button
+            android:id="@+id/start_speaker_test_button"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="开始扬声器测试"
+            android:layout_marginEnd="4dp" />
+
+        <Button
+            android:id="@+id/stop_speaker_test_button"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="停止扬声器测试"
+            android:layout_marginStart="4dp"
+            android:enabled="false" />
+
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/speaker_status_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="扬声器测试未启动"
         android:textSize="14sp"
         android:padding="8dp"
         android:background="#F5F5F5"
