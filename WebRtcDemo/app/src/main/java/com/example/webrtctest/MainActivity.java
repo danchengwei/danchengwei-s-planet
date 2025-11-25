@@ -11,6 +11,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.EdgeToEdge;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
@@ -19,6 +20,10 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
 import com.google.android.material.textfield.TextInputEditText;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 import java.net.URISyntaxException;
 import java.util.UUID;
@@ -31,6 +36,7 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
     private TextInputEditText roomIdInput;
     private Button createRoomButton;
     private Button joinRoomButton;
+    private Button getRoomInfoButton; // 新增获取房间信息按钮
     private Button checkDeviceButton;
     private TextView connectionStatus;
     private TextView deviceInfoText;
@@ -56,6 +62,7 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
         roomIdInput = findViewById(R.id.room_id_input);
         createRoomButton = findViewById(R.id.create_room_button);
         joinRoomButton = findViewById(R.id.join_room_button);
+        getRoomInfoButton = findViewById(R.id.get_room_info_button); // 初始化新按钮
         checkDeviceButton = findViewById(R.id.check_device_button);
         connectionStatus = findViewById(R.id.connection_status);
         deviceInfoText = findViewById(R.id.device_info_text);
@@ -74,6 +81,14 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
             }
         });
 
+        // 新增获取房间信息按钮的点击事件
+        getRoomInfoButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                getRoomInfo();
+            }
+        });
+
         checkDeviceButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -85,6 +100,7 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
 
         joinRoomButton.setEnabled(false); // 默认禁用，等WebSocket连接成功后再启用
         createRoomButton.setEnabled(false); // 默认禁用，等WebSocket连接成功后再启用
+        getRoomInfoButton.setEnabled(false); // 默认禁用，等WebSocket连接成功后再启用
     }
 
     private void initWebSocket() {
@@ -140,6 +156,15 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
             Intent intent = new Intent(MainActivity.this, WebRtcActivity.class);
             intent.putExtra("ROOM_ID", roomId);
             startActivity(intent);
+        } else {
+            Toast.makeText(this, "信令服务器未连接，请稍后再试", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    // 新增获取房间信息的方法
+    private void getRoomInfo() {
+        if (webSocketClient != null && webSocketClient.isOpen()) {
+            webSocketClient.getRoomInfo();
         } else {
             Toast.makeText(this, "信令服务器未连接，请稍后再试", Toast.LENGTH_SHORT).show();
         }
@@ -207,6 +232,7 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
             connectionStatus.setText(serverInfo);
             joinRoomButton.setEnabled(true);
             createRoomButton.setEnabled(true);
+            getRoomInfoButton.setEnabled(true); // 连接成功后启用按钮
             Toast.makeText(this, "信令服务器连接成功", Toast.LENGTH_SHORT).show();
         });
     }
@@ -215,6 +241,84 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
     public void onMessageReceived(String message) {
         Log.d(TAG, "Message received: " + message);
         // 处理收到的消息
+        try {
+            JSONObject json = new JSONObject(message);
+            String type = json.getString("type");
+            
+            switch (type) {
+                case "roomInfo":
+                    handleRoomInfo(json);
+                    break;
+                case "roomCreated":
+                    handleRoomCreated(json);
+                    break;
+                case "error":
+                    handleError(json);
+                    break;
+                default:
+                    // 其他消息类型保持原有处理方式
+                    break;
+            }
+        } catch (JSONException e) {
+            Log.e(TAG, "JSON解析错误: " + e.getMessage());
+        }
+    }
+
+    private void handleRoomInfo(JSONObject json) {
+        try {
+            JSONArray roomsArray = json.getJSONArray("rooms");
+            StringBuilder info = new StringBuilder("当前房间信息:\n");
+            
+            if (roomsArray.length() == 0) {
+                info.append("暂无活跃房间");
+            } else {
+                for (int i = 0; i < roomsArray.length(); i++) {
+                    JSONObject room = roomsArray.getJSONObject(i);
+                    String roomId = room.getString("roomId");
+                    int userCount = room.getInt("userCount");
+                    info.append("房间: ").append(roomId)
+                        .append(", 用户数: ").append(userCount).append("\n");
+                }
+            }
+            
+            runOnUiThread(() -> {
+                AlertDialog.Builder builder = new AlertDialog.Builder(this);
+                builder.setTitle("房间信息")
+                       .setMessage(info.toString())
+                       .setPositiveButton("确定", null)
+                       .show();
+            });
+        } catch (JSONException e) {
+            Log.e(TAG, "房间信息解析错误: " + e.getMessage());
+        }
+    }
+
+    private void handleRoomCreated(JSONObject json) {
+        try {
+            String roomId = json.getString("roomId");
+            String msg = json.getString("message");
+            
+            runOnUiThread(() -> {
+                Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
+                // 创建房间成功后自动跳转到WebRtcActivity
+                Intent intent = new Intent(MainActivity.this, WebRtcActivity.class);
+                intent.putExtra("ROOM_ID", roomId);
+                startActivity(intent);
+            });
+        } catch (JSONException e) {
+            Log.e(TAG, "房间创建响应解析错误: " + e.getMessage());
+        }
+    }
+
+    private void handleError(JSONObject json) {
+        try {
+            String errorMsg = json.getString("message");
+            runOnUiThread(() -> {
+                Toast.makeText(this, "错误: " + errorMsg, Toast.LENGTH_LONG).show();
+            });
+        } catch (JSONException e) {
+            Log.e(TAG, "错误信息解析错误: " + e.getMessage());
+        }
     }
 
     @Override

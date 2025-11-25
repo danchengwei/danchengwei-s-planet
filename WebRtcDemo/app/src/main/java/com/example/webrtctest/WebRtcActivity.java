@@ -2,7 +2,12 @@ package com.example.webrtctest;
 
 import android.os.Bundle;
 import android.util.Log;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.ViewGroup;
+import android.widget.FrameLayout;
 import android.widget.ImageButton;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -23,9 +28,7 @@ import org.webrtc.PeerConnection;
 import org.webrtc.PeerConnectionFactory;
 import org.webrtc.SdpObserver;
 import org.webrtc.SessionDescription;
-import org.webrtc.SurfaceTextureHelper;
 import org.webrtc.SurfaceViewRenderer;
-import org.webrtc.VideoSource;
 import org.webrtc.VideoTrack;
 import org.webrtc.audio.JavaAudioDeviceModule;
 
@@ -46,23 +49,22 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
     
     // 音视频相关
     private CameraVideoCapturer videoCapturer;
-    private VideoSource videoSource;
-    private VideoTrack localVideoTrack;
+    private org.webrtc.VideoSource videoSource;
+    private org.webrtc.VideoTrack localVideoTrack;
     private AudioTrack localAudioTrack;
     private boolean isAudioMuted = false;
     private boolean isVideoMuted = true; // 默认关闭摄像头
     private boolean isFrontCamera = true;
     private boolean isVideoInitialized = false; // 标记视频是否已初始化
-    private SurfaceTextureHelper surfaceTextureHelper; // 添加SurfaceTextureHelper引用
     
     // 多人连接管理
     private Map<String, PeerConnection> peerConnections = new HashMap<>();
-    private Map<String, SurfaceViewRenderer> remoteRenderers = new HashMap<>();
+    private Map<String, SurfaceViewRenderer> remoteRenderers = new HashMap<>(); // 为每个远程用户创建独立的渲染器
     private List<String> remoteUserIds = new ArrayList<>();
     
     // UI组件
     private SurfaceViewRenderer localVideoView;
-    private SurfaceViewRenderer remoteVideoView;
+    private LinearLayout remoteVideoContainer; // 用于容纳多个远程视频视图
     private ImageButton muteAudioButton;
     private ImageButton muteVideoButton;
     private ImageButton joinRoomButton;
@@ -107,7 +109,7 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
 
     private void initUI() {
         localVideoView = findViewById(R.id.local_video_view);
-        remoteVideoView = findViewById(R.id.remote_video_view);
+        remoteVideoContainer = findViewById(R.id.remote_video_container); // 使用LinearLayout容器显示多个远程视频
         muteAudioButton = findViewById(R.id.btn_mute_audio);
         muteVideoButton = findViewById(R.id.btn_mute_video);
         joinRoomButton = findViewById(R.id.btn_join_room);
@@ -124,7 +126,6 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
             
             // 初始化本地视频渲染器
             localVideoView.init(eglBase.getEglBaseContext(), null);
-            remoteVideoView.init(eglBase.getEglBaseContext(), null);
             
             // 初始化 PeerConnectionFactory
             PeerConnectionFactory.InitializationOptions initOptions = PeerConnectionFactory.InitializationOptions.builder(this)
@@ -159,7 +160,7 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
         videoSource = peerConnectionFactory.createVideoSource(false);
         if (videoCapturer != null) {
             // 创建SurfaceTextureHelper并正确初始化摄像头捕获器
-            surfaceTextureHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.getEglBaseContext());
+            org.webrtc.SurfaceTextureHelper surfaceTextureHelper = org.webrtc.SurfaceTextureHelper.create("CaptureThread", eglBase.getEglBaseContext());
             videoCapturer.initialize(surfaceTextureHelper, getApplicationContext(), videoSource.getCapturerObserver());
             videoCapturer.startCapture(640, 480, 30);
             localVideoTrack = peerConnectionFactory.createVideoTrack("local_video_track", videoSource);
@@ -276,7 +277,16 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
             peerConnection.dispose();
         }
         peerConnections.clear();
+        
+        // 清理远程渲染器
+        for (SurfaceViewRenderer renderer : remoteRenderers.values()) {
+            renderer.release();
+        }
+        remoteRenderers.clear();
+        
+        // 清理远程用户列表和UI
         remoteUserIds.clear();
+        remoteVideoContainer.removeAllViews();
         updateParticipantCount();
         Toast.makeText(this, "通话已挂断", Toast.LENGTH_SHORT).show();
     }
@@ -427,6 +437,8 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
                         remoteUserIds.add(userId);
                         updateParticipantCount();
                         Toast.makeText(this, "用户 " + userId + " 加入房间", Toast.LENGTH_SHORT).show();
+                        // 创建该用户的远程视频渲染器
+                        createRemoteRenderer(userId);
                     }
                     
                     // 作为发起方发送 Offer
@@ -437,6 +449,13 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
                         remoteUserIds.remove(userId);
                         updateParticipantCount();
                         Toast.makeText(this, "用户 " + userId + " 离开房间", Toast.LENGTH_SHORT).show();
+                        
+                        // 移除该用户的远程渲染器
+                        SurfaceViewRenderer renderer = remoteRenderers.remove(userId);
+                        if (renderer != null) {
+                            remoteVideoContainer.removeView(renderer);
+                            renderer.release();
+                        }
                     }
                     
                     // 清理该用户的连接
@@ -445,6 +464,9 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
                         peerConnection.close();
                         peerConnection.dispose();
                     }
+                } else if ("joined".equals(eventType)) {
+                    // 自己成功加入房间
+                    Toast.makeText(this, "成功加入房间: " + roomId, Toast.LENGTH_SHORT).show();
                 }
             } catch (Exception e) {
                 onConnectFailure("处理房间事件失败: " + e.getMessage());
@@ -452,6 +474,30 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
         });
     }
     
+    // 接收房间内现有用户列表
+    @Override
+    public void onExistingUsers(String roomId, String[] userIds) {
+        runOnUiThread(() -> {
+            try {
+                for (String userId : userIds) {
+                    if (!userId.equals(currentUserId) && !remoteUserIds.contains(userId)) {
+                        remoteUserIds.add(userId);
+                        updateParticipantCount();
+                        Toast.makeText(this, "发现房间内用户: " + userId, Toast.LENGTH_SHORT).show();
+                        
+                        // 创建该用户的远程视频渲染器
+                        createRemoteRenderer(userId);
+                        
+                        // 向现有用户发送 Offer
+                        createAndSendOffer(userId);
+                    }
+                }
+            } catch (Exception e) {
+                onConnectFailure("处理现有用户失败: " + e.getMessage());
+            }
+        });
+    }
+
     private PeerConnection getOrCreatePeerConnection(String userId) {
         PeerConnection peerConnection = peerConnections.get(userId);
         if (peerConnection == null) {
@@ -517,6 +563,26 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
         @Override public void onSetFailure(String s) {}
     }
     
+    // 为远程用户创建视频渲染器
+    private void createRemoteRenderer(String userId) {
+        SurfaceViewRenderer remoteView = new SurfaceViewRenderer(this);
+        remoteView.init(eglBase.getEglBaseContext(), null);
+        
+        // 设置渲染器大小和布局
+        int width = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 120, getResources().getDisplayMetrics());
+        int height = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 160, getResources().getDisplayMetrics());
+        
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(width, height);
+        params.setMargins(10, 10, 10, 10);
+        remoteView.setLayoutParams(params);
+        
+        // 添加到远程视频容器中
+        remoteVideoContainer.addView(remoteView, 0); // 添加到容器的第一个位置，本地视频之后
+        
+        // 保存引用
+        remoteRenderers.put(userId, remoteView);
+    }
+    
     // PeerConnection 回调观察者
     private class PeerConnectionObserver implements PeerConnection.Observer {
         private String userId;
@@ -538,7 +604,10 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
             runOnUiThread(() -> {
                 if (!mediaStream.videoTracks.isEmpty()) {
                     VideoTrack remoteVideoTrack = mediaStream.videoTracks.get(0);
-                    remoteVideoTrack.addSink(remoteVideoView);
+                    SurfaceViewRenderer remoteRenderer = remoteRenderers.get(userId);
+                    if (remoteRenderer != null) {
+                        remoteVideoTrack.addSink(remoteRenderer);
+                    }
                 }
             });
         }
@@ -565,6 +634,12 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
             }
             peerConnections.clear();
             
+            // 清理远程渲染器
+            for (SurfaceViewRenderer renderer : remoteRenderers.values()) {
+                renderer.release();
+            }
+            remoteRenderers.clear();
+            
             // 清理本地轨道
             if (localVideoTrack != null) {
                 localVideoTrack.dispose();
@@ -575,17 +650,12 @@ public class WebRtcActivity extends AppCompatActivity implements WebRtcSignaling
             if (videoCapturer != null) {
                 videoCapturer.dispose();
             }
-            // 释放SurfaceTextureHelper
-            if (surfaceTextureHelper != null) {
-                surfaceTextureHelper.dispose();
-            }
             if (localAudioTrack != null) {
                 localAudioTrack.dispose();
             }
             
             // 清理渲染器
             localVideoView.release();
-            remoteVideoView.release();
             
             // 清理EGL上下文
             if (eglBase != null) {

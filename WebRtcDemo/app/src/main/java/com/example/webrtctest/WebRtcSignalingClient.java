@@ -3,6 +3,7 @@ package com.example.webrtctest;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.drafts.Draft_6455; // WebSocket 标准协议草案（必须）
 import org.java_websocket.handshake.ServerHandshake;
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.net.URI;
@@ -32,6 +33,8 @@ public class WebRtcSignalingClient extends WebSocketClient {
         void onReceiveIceCandidate(String candidate, String sdpMid, int sdpMLineIndex, String fromUserId);
         // 房间相关回调（如加入成功、其他用户加入）
         void onRoomEvent(String eventType, String roomId, String userId);
+        // 接收房间内现有用户列表
+        void onExistingUsers(String roomId, String[] userIds);
     }
 
     private final SignalingCallback callback;
@@ -177,7 +180,7 @@ public class WebRtcSignalingClient extends WebSocketClient {
         if (!isOpen() || currentRoomId == null) return;
         JSONObject json = new JSONObject();
         try {
-            json.put("type", "ice");
+            json.put("type", "iceCandidate");
             json.put("roomId", currentRoomId);
             json.put("from", currentUserId);
             json.put("to", targetUserId);
@@ -236,7 +239,7 @@ public class WebRtcSignalingClient extends WebSocketClient {
                     String answerFrom = json.getString("from");
                     callback.onReceiveAnswer(answerSdp, answerFrom);
                     break;
-                case "ice":
+                case "iceCandidate":
                     // 接收对方的 ICE 候选
                     String iceCandidate = json.getString("candidate");
                     String sdpMid = json.optString("sdpMid", "");
@@ -245,11 +248,18 @@ public class WebRtcSignalingClient extends WebSocketClient {
                     callback.onReceiveIceCandidate(iceCandidate, sdpMid, sdpMLineIndex, iceFrom);
                     break;
                 // 房间事件（如加入成功、其他用户加入/离开）
-                case "roomCreated":
-                case "roomJoined":
+                case "joined":
                 case "userJoined":
                 case "userLeft":
                     callback.onRoomEvent(type, json.getString("roomId"), json.getString("userId"));
+                    break;
+                case "existingUsers":
+                    JSONArray usersArray = json.getJSONArray("users");
+                    String[] userIds = new String[usersArray.length()];
+                    for (int i = 0; i < usersArray.length(); i++) {
+                        userIds[i] = usersArray.getString(i);
+                    }
+                    callback.onExistingUsers(json.getString("roomId"), userIds);
                     break;
                 default:
                     // 其他自定义信令（如通话结束、异常通知）

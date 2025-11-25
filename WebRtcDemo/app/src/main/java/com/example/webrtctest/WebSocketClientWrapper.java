@@ -4,6 +4,8 @@ import android.util.Log;
 
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -80,7 +82,15 @@ public class WebSocketClientWrapper extends WebSocketClient {
     // 添加加入房间的方法
     public void joinRoom(String roomId) {
         if (isOpen()) {
-            String message = "{\"type\":\"joinRoom\",\"roomId\":\"" + roomId + "\"}";
+            String message = "{\"type\":\"joinRoom\",\"roomId\":\"" + roomId + "\",\"userId\":\"android_" + System.currentTimeMillis() + "\"}";
+            send(message);
+        }
+    }
+
+    // 添加获取房间信息的方法
+    public void getRoomInfo() {
+        if (isOpen()) {
+            String message = "{\"type\":\"getRoomInfo\"}";
             send(message);
         }
     }
