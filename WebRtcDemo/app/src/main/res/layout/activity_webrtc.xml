@@ -4,143 +4,148 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#1a1a1a"
+    android:background="#FFFFFF"
     tools:context=".WebRtcActivity">
 
+    <!-- 退出按钮 - 右上角 -->
+    <ImageButton
+        android:id="@+id/btn_leave_room"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_margin="16dp"
+        android:background="@drawable/bg_button_normal"
+        android:src="@drawable/ic_exit_to_app"
+        android:contentDescription="退出房间"
+        android:elevation="4dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
     <!-- 远程视频显示区域 -->
-    <LinearLayout
+    <GridLayout
         android:id="@+id/remote_video_container"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:background="#2d2d2d"
-        android:orientation="horizontal"
+        android:background="#F5F5F5"
+        android:columnCount="2"
+        android:rowCount="3"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintBottom_toTopOf="@+id/control_panel_scroll">
+        app:layout_constraintBottom_toTopOf="@+id/control_panel">
+    </GridLayout>
 
-        <!-- 本地视频小窗口 -->
-        <FrameLayout
-            android:id="@+id/local_video_container"
-            android:layout_width="120dp"
-            android:layout_height="160dp"
-            android:layout_gravity="end|bottom"
-            android:layout_margin="16dp"
-            android:background="#404040"
-            android:elevation="4dp"
-            android:radius="8dp">
+    <!-- 本地视频小窗口 -->
+    <FrameLayout
+        android:id="@+id/local_video_container"
+        android:layout_width="120dp"
+        android:layout_height="160dp"
+        android:layout_margin="16dp"
+        android:background="#E0E0E0"
+        android:elevation="4dp"
+        android:radius="8dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintBottom_toBottomOf="@+id/remote_video_container">
 
-            <org.webrtc.SurfaceViewRenderer
-                android:id="@+id/local_video_view"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent" />
-        </FrameLayout>
-
-        <!-- 会议信息显示 -->
-        <LinearLayout
+        <org.webrtc.SurfaceViewRenderer
+            android:id="@+id/local_video_view"
             android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+    </FrameLayout>
+
+    <!-- 会议信息显示 -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <TextView
+            android:id="@+id/meeting_title"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="16dp">
+            android:text="WebRTC 会议"
+            android:textColor="#333333"
+            android:textSize="18sp"
+            android:textStyle="bold" />
 
-            <TextView
-                android:id="@+id/meeting_title"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="WebRTC 会议"
-                android:textColor="#FFFFFF"
-                android:textSize="18sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/participant_count"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="参会人员: 1人"
-                android:textColor="#CCCCCC"
-                android:textSize="14sp" />
-        </LinearLayout>
+        <TextView
+            android:id="@+id/participant_count"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="参会人员: 1人"
+            android:textColor="#666666"
+            android:textSize="14sp" />
     </LinearLayout>
 
-    <!-- 可滚动的控制面板 -->
-    <HorizontalScrollView
-        android:id="@+id/control_panel_scroll"
-        android:layout_width="0dp"
+    <!-- 控制面板 -->
+    <LinearLayout
+        android:id="@+id/control_panel"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="#333333"
-        android:padding="12dp"
+        android:background="#FAFAFA"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:padding="16dp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <!-- 控制面板 -->
-        <LinearLayout
-            android:id="@+id/control_panel"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center">
+        <!-- 麦克风开关 -->
+        <ImageButton
+            android:id="@+id/btn_mute_audio"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_margin="8dp"
+            android:background="@drawable/bg_button_normal"
+            android:src="@drawable/ic_mic_on"
+            android:contentDescription="麦克风开关"
+            android:elevation="2dp" />
 
-            <!-- 麦克风开关 -->
-            <ImageButton
-                android:id="@+id/btn_mute_audio"
-                android:layout_width="56dp"
-                android:layout_height="56dp"
-                android:layout_margin="8dp"
-                android:background="@drawable/ic_mic_on"
-                android:contentDescription="麦克风开关"
-                android:elevation="2dp" />
+        <!-- 视频开关 -->
+        <ImageButton
+            android:id="@+id/btn_mute_video"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_margin="8dp"
+            android:background="@drawable/bg_button_normal"
+            android:src="@drawable/ic_videocam_on"
+            android:contentDescription="摄像头开关"
+            android:elevation="2dp" />
 
-            <!-- 视频开关 -->
-            <ImageButton
-                android:id="@+id/btn_mute_video"
-                android:layout_width="56dp"
-                android:layout_height="56dp"
-                android:layout_margin="8dp"
-                android:background="@drawable/ic_videocam_on"
-                android:contentDescription="摄像头开关"
-                android:elevation="2dp" />
+        <!-- 加入/离开房间 -->
+        <ImageButton
+            android:id="@+id/btn_join_room"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_margin="8dp"
+            android:background="@drawable/bg_button_primary"
+            android:src="@drawable/ic_call"
+            android:contentDescription="加入房间"
+            android:elevation="2dp" />
 
-            <!-- 加入/离开房间 -->
-            <ImageButton
-                android:id="@+id/btn_join_room"
-                android:layout_width="56dp"
-                android:layout_height="56dp"
-                android:layout_margin="8dp"
-                android:background="@drawable/ic_call"
-                android:contentDescription="加入房间"
-                android:elevation="2dp" />
+        <!-- 挂断 -->
+        <ImageButton
+            android:id="@+id/btn_hangup"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_margin="8dp"
+            android:background="@drawable/bg_button_hangup"
+            android:src="@drawable/ic_call_end"
+            android:contentDescription="挂断"
+            android:elevation="2dp" />
 
-            <!-- 挂断 -->
-            <ImageButton
-                android:id="@+id/btn_hangup"
-                android:layout_width="56dp"
-                android:layout_height="56dp"
-                android:layout_margin="8dp"
-                android:background="@drawable/ic_call_end"
-                android:contentDescription="挂断"
-                android:elevation="2dp" />
-
-            <!-- 退出房间 -->
-            <ImageButton
-                android:id="@+id/btn_leave_room"
-                android:layout_width="56dp"
-                android:layout_height="56dp"
-                android:layout_margin="8dp"
-                android:background="@drawable/ic_exit_to_app"
-                android:contentDescription="退出房间"
-                android:elevation="2dp" />
-
-            <!-- 切换摄像头 -->
-            <ImageButton
-                android:id="@+id/btn_switch_camera"
-                android:layout_width="56dp"
-                android:layout_height="56dp"
-                android:layout_margin="8dp"
-                android:background="@drawable/ic_switch_camera"
-                android:contentDescription="切换摄像头"
-                android:elevation="2dp" />
-        </LinearLayout>
-    </HorizontalScrollView>
+        <!-- 切换摄像头 -->
+        <ImageButton
+            android:id="@+id/btn_switch_camera"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_margin="8dp"
+            android:background="@drawable/bg_button_normal"
+            android:src="@drawable/ic_switch_camera"
+            android:contentDescription="切换摄像头"
+            android:elevation="2dp" />
+    </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

@@ -28,6 +28,8 @@ import org.json.JSONObject;
 import java.net.URISyntaxException;
 import java.util.UUID;
 
+import com.example.webrtctest.WebRtcActivity;
+
 public class MainActivity extends AppCompatActivity implements WebSocketClientWrapper.WebSocketListener {
     private static final String TAG = "MainActivity";
     private static final int PERMISSION_REQUEST_CODE = 1001;
@@ -149,13 +151,12 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
             return;
         }
 
-        // 直接加入房间并跳转
+        // 发送加入房间请求，等待服务器响应后再决定是否跳转
         if (webSocketClient != null && webSocketClient.isOpen()) {
-            webSocketClient.joinRoom(roomId);
-            // 跳转到WebRtcActivity
-            Intent intent = new Intent(MainActivity.this, WebRtcActivity.class);
-            intent.putExtra("ROOM_ID", roomId);
-            startActivity(intent);
+            String userId = "android_" + System.currentTimeMillis();
+            webSocketClient.joinRoom(roomId, userId);
+            // 不再立即跳转，而是等待服务器响应
+            Toast.makeText(this, "正在尝试加入房间: " + roomId, Toast.LENGTH_SHORT).show();
         } else {
             Toast.makeText(this, "信令服务器未连接，请稍后再试", Toast.LENGTH_SHORT).show();
         }
@@ -252,6 +253,12 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
                 case "roomCreated":
                     handleRoomCreated(json);
                     break;
+                case "roomExists":  // 添加处理房间已存在的case
+                    handleRoomExists(json);
+                    break;
+                case "joined":  // 添加处理成功加入房间的情况
+                    handleRoomJoined(json);
+                    break;
                 case "error":
                     handleError(json);
                     break;
@@ -276,8 +283,19 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
                     JSONObject room = roomsArray.getJSONObject(i);
                     String roomId = room.getString("roomId");
                     int userCount = room.getInt("userCount");
+                    JSONArray users = room.getJSONArray("users");
                     info.append("房间: ").append(roomId)
-                        .append(", 用户数: ").append(userCount).append("\n");
+                        .append(", 用户数: ").append(userCount);
+                    
+                    // 显示用户列表
+                    if (users.length() > 0) {
+                        info.append(", 用户列表: ");
+                        for (int j = 0; j < users.length(); j++) {
+                            if (j > 0) info.append(", ");
+                            info.append(users.getString(j));
+                        }
+                    }
+                    info.append("\n");
                 }
             }
             
@@ -307,6 +325,42 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
             });
         } catch (JSONException e) {
             Log.e(TAG, "房间创建响应解析错误: " + e.getMessage());
+        }
+    }
+
+    // 添加处理房间已存在的方法
+    private void handleRoomExists(JSONObject json) {
+        try {
+            String roomId = json.getString("roomId");
+            String msg = json.getString("message");
+            
+            runOnUiThread(() -> {
+                Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
+                // 房间已存在，直接跳转到WebRtcActivity
+                Intent intent = new Intent(MainActivity.this, WebRtcActivity.class);
+                intent.putExtra("ROOM_ID", roomId);
+                startActivity(intent);
+            });
+        } catch (JSONException e) {
+            Log.e(TAG, "房间存在响应解析错误: " + e.getMessage());
+        }
+    }
+
+    // 添加处理成功加入房间的方法
+    private void handleRoomJoined(JSONObject json) {
+        try {
+            String roomId = json.getString("roomId");
+            String userId = json.getString("userId");
+            
+            runOnUiThread(() -> {
+                Toast.makeText(this, "成功加入房间: " + roomId, Toast.LENGTH_SHORT).show();
+                // 成功加入房间后跳转到WebRtcActivity
+                Intent intent = new Intent(MainActivity.this, WebRtcActivity.class);
+                intent.putExtra("ROOM_ID", roomId);
+                startActivity(intent);
+            });
+        } catch (JSONException e) {
+            Log.e(TAG, "房间加入响应解析错误: " + e.getMessage());
         }
     }
 
