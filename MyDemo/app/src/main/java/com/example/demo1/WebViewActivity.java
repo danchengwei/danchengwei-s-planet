@@ -168,4 +168,7 @@ public class WebViewActivity extends Activity {
             super.onBackPressed();
         }
     }
+    void gitTest(){
+        int a = 10;
+    }
 }
