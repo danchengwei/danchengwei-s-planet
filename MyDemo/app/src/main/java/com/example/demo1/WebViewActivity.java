@@ -170,5 +170,7 @@ public class WebViewActivity extends Activity {
     }
     void gitTest(){
         int a = 10;
+        int b = 20;
+        int c = a + b;
     }
 }
