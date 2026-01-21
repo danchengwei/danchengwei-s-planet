@@ -132,13 +132,11 @@ public class MainActivity extends AppCompatActivity implements WebSocketClientWr
             return;
         }
         
-        // 直接创建房间并跳转
+        // 发送创建房间请求，等待服务器响应后再跳转
         if (webSocketClient != null && webSocketClient.isOpen()) {
             webSocketClient.createRoom(roomId);
-            // 跳转到WebRtcActivity
-            Intent intent = new Intent(MainActivity.this, WebRtcActivity.class);
-            intent.putExtra("ROOM_ID", roomId);
-            startActivity(intent);
+            // 不再立即跳转，而是等待服务器响应
+            Toast.makeText(this, "正在创建房间: " + roomId, Toast.LENGTH_SHORT).show();
         } else {
             Toast.makeText(this, "信令服务器未连接，请稍后再试", Toast.LENGTH_SHORT).show();
         }

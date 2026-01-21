@@ -1,0 +1,395 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#1A1A1A">
+
+    <!-- 顶部状态栏 -->
+    <LinearLayout
+        android:id="@+id/topBar"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_alignParentTop="true"
+        android:orientation="horizontal"
+        android:background="#2D2D2D"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:elevation="4dp">
+
+        <TextView
+            android:id="@+id/tvTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/demo_title"
+            android:textSize="16sp"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold"
+            android:layout_marginEnd="12dp" />
+
+        <TextView
+            android:id="@+id/tvChannelNumber"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="频道: -"
+            android:textSize="12sp"
+            android:textColor="#999999"
+            android:layout_marginEnd="12dp" />
+
+        <TextView
+            android:id="@+id/tvUserCount"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="人数: 0"
+            android:textSize="12sp"
+            android:textColor="#999999" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/tvConnectionStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="未连接"
+            android:textSize="11sp"
+            android:textColor="#FF6B6B"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"
+            android:background="@drawable/bg_circle_button" />
+    </LinearLayout>
+
+    <!-- 主内容区域（视频） -->
+    <FrameLayout
+        android:id="@+id/videoContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_below="@id/topBar"
+        android:layout_above="@id/bottomToolbar">
+
+        <!-- 远程视频（主视频） -->
+        <FrameLayout
+            android:id="@+id/flRemoteVideo"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#000000">
+
+            <TextView
+                android:id="@+id/tvRemoteLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/remote_video_title"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:layout_gravity="top|start"
+                android:layout_margin="12dp"
+                android:background="#80000000"
+                android:padding="6dp" />
+        </FrameLayout>
+
+        <!-- 本地视频（画中画） -->
+        <FrameLayout
+            android:id="@+id/flLocalVideo"
+            android:layout_width="120dp"
+            android:layout_height="160dp"
+            android:layout_gravity="top|end"
+            android:layout_margin="12dp"
+            android:background="#000000"
+            android:elevation="8dp">
+
+            <TextView
+                android:id="@+id/tvLocalLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/local_video_title"
+                android:textColor="#FFFFFF"
+                android:textSize="10sp"
+                android:layout_gravity="top|start"
+                android:layout_margin="6dp"
+                android:background="#80000000"
+                android:padding="3dp" />
+        </FrameLayout>
+
+        <!-- 未连接提示 -->
+        <LinearLayout
+            android:id="@+id/llConnectPrompt"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:padding="32dp"
+            android:visibility="visible">
+
+            <EditText
+                android:id="@+id/etChannelName"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:hint="@string/channel_name_hint"
+                android:text="123456"
+                android:textSize="15sp"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#999999"
+                android:background="@drawable/bg_edittext"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:layout_marginBottom="16dp"
+                android:singleLine="true" />
+
+            <Button
+                android:id="@+id/btnJoinChannel"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:text="@string/join_channel_btn"
+                android:textColor="#FFFFFF"
+                android:background="@drawable/bg_button_primary"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <!-- 底部聊天面板（从底部弹出） -->
+    <LinearLayout
+        android:id="@+id/chatPanel"
+        android:layout_width="match_parent"
+        android:layout_height="400dp"
+        android:layout_alignParentBottom="true"
+        android:orientation="vertical"
+        android:background="#2D2D2D"
+        android:visibility="gone"
+        android:elevation="8dp"
+        android:translationY="400dp"
+        android:clickable="true"
+        android:focusable="true">
+
+        <!-- 聊天标题栏 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:orientation="horizontal"
+                android:background="#3D3D3D"
+                android:gravity="center_vertical"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="聊天"
+                    android:textSize="15sp"
+                    android:textColor="#FFFFFF"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvChannelInfo"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="频道: -"
+                    android:textSize="11sp"
+                    android:textColor="#999999"
+                    android:layout_marginEnd="12dp" />
+
+                <ImageButton
+                    android:id="@+id/btnCloseChat"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:src="@drawable/ic_close"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:scaleType="centerInside"
+                    android:tint="#FFFFFF" />
+            </LinearLayout>
+
+        <!-- 聊天消息列表 -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvChatMessages"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:padding="8dp"
+            android:clipToPadding="false" />
+
+        <!-- 在线用户列表 -->
+        <TextView
+            android:id="@+id/tvUserInfo"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="在线用户: 0"
+            android:textSize="11sp"
+            android:textColor="#999999"
+            android:padding="10dp"
+            android:paddingStart="16dp"
+            android:background="#3D3D3D" />
+
+        <!-- 聊天输入区域 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:padding="12dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:background="#3D3D3D">
+
+            <EditText
+                android:id="@+id/etChatMessage"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="@string/chat_message_hint"
+                android:textSize="13sp"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#999999"
+                android:background="@drawable/bg_edittext"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp"
+                android:layout_marginEnd="8dp"
+                android:maxLines="3" />
+
+            <Button
+                android:id="@+id/btnSendChat"
+                android:layout_width="60dp"
+                android:layout_height="36dp"
+                android:text="发送"
+                android:textColor="#FFFFFF"
+                android:background="@drawable/bg_button_primary"
+                android:textSize="13sp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- 底部工具栏 -->
+    <LinearLayout
+        android:id="@+id/bottomToolbar"
+        android:layout_width="match_parent"
+        android:layout_height="72dp"
+        android:layout_alignParentBottom="true"
+        android:orientation="horizontal"
+        android:background="#2D2D2D"
+        android:gravity="center"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="8dp"
+        android:elevation="4dp">
+
+        <!-- 麦克风按钮 -->
+        <LinearLayout
+            android:id="@+id/llAudioControl"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <ImageButton
+                android:id="@+id/btnToggleAudio"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:src="@drawable/ic_mic_on"
+                android:background="@drawable/bg_circle_button"
+                android:contentDescription="麦克风"
+                android:scaleType="centerInside"
+                android:padding="10dp" />
+
+            <TextView
+                android:id="@+id/tvAudioLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="麦克风"
+                android:textSize="10sp"
+                android:textColor="#FFFFFF"
+                android:layout_marginTop="4dp" />
+        </LinearLayout>
+
+        <!-- 摄像头按钮 -->
+        <LinearLayout
+            android:id="@+id/llVideoControl"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <ImageButton
+                android:id="@+id/btnToggleVideo"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:src="@drawable/ic_videocam"
+                android:background="@drawable/bg_circle_button"
+                android:contentDescription="摄像头"
+                android:scaleType="centerInside"
+                android:padding="10dp" />
+
+            <TextView
+                android:id="@+id/tvVideoLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="摄像头"
+                android:textSize="10sp"
+                android:textColor="#FFFFFF"
+                android:layout_marginTop="4dp" />
+        </LinearLayout>
+
+        <!-- 聊天按钮 -->
+        <LinearLayout
+            android:id="@+id/llChatToggle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <ImageButton
+                android:id="@+id/btnToggleChat"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:src="@drawable/ic_chat"
+                android:background="@drawable/bg_circle_button"
+                android:contentDescription="聊天"
+                android:scaleType="centerInside"
+                android:padding="10dp" />
+
+            <TextView
+                android:id="@+id/tvChatLabel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="聊天"
+                android:textSize="10sp"
+                android:textColor="#FFFFFF"
+                android:layout_marginTop="4dp" />
+        </LinearLayout>
+
+        <!-- 离开频道按钮 -->
+        <LinearLayout
+            android:id="@+id/llLeaveChannel"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <ImageButton
+                android:id="@+id/btnLeaveChannel"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:src="@drawable/ic_close"
+                android:background="@drawable/bg_button_danger"
+                android:contentDescription="离开"
+                android:scaleType="centerInside"
+                android:padding="10dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="离开"
+                android:textSize="10sp"
+                android:textColor="#FF3B30"
+                android:layout_marginTop="4dp" />
+        </LinearLayout>
+    </LinearLayout>
+</RelativeLayout>

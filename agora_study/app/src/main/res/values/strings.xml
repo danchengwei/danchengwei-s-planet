@@ -1,0 +1,37 @@
+<resources>
+    <string name="app_name">Agora学习</string>
+    <string name="demo_title">Agora视频通话演示</string>
+    <string name="channel_name_hint">请输入频道名称</string>
+    <string name="join_channel_btn">加入频道</string>
+    <string name="leave_channel_btn">离开频道</string>
+    <string name="toggle_audio_btn">打开音频</string>
+    <string name="toggle_video_btn">打开视频</string>
+    <string name="close_audio_btn">关闭音频</string>
+    <string name="close_video_btn">关闭视频</string>
+    <string name="chat_message_hint">请输入聊天消息</string>
+    <string name="send_chat_btn">发送消息</string>
+    <string name="local_video_title">本地视频</string>
+    <string name="remote_video_title">远程视频</string>
+    <string name="user_joined_msg">%s 加入了房间</string>
+    <string name="user_left_msg">%s 离开了房间</string>
+    <string name="mic_apply_msg">%s 申请连麦</string>
+    <string name="message_received">消息: %s</string>
+    <string name="audio_muted">音频已静音</string>
+    <string name="audio_unmuted">音频已取消静音</string>
+    <string name="video_muted">视频已关闭</string>
+    <string name="video_unmuted">视频已开启</string>
+    <string name="joined_channel_msg">已加入频道: %s</string>
+    <string name="left_channel_msg">已离开频道</string>
+    <string name="please_enter_message">请输入消息内容</string>
+    <string name="message_sent">消息已发送</string>
+    <string name="init_failed">Agora初始化失败: %s</string>
+    <string name="join_failed">加入频道失败: %s</string>
+    <string name="leave_failed">离开频道失败: %s</string>
+    <string name="toggle_audio_failed">切换音频失败: %s</string>
+    <string name="toggle_video_failed">切换视频失败: %s</string>
+    <string name="send_msg_failed">发送消息失败: %s</string>
+    <string name="switch_camera_btn">切换摄像头</string>
+    <string name="permission_rational_title">权限请求</string>
+    <string name="permission_rational_message">应用需要摄像头和麦克风权限才能进行音视频通话，请授予权限。</string>
+    <string name="permission_denied_message">权限被拒绝，无法进行音视频通话。</string>
+</resources>
