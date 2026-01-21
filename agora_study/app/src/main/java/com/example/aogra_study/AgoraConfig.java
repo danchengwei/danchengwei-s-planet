@@ -6,11 +6,11 @@ package com.example.aogra_study;
  */
 public class AgoraConfig {
     // 您的Agora App ID
-    public static final String APP_ID = "db6c0ac69e8342baad9a486e7b558951";
+    public static final String APP_ID = "7828b636a0f74028bd7bab84a6b6274a";
     
     // Token（在生产环境中应从服务器获取）
     // 在开发测试阶段，可以使用空字符串或临时Token
-    public static final String TEMP_TOKEN = "";
+    public static final String TEMP_TOKEN = "007eJxTYGD5su/zzbWfeGcHbjhR6vznP4vxAYkLS2Iu2Z1e+uh/4hkTBQZzCyOLJDNjs0SDNHMTAyA7xTwpMcnCJNEsyczI3CTxb0dBZkMgI8Or270sjAwQCOKzMRgaGZuYmjEwAAC13iNP";
     
     // 频道名称（可根据需要动态生成）
     public static final String DEFAULT_CHANNEL_NAME = "test_channel";

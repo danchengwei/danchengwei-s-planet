@@ -5,7 +5,7 @@
     android:layout_height="match_parent"
     android:background="#1A1A1A">
 
-    <!-- 顶部状态栏 -->
+    <!-- Top Bar -->
     <LinearLayout
         android:id="@+id/topBar"
         android:layout_width="match_parent"
@@ -32,7 +32,7 @@
             android:id="@+id/tvChannelNumber"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="频道: -"
+            android:text="@string/channel_info_prefix"
             android:textSize="12sp"
             android:textColor="#999999"
             android:layout_marginEnd="12dp" />
@@ -41,7 +41,7 @@
             android:id="@+id/tvUserCount"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="人数: 0"
+            android:text="@string/user_count_prefix"
             android:textSize="12sp"
             android:textColor="#999999" />
 
@@ -64,7 +64,7 @@
             android:background="@drawable/bg_circle_button" />
     </LinearLayout>
 
-    <!-- 主内容区域（视频） -->
+    <!-- Main Content Area (Video) -->
     <FrameLayout
         android:id="@+id/videoContainer"
         android:layout_width="match_parent"
@@ -72,7 +72,7 @@
         android:layout_below="@id/topBar"
         android:layout_above="@id/bottomToolbar">
 
-        <!-- 远程视频（主视频） -->
+        <!-- Remote Video (Main Video) -->
         <FrameLayout
             android:id="@+id/flRemoteVideo"
             android:layout_width="match_parent"
@@ -92,7 +92,7 @@
                 android:padding="6dp" />
         </FrameLayout>
 
-        <!-- 本地视频（画中画） -->
+        <!-- Local Video (Picture-in-Picture) -->
         <FrameLayout
             android:id="@+id/flLocalVideo"
             android:layout_width="120dp"
@@ -115,7 +115,7 @@
                 android:padding="3dp" />
         </FrameLayout>
 
-        <!-- 未连接提示 -->
+        <!-- Connect Prompt (Initially visible, hides after joining) -->
         <LinearLayout
             android:id="@+id/llConnectPrompt"
             android:layout_width="match_parent"
@@ -125,20 +125,14 @@
             android:padding="32dp"
             android:visibility="visible">
 
-            <EditText
-                android:id="@+id/etChannelName"
-                android:layout_width="match_parent"
-                android:layout_height="48dp"
-                android:hint="@string/channel_name_hint"
-                android:text="123456"
-                android:textSize="15sp"
+            <TextView
+                android:id="@+id/tvChannelPrompt"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/current_channel_prompt"
                 android:textColor="#FFFFFF"
-                android:textColorHint="#999999"
-                android:background="@drawable/bg_edittext"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp"
-                android:layout_marginBottom="16dp"
-                android:singleLine="true" />
+                android:textSize="16sp"
+                android:layout_marginBottom="24dp" />
 
             <Button
                 android:id="@+id/btnJoinChannel"
@@ -152,7 +146,7 @@
         </LinearLayout>
     </FrameLayout>
 
-    <!-- 底部聊天面板（从底部弹出） -->
+    <!-- Bottom Chat Panel (Slides up from bottom) -->
     <LinearLayout
         android:id="@+id/chatPanel"
         android:layout_width="match_parent"
@@ -166,45 +160,45 @@
         android:clickable="true"
         android:focusable="true">
 
-        <!-- 聊天标题栏 -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="48dp"
-                android:orientation="horizontal"
-                android:background="#3D3D3D"
-                android:gravity="center_vertical"
-                android:paddingStart="16dp"
-                android:paddingEnd="16dp">
+        <!-- Chat Title Bar -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:orientation="horizontal"
+            android:background="#3D3D3D"
+            android:gravity="center_vertical"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp">
 
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="聊天"
-                    android:textSize="15sp"
-                    android:textColor="#FFFFFF"
-                    android:textStyle="bold" />
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="聊天"
+                android:textSize="15sp"
+                android:textColor="#FFFFFF"
+                android:textStyle="bold" />
 
-                <TextView
-                    android:id="@+id/tvChannelInfo"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="频道: -"
-                    android:textSize="11sp"
-                    android:textColor="#999999"
-                    android:layout_marginEnd="12dp" />
+            <TextView
+                android:id="@+id/tvChannelInfo"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/channel_info_prefix"
+                android:textSize="11sp"
+                android:textColor="#999999"
+                android:layout_marginEnd="12dp" />
 
-                <ImageButton
-                    android:id="@+id/btnCloseChat"
-                    android:layout_width="32dp"
-                    android:layout_height="32dp"
-                    android:src="@drawable/ic_close"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:scaleType="centerInside"
-                    android:tint="#FFFFFF" />
-            </LinearLayout>
+            <ImageButton
+                android:id="@+id/btnCloseChat"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@drawable/ic_close"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:scaleType="centerInside"
+                android:tint="#FFFFFF" />
+        </LinearLayout>
 
-        <!-- 聊天消息列表 -->
+        <!-- Chat Message List -->
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rvChatMessages"
             android:layout_width="match_parent"
@@ -213,19 +207,19 @@
             android:padding="8dp"
             android:clipToPadding="false" />
 
-        <!-- 在线用户列表 -->
+        <!-- Online User List -->
         <TextView
             android:id="@+id/tvUserInfo"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="在线用户: 0"
+            android:text="@string/user_count_prefix"
             android:textSize="11sp"
             android:textColor="#999999"
             android:padding="10dp"
             android:paddingStart="16dp"
             android:background="#3D3D3D" />
 
-        <!-- 聊天输入区域 -->
+        <!-- Chat Input Area -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -263,7 +257,7 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- 底部工具栏 -->
+    <!-- Bottom Toolbar -->
     <LinearLayout
         android:id="@+id/bottomToolbar"
         android:layout_width="match_parent"
@@ -277,7 +271,7 @@
         android:paddingBottom="8dp"
         android:elevation="4dp">
 
-        <!-- 麦克风按钮 -->
+        <!-- Microphone Button -->
         <LinearLayout
             android:id="@+id/llAudioControl"
             android:layout_width="0dp"
@@ -306,7 +300,7 @@
                 android:layout_marginTop="4dp" />
         </LinearLayout>
 
-        <!-- 摄像头按钮 -->
+        <!-- Camera Button -->
         <LinearLayout
             android:id="@+id/llVideoControl"
             android:layout_width="0dp"
@@ -335,7 +329,35 @@
                 android:layout_marginTop="4dp" />
         </LinearLayout>
 
-        <!-- 聊天按钮 -->
+        <!-- Switch Camera Button -->
+        <LinearLayout
+            android:id="@+id/llSwitchCamera"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:gravity="center">
+
+            <ImageButton
+                android:id="@+id/btnSwitchCamera"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:src="@drawable/ic_switch_camera"
+                android:background="@drawable/bg_circle_button"
+                android:contentDescription="切换摄像头"
+                android:scaleType="centerInside"
+                android:padding="10dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/switch_camera_btn"
+                android:textSize="10sp"
+                android:textColor="#FFFFFF"
+                android:layout_marginTop="4dp" />
+        </LinearLayout>
+
+        <!-- Chat Button -->
         <LinearLayout
             android:id="@+id/llChatToggle"
             android:layout_width="0dp"
@@ -364,7 +386,7 @@
                 android:layout_marginTop="4dp" />
         </LinearLayout>
 
-        <!-- 离开频道按钮 -->
+        <!-- Leave Channel Button -->
         <LinearLayout
             android:id="@+id/llLeaveChannel"
             android:layout_width="0dp"

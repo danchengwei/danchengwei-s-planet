@@ -29,6 +29,8 @@ import io.agora.rtm.ErrorInfo;
  * 使用Agora云服务实现
  */
 public class RoomManager {
+    private static final String TAG = "Agora";
+    
     private RtcEngine rtcEngine;
     private RtmClient rtmClient;
     
@@ -109,9 +111,11 @@ public class RoomManager {
         
         // 启用音频和视频模块
         rtcEngine.enableAudio();
+        Log.d(TAG, "RTC 音频模块已启用。");
         rtcEngine.enableVideo();
+        Log.d(TAG, "RTC 视频模块已启用。");
         
-        Log.d("RoomManager", "RTC引擎初始化完成");
+        Log.d(TAG, "RTC引擎初始化完成");
         
         // 初始化RTM客户端
         rtmEventListener = new RtmEventListener() {
@@ -151,10 +155,10 @@ public class RoomManager {
      * 创建聊天室
      */
     public void createChatRoom(String channelName, String userId, String token, boolean isBroadcaster) {
-        Log.d("Agora", "=== RoomManager.createChatRoom 开始 ===");
-        Log.d("Agora", "频道名称: " + channelName);
-        Log.d("Agora", "用户ID: " + userId);
-        Log.d("Agora", "是否为主播: " + isBroadcaster);
+        Log.d(TAG, "=== RoomManager.createChatRoom 开始 ===");
+        Log.d(TAG, "频道名称: " + channelName);
+        Log.d(TAG, "用户ID: " + userId);
+        Log.d(TAG, "是否为主播: " + isBroadcaster);
         
         this.currentChannelName = channelName;
         this.currentUserId = userId;
@@ -162,17 +166,17 @@ public class RoomManager {
         this.isBroadcaster = isBroadcaster;
         
         // 直接加入 RTC 频道，不需要等待 RTM 登录
-        Log.d("Agora", "直接加入 RTC 频道（不等待 RTM）...");
+        Log.d(TAG, "直接加入 RTC 频道（不等待 RTM）...");
         joinChannel(channelName, userId, token, isBroadcaster);
         
         // 尝试初始化 RTM（用于聊天功能）
         try {
-            Log.d("Agora", "初始化 RTM 客户端（用于聊天功能）...");
+            Log.d(TAG, "初始化 RTM 客户端（用于聊天功能）...");
             
             // 在开发测试阶段，如果 Token 为空，使用 App ID 直接登录
             String rtmToken = token;
             if (token == null || token.isEmpty()) {
-                Log.d("Agora", "Token 为空，使用 App ID 直接登录 RTM");
+                Log.d(TAG, "Token 为空，使用 App ID 直接登录 RTM");
                 rtmToken = null; // RTM SDK 在开发模式下可以使用 null Token
             }
             
@@ -180,28 +184,28 @@ public class RoomManager {
                     .eventListener(rtmEventListener)
                     .build();
             this.rtmClient = RtmClient.create(rtmConfig);
-            Log.d("Agora", "RTM 客户端创建完成");
+            Log.d(TAG, "RTM 客户端创建完成");
             
             // 登录RTM
-            Log.d("Agora", "开始 RTM 登录...");
+            Log.d(TAG, "开始 RTM 登录...");
             rtmClient.login(rtmToken, new ResultCallback<Void>() {
                 @Override
                 public void onSuccess(Void responseInfo) {
-                    Log.d("Agora", "RTM 登录成功（聊天功能可用）");
+                    Log.d(TAG, "RTM 登录成功（聊天功能可用）");
                 }
                 
                 @Override
                 public void onFailure(ErrorInfo errorInfo) {
-                    Log.w("Agora", "RTM 登录失败（聊天功能不可用）: " + errorInfo.toString());
-                    Log.w("Agora", "RTC 功能仍然正常工作");
+                    Log.w(TAG, "RTM 登录失败（聊天功能不可用）: " + errorInfo.toString());
+                    Log.w(TAG, "RTC 功能仍然正常工作");
                 }
             });
         } catch (Exception e) {
-            Log.w("Agora", "RTM 初始化失败（聊天功能不可用）: " + e.getMessage());
-            Log.w("Agora", "RTC 功能仍然正常工作");
+            Log.w(TAG, "RTM 初始化失败（聊天功能不可用）: " + e.getMessage());
+            Log.w(TAG, "RTC 功能仍然正常工作");
         }
         
-        Log.d("Agora", "=== RoomManager.createChatRoom 完成 ===");
+        Log.d(TAG, "=== RoomManager.createChatRoom 完成 ===");
     }
     
     /**
@@ -221,23 +225,23 @@ public class RoomManager {
      */
     private void joinChannel(String channelName, String userId, String token, boolean isBroadcaster) {
         try {
-            Log.d("Agora", "=== RoomManager.joinChannel 开始 ===");
-            Log.d("Agora", "频道名称: " + channelName);
-            Log.d("Agora", "用户ID: " + userId);
-            Log.d("Agora", "是否为主播: " + isBroadcaster);
+            Log.d(TAG, "=== RoomManager.joinChannel 开始 ===");
+            Log.d(TAG, "频道名称: " + channelName);
+            Log.d(TAG, "用户ID: " + userId);
+            Log.d(TAG, "是否为主播: " + isBroadcaster);
             
             // 设置频道属性
             rtcEngine.setChannelProfile(Constants.CHANNEL_PROFILE_LIVE_BROADCASTING);
-            Log.d("Agora", "已设置频道配置为直播模式");
+            Log.d(TAG, "已设置频道配置为直播模式");
             
             // 设置用户角色 - 确保至少是主播才能发送音视频流
             if (isBroadcaster) {
                 rtcEngine.setClientRole(Constants.CLIENT_ROLE_BROADCASTER);
-                Log.d("Agora", "已设置用户角色为主播");
+                Log.d(TAG, "已设置用户角色为主播");
             } else {
                 // 观众也需要能接收音视频流，但为了测试，我们设置为主播
                 rtcEngine.setClientRole(Constants.CLIENT_ROLE_BROADCASTER);
-                Log.d("Agora", "已设置用户角色为主播（观众模式）");
+                Log.d(TAG, "已设置用户角色为主播（观众模式）");
             }
             
             // 准备频道媒体选项
@@ -247,26 +251,26 @@ public class RoomManager {
             options.clientRoleType = Constants.CLIENT_ROLE_BROADCASTER;
             options.token = token;
             
-            Log.d("Agora", "频道媒体选项配置完成");
-            Log.d("Agora", "autoSubscribeAudio: " + options.autoSubscribeAudio);
-            Log.d("Agora", "autoSubscribeVideo: " + options.autoSubscribeVideo);
+            Log.d(TAG, "频道媒体选项配置完成");
+            Log.d(TAG, "autoSubscribeAudio: " + options.autoSubscribeAudio);
+            Log.d(TAG, "autoSubscribeVideo: " + options.autoSubscribeVideo);
             
             // 加入频道
-            Log.d("Agora", "开始调用 rtcEngine.joinChannel...");
+            Log.d(TAG, "开始调用 rtcEngine.joinChannel...");
             int ret = rtcEngine.joinChannel(token, channelName, userId, 0);
-            Log.d("Agora", "joinChannel 返回值: " + ret);
+            Log.d(TAG, "joinChannel 返回值: " + ret);
             
             if (ret == 0) {
-                Log.d("Agora", "joinChannel 调用成功");
+                Log.d(TAG, "joinChannel 调用成功");
             } else {
-                Log.e("Agora", "joinChannel 调用失败，错误码: " + ret);
+                Log.e(TAG, "joinChannel 调用失败，错误码: " + ret);
             }
             
             // 开启本地预览
             rtcEngine.startPreview();
-            Log.d("Agora", "本地预览已启动");
+            Log.d(TAG, "本地预览已启动");
             
-            Log.d("Agora", "=== RoomManager.joinChannel 完成 ===");
+            Log.d(TAG, "=== RoomManager.joinChannel 完成 ===");
         } catch (Exception e) {
             Log.e("Agora", "加入频道失败", e);
             e.printStackTrace();
@@ -445,20 +449,20 @@ public class RoomManager {
      * 获取房间成员列表
      */
     public List<String> getRoomMembers(String channelName) {
-        Log.d("Agora", "=== RoomManager.getRoomMembers 被调用 ===");
-        Log.d("Agora", "请求的频道名称: " + channelName);
-        Log.d("Agora", "当前频道名称: " + currentChannelName);
-        Log.d("Agora", "所有频道: " + roomMembers.keySet());
+        Log.d(TAG, "=== RoomManager.getRoomMembers 被调用 === ");
+        Log.d(TAG, "请求的频道名称: " + channelName);
+        Log.d(TAG, "当前频道名称: " + currentChannelName);
+        Log.d(TAG, "所有频道: " + roomMembers.keySet());
         
         if (roomMembers.containsKey(channelName)) {
             List<String> members = roomMembers.get(channelName);
-            Log.d("Agora", "频道 " + channelName + " 的成员数: " + members.size());
-            Log.d("Agora", "频道 " + channelName + " 的成员: " + members);
+            Log.d(TAG, "频道 " + channelName + " 的成员数: " + members.size());
+            Log.d(TAG, "频道 " + channelName + " 的成员: " + members);
             return new ArrayList<>(members);
         }
         
-        Log.e("Agora", "频道 " + channelName + " 不存在成员列表");
-        Log.d("Agora", "=== getRoomMembers 返回空列表 ===");
+        Log.e(TAG, "频道 " + channelName + " 不存在成员列表");
+        Log.d(TAG, "=== getRoomMembers 返回空列表 ===");
         return new ArrayList<>();
     }
     
