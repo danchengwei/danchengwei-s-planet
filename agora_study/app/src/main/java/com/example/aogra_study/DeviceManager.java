@@ -39,6 +39,46 @@ public class DeviceManager {
     private Map<Integer, Object> localVideoViews = new HashMap<>(); // uid -> view
     private Map<Integer, Object> remoteVideoViews = new HashMap<>(); // uid -> view
 
+    /**
+     * 解除本地视频渲染视图
+     */
+    public int removeLocalVideoView() {
+        Log.d(TAG, "=== removeLocalVideoView === 尝试解除本地视频渲染视图");
+        if (isRtcEngineAvailable()) {
+            // 通过传入null视图来解除绑定
+            int result = rtcEngine.setupLocalVideo(new VideoCanvas(null, 0, 0));
+            if (result == 0) {
+                localVideoViews.remove(0);
+                Log.d(TAG, "本地视频视图已成功解除绑定并从缓存中移除");
+            } else {
+                Log.e(TAG, "解除本地视频绑定失败，返回码: " + result);
+            }
+            return result;
+        }
+        Log.e(TAG, "解除本地视频绑定失败，rtcEngine 为空");
+        return -1; // 失败
+    }
+
+    /**
+     * 解除远程视频渲染视图
+     */
+    public int removeRemoteVideoView(int uid) {
+        Log.d(TAG, "=== removeRemoteVideoView === 尝试解除远程用户 " + uid + " 的视频渲染视图");
+        if (isRtcEngineAvailable()) {
+            // 通过传入null视图来解除绑定
+            int result = rtcEngine.setupRemoteVideo(new VideoCanvas(null, 0, uid));
+            if (result == 0) {
+                remoteVideoViews.remove(uid);
+                Log.d(TAG, "远程视频视图已成功解除绑定并从缓存中移除，用户ID: " + uid);
+            } else {
+                Log.e(TAG, "解除远程视频绑定失败，返回码: " + result);
+            }
+            return result;
+        }
+        Log.e(TAG, "解除远程视频绑定失败，rtcEngine 为空");
+        return -1; // 失败
+    }
+
     // 流控制状态
     private boolean isLocalVideoEnabled = true;
     private boolean isLocalAudioEnabled = true;

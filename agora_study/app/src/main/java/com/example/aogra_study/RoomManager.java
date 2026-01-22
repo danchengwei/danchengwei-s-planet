@@ -427,11 +427,11 @@ public class RoomManager {
             // 准备完整的频道媒体选项（包括频道模式和用户角色）
             final ChannelMediaOptions options = new ChannelMediaOptions();
             options.channelProfile = Constants.CHANNEL_PROFILE_LIVE_BROADCASTING; // 直播模式
-            options.clientRoleType = Constants.CLIENT_ROLE_BROADCASTER; // 主播角色
+            options.clientRoleType = Constants.CLIENT_ROLE_BROADCASTER; // 始终以主播角色加入，以便推流
             options.autoSubscribeAudio = true; // 自动订阅音频
             options.autoSubscribeVideo = true; // 自动订阅视频
-            options.publishMicrophoneTrack = false; // 默认不推麦克风流
-            options.publishCameraTrack = false; // 默认不推摄像头流
+            options.publishMicrophoneTrack = true; // 始终允许发布麦克风流，由 muteLocalAudio 控制
+            options.publishCameraTrack = true; // 始终允许发布摄像头流，由 muteLocalVideo 控制
 
             Log.d(TAG, "频道媒体选项配置完成");
             Log.d(TAG, "channelProfile: LIVE_BROADCASTING");
@@ -854,6 +854,56 @@ public class RoomManager {
         }
 
         Log.d("Agora", "=== handleLeaveChannel 完成 ===");
+    }
+
+    /**
+     * 处理音频设备变化事件（由 DeviceManager 调用）
+     */
+    public void handleAudioDeviceChanged(String deviceId, String deviceName) {
+        if (deviceStatusListener != null) {
+            deviceStatusListener.onAudioDeviceChanged(deviceId, deviceName);
+        }
+    }
+
+    /**
+     * 处理视频设备变化事件（由 DeviceManager 调用）
+     */
+    public void handleVideoDeviceChanged(String deviceId, String deviceName) {
+        if (deviceStatusListener != null) {
+            deviceStatusListener.onVideoDeviceChanged(deviceId, deviceName);
+        }
+    }
+
+    /**
+     * 处理本地视频状态变化事件（由 DeviceManager 调用）
+     */
+    public void handleLocalVideoStateChanged(boolean enabled) {
+        if (deviceStatusListener != null) {
+            deviceStatusListener.onLocalVideoStateChanged(enabled);
+        }
+    }
+
+    /**
+     * 处理远程视频状态变化事件（由 DeviceManager 调用）
+     */
+    public void handleRemoteVideoStateChanged(int uid, boolean enabled) {
+        Log.d("Agora", "=== RoomManager.handleRemoteVideoStateChanged 被调用 ===");
+        Log.d("Agora", "用户ID: " + uid + ", 状态: " + enabled);
+        if (deviceStatusListener != null) {
+            deviceStatusListener.onRemoteVideoStateChanged(uid, enabled);
+            Log.d("Agora", "已通知 DeviceStatusListener 远程视频状态变化");
+        } else {
+            Log.e("Agora", "deviceStatusListener 为 null，无法通知远程视频状态变化");
+        }
+    }
+
+    /**
+     * 处理音频质量变化事件（由 DeviceManager 调用）
+     */
+    public void handleAudioQualityChanged(int uid, int quality) {
+        if (deviceStatusListener != null) {
+            deviceStatusListener.onAudioQualityChanged(uid, quality);
+        }
     }
 
     /**

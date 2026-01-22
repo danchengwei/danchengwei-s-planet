@@ -133,6 +133,7 @@ public class AgoraDemoActivity extends AppCompatActivity {
 
             // 设置默认静音状态
             serviceManager.getDeviceManager().muteLocalAudio(true);
+            serviceManager.getDeviceManager().muteLocalVideo(true); // 默认关闭本地视频流
 
             // 更新UI图标显示默认静音状态
             btnToggleAudio.setImageResource(R.drawable.ic_mic_off);
@@ -907,6 +908,19 @@ public class AgoraDemoActivity extends AppCompatActivity {
 
             // 从 map 中移除
             videoViews.remove(uid);
+
+            // 解除视图与 Agora RTC 引擎的绑定
+            if (serviceManager != null && serviceManager.getDeviceManager() != null) {
+                if (uid == 0) { // 本地视频
+                    serviceManager.getDeviceManager().removeLocalVideoView();
+                    Log.d(TAG, "已解除本地视频视图绑定");
+                } else { // 远程视频
+                    serviceManager.getDeviceManager().removeRemoteVideoView(uid);
+                    Log.d(TAG, "已解除远程视频视图绑定，用户ID: " + uid);
+                }
+            } else {
+                Log.e(TAG, "serviceManager 或 DeviceManager 为 null，无法解除视频视图绑定");
+            }
 
             Log.d(TAG, "已移除视频视图");
         }

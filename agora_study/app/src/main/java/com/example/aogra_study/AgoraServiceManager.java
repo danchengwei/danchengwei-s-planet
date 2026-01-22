@@ -125,6 +125,47 @@ public class AgoraServiceManager {
                 }
             }
         });
+        
+        // 设置 DeviceManager 的 DeviceStatusListener，让它能够通知 RoomManager 设备状态变化
+        deviceManager.setDeviceStatusListener(new DeviceManager.DeviceStatusListener() {
+            @Override
+            public void onAudioDeviceChanged(String deviceId, String deviceName) {
+                if (roomManager != null) {
+                    roomManager.handleAudioDeviceChanged(deviceId, deviceName);
+                }
+            }
+
+            @Override
+            public void onVideoDeviceChanged(String deviceId, String deviceName) {
+                if (roomManager != null) {
+                    roomManager.handleVideoDeviceChanged(deviceId, deviceName);
+                }
+            }
+
+            @Override
+            public void onLocalVideoStateChanged(boolean enabled) {
+                if (roomManager != null) {
+                    roomManager.handleLocalVideoStateChanged(enabled);
+                }
+            }
+
+            @Override
+            public void onRemoteVideoStateChanged(int uid, boolean enabled) {
+                Log.d("Agora", "DeviceManager 检测到远程视频状态变化: uid=" + uid + ", enabled=" + enabled);
+                if (roomManager != null) {
+                    roomManager.handleRemoteVideoStateChanged(uid, enabled);
+                } else {
+                    Log.e("Agora", "roomManager 为 null，无法处理远程视频状态变化事件");
+                }
+            }
+
+            @Override
+            public void onAudioQualityChanged(int uid, int quality) {
+                if (roomManager != null) {
+                    roomManager.handleAudioQualityChanged(uid, quality);
+                }
+            }
+        });
         Log.d("Agora", "DeviceManager 和 RoomManager 事件连接设置完成");
 
         isInitialized = true;
