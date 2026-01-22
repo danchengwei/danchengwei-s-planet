@@ -152,7 +152,8 @@ public class AgoraDemoActivity extends AppCompatActivity {
                     Log.d("Agora", "用户ID: " + userId);
                     runOnUiThread(() -> {
                         Toast.makeText(AgoraDemoActivity.this, getString(R.string.user_joined_msg, userId), Toast.LENGTH_SHORT).show();
-                        updateUserCount();
+                        // 现在不需要手动更新用户数量，因为LiveData会自动更新
+                        // updateUserCount();  // 移除这行，由LiveData自动更新
 
                         // 不在这里添加视频视图，等待视频流可用时再添加
                         // 视频视图会在 onRemoteVideoStateChanged 回调中添加
@@ -176,7 +177,8 @@ public class AgoraDemoActivity extends AppCompatActivity {
                             Log.e("Agora", "解析用户ID失败", e);
                         }
 
-                        updateUserCount();
+                        // 现在不需要手动更新用户数量，因为LiveData会自动更新
+                        // updateUserCount();  // 移除这行，由LiveData自动更新
                     });
                     Log.d("Agora", "=== UI 处理用户离开事件完成 ===");
                 }
@@ -288,6 +290,16 @@ public class AgoraDemoActivity extends AppCompatActivity {
                         hideLoading();
                         // 加入成功后立即更新用户数量
                         updateUserCount();
+                        
+                        // 监听成员数量变化
+                        serviceManager.getRoomManager().getMemberCountLiveData().observe(AgoraDemoActivity.this, count -> {
+                            runOnUiThread(() -> {
+                                if (tvUserCount != null) {
+                                    tvUserCount.setText(getString(R.string.user_count_prefix, count));
+                                    Log.d("Agora", "通过LiveData更新用户数量: " + count);
+                                }
+                            });
+                        });
                     });
                 }
 

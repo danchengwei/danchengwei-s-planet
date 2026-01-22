@@ -114,6 +114,16 @@ public class AgoraServiceManager {
                     Log.e("Agora", "roomManager 为 null，无法处理加入频道成功事件");
                 }
             }
+
+            @Override
+            public void onLeaveChannel() {
+                Log.d("Agora", "DeviceManager 检测到离开频道成功");
+                if (roomManager != null) {
+                    roomManager.handleLeaveChannel();
+                } else {
+                    Log.e("Agora", "roomManager 为 null，无法处理离开频道事件");
+                }
+            }
         });
         Log.d("Agora", "DeviceManager 和 RoomManager 事件连接设置完成");
 

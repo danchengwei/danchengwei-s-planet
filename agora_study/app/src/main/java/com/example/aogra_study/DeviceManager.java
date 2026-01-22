@@ -52,6 +52,7 @@ public class DeviceManager {
         void onUserJoined(int uid);
         void onUserLeft(int uid);
         void onJoinChannelSuccess(String channel, int uid, int elapsed);
+        void onLeaveChannel();
     }
 
     public void setRoomEventListener(RoomEventListener listener) {
@@ -220,6 +221,23 @@ public class DeviceManager {
                         break;
                 }
             }
+
+            @Override
+            public void onConnectionStateChanged(int state, int reason) {
+                Log.d(TAG, "=== onConnectionStateChanged ===");
+                Log.d(TAG, "连接状态: " + getConnectionStateName(state) + ", 原因: " + getConnectionStateChangedReasonName(reason));
+
+                // 检查是否是离开频道的状态变化
+                // 使用硬编码的值，对应 CONNECTION_CHANGED_REASON_LEAVE_CHANNEL (7) 和 CONNECTION_CHANGED_REASON_DISCONNECTED (2)
+                boolean isLeaveChannelReason = (reason == 2 || reason == 5 || reason == 7);
+                
+                if (state == io.agora.rtc2.Constants.CONNECTION_STATE_DISCONNECTED && isLeaveChannelReason) {
+                    Log.d(TAG, "检测到离开频道事件，通知 RoomManager");
+                    if (roomEventListener != null) {
+                        roomEventListener.onLeaveChannel();
+                    }
+                }
+            }
         };
 
         Log.d(TAG, "尝试创建 RtcEngine，App ID: " + appId);
@@ -357,6 +375,72 @@ public class DeviceManager {
                 return "ERR_INVALID_TOKEN (无效的 Token)";
             default:
                 return "UNKNOWN (未知错误码: " + err + ")";
+        }
+    }
+
+    /**
+     * 根据连接状态值获取状态名称
+     */
+    private String getConnectionStateName(int state) {
+        switch (state) {
+            case io.agora.rtc2.Constants.CONNECTION_STATE_DISCONNECTED:
+                return "CONNECTION_STATE_DISCONNECTED (已断开连接)";
+            case io.agora.rtc2.Constants.CONNECTION_STATE_CONNECTING:
+                return "CONNECTION_STATE_CONNECTING (连接中)";
+            case io.agora.rtc2.Constants.CONNECTION_STATE_CONNECTED:
+                return "CONNECTION_STATE_CONNECTED (已连接)";
+            case io.agora.rtc2.Constants.CONNECTION_STATE_RECONNECTING:
+                return "CONNECTION_STATE_RECONNECTING (重连中)";
+            case io.agora.rtc2.Constants.CONNECTION_STATE_FAILED:
+                return "CONNECTION_STATE_FAILED (连接失败)";
+            default:
+                return "UNKNOWN (未知状态: " + state + ")";
+        }
+    }
+
+    /**
+     * 根据连接状态变化原因获取名称
+     */
+    private String getConnectionStateChangedReasonName(int reason) {
+        switch (reason) {
+            case 0: // CONNECTION_CHANGED_REASON_CONNECTING - 可能没有公开的常量
+                return "CONNECTION_CHANGED_REASON_CONNECTING";
+            case 1: // CONNECTION_CHANGED_REASON_CONNECTED
+                return "CONNECTION_CHANGED_REASON_CONNECTED";
+            case 2: // CONNECTION_CHANGED_REASON_DISCONNECTED
+                return "CONNECTION_CHANGED_REASON_DISCONNECTED";
+            case 3: // CONNECTION_CHANGED_REASON_RECONNECTING
+                return "CONNECTION_CHANGED_REASON_RECONNECTING";
+            case 4: // CONNECTION_CHANGED_REASON_RECONNECTED
+                return "CONNECTION_CHANGED_REASON_RECONNECTED";
+            case 5: // CONNECTION_CHANGED_REASON_ABORTED
+                return "CONNECTION_CHANGED_REASON_ABORTED";
+            case 6: // CONNECTION_CHANGED_REASON_KEEP_ALIVE_TIMEOUT
+                return "CONNECTION_CHANGED_REASON_KEEP_ALIVE_TIMEOUT";
+            case 7: // CONNECTION_CHANGED_REASON_LEAVE_CHANNEL
+                return "CONNECTION_CHANGED_REASON_LEAVE_CHANNEL";
+            case 8: // CONNECTION_CHANGED_REASON_REMOTE_OFFLINE
+                return "CONNECTION_CHANGED_REASON_REMOTE_OFFLINE";
+            case 9: // CONNECTION_CHANGED_REASON_IP_CHANGED
+                return "CONNECTION_CHANGED_REASON_IP_CHANGED";
+            case 10: // CONNECTION_CHANGED_REASON_CLIENT_IP_CHANGED
+                return "CONNECTION_CHANGED_REASON_CLIENT_IP_CHANGED";
+            case 11: // CONNECTION_CHANGED_REASON_CLIENT_IP_PORT_CHANGED
+                return "CONNECTION_CHANGED_REASON_CLIENT_IP_PORT_CHANGED";
+            case 12: // CONNECTION_CHANGED_REASON_REMOTE_REQUEST_QUIT
+                return "CONNECTION_CHANGED_REASON_REMOTE_REQUEST_QUIT";
+            case 13: // CONNECTION_CHANGED_REASON_RECEIVED_SERVER_MESSAGE_FAILED
+                return "CONNECTION_CHANGED_REASON_RECEIVED_SERVER_MESSAGE_FAILED";
+            case 14: // CONNECTION_CHANGED_REASON_SOCK_DISCONNECTED
+                return "CONNECTION_CHANGED_REASON_SOCK_DISCONNECTED";
+            case 15: // CONNECTION_CHANGED_REASON_INVALID_APP_ID
+                return "CONNECTION_CHANGED_REASON_INVALID_APP_ID";
+            case 16: // CONNECTION_CHANGED_REASON_INVALID_CHANNEL_NAME
+                return "CONNECTION_CHANGED_REASON_INVALID_CHANNEL_NAME";
+            case 17: // CONNECTION_CHANGED_REASON_INTERNAL_FAILED
+                return "CONNECTION_CHANGED_REASON_INTERNAL_FAILED";
+            default:
+                return "UNKNOWN (未知原因: " + reason + ")";
         }
     }
 

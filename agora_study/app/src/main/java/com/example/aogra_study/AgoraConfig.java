@@ -11,7 +11,7 @@ public class AgoraConfig {
     // Token（在生产环境中应从服务器获取）
     // 在开发测试阶段，可以使用空字符串或临时Token
     // 注意：临时Token通常只有24小时有效期，过期后需要重新生成
-    public static final String TEMP_TOKEN = "007eJxTYIjboy7pv/63oJ6YjGPbx5zXLDeU9JZbHX594ULJ7d9W85gUGMwtjCySzIzNEg3SzE0MgOwU86TEJAuTRLMkMyNzk0Tm1QWZDYGMDMvN2BkYoRDEZ2MwNDI2MTVjYAAALNodcg==";  // 开发模式使用空Token
+    public static final String TEMP_TOKEN = "007eJxTYIjiCin5Pt96X8zeQ+ZzJk/+cVnw4JRFH2Z+8mGt6N1+6Z+cAoO5hZFFkpmxWaJBmrmJAZCdYp6UmGRhkmiWZGZkbpLI+q8wsyGQkaH1ah0jIwMEgvhsDIZGxiamZgwMAC1zIUM=";  // 开发模式使用空Token
 
     // 是否使用开发模式（不使用Token）
     public static final boolean DEVELOPMENT_MODE = true;

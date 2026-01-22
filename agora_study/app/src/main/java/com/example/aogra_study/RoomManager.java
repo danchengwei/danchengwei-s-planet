@@ -4,6 +4,8 @@ import android.content.Context;
 import android.util.Log;
 import android.view.View;
 
+import androidx.lifecycle.MutableLiveData;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -56,6 +58,9 @@ public class RoomManager {
     private boolean isLeavingRoom = false; // 标记是否正在离开房间
     private boolean isJoiningRoom = false; // 标记是否正在加入房间
 
+    // 房间成员数量的 LiveData
+    private MutableLiveData<Integer> memberCountLiveData = new MutableLiveData<>();
+
     // 设备状态监听器
     private DeviceStatusListener deviceStatusListener;
 
@@ -106,6 +111,23 @@ public class RoomManager {
 
     public void setRoomStateListener(RoomStateListener listener) {
         this.roomStateListener = listener;
+    }
+
+    /**
+     * 获取成员数量的 LiveData
+     */
+    public MutableLiveData<Integer> getMemberCountLiveData() {
+        return memberCountLiveData;
+    }
+
+    /**
+     * 获取当前房间成员数量
+     */
+    public int getCurrentMemberCount() {
+        if (currentChannelName != null && roomMembers.containsKey(currentChannelName)) {
+            return roomMembers.get(currentChannelName).size();
+        }
+        return 0;
     }
 
     /**
@@ -182,6 +204,36 @@ public class RoomManager {
             return;
         }
 
+        // 如果正在离开房间，等待片刻再尝试加入
+        if (isLeavingRoom) {
+            Log.w(TAG, "正在离开房间，等待片刻后加入");
+            new Thread(() -> {
+                try {
+                    // 等待最多3秒让离开操作完成
+                    int waited = 0;
+                    while (isLeavingRoom && waited < 3000) {
+                        Thread.sleep(100);
+                        waited += 100;
+                    }
+
+                    // 检查是否已经可以加入
+                    if (isLeavingRoom) {
+                        Log.e(TAG, "等待离开房间超时，强制重置状态");
+                        isLeavingRoom = false;
+                    }
+
+                    // 递归调用，确保此时不再处于离开状态
+                    createChatRoom(channelName, userId, token, isBroadcaster);
+                } catch (InterruptedException e) {
+                    Log.e(TAG, "等待被中断", e);
+                    if (roomStateListener != null) {
+                        roomStateListener.onRoomError("加入房间被中断");
+                    }
+                }
+            }).start();
+            return;
+        }
+
         // 通知开始加入房间
         isJoiningRoom = true;
         if (roomStateListener != null) {
@@ -201,10 +253,20 @@ public class RoomManager {
                 this.isBroadcaster = isBroadcaster;
 
                 // 预先创建房间成员列表，避免查询时为空
+                // 在每次加入房间时都重新初始化成员列表
                 if (!roomMembers.containsKey(channelName)) {
                     roomMembers.put(channelName, new ArrayList<>());
-                    Log.d(TAG, "预先创建房间成员列表，频道: " + channelName);
+                } else {
+                    // 清空现有成员列表，确保是从头开始
+                    roomMembers.get(channelName).clear();
                 }
+
+                // 将当前用户添加到成员列表
+                roomMembers.get(channelName).add(userId);
+                Log.d(TAG, "预先创建/清空房间成员列表，频道: " + channelName + ", 当前成员数: " + roomMembers.get(channelName).size());
+
+                // 更新成员数量的 LiveData
+                memberCountLiveData.postValue(roomMembers.get(channelName).size());
 
                 // 直接加入 RTC 频道，不需要等待 RTM 登录
                 Log.d(TAG, "直接加入 RTC 频道（不等待 RTM）...");
@@ -383,17 +445,24 @@ public class RoomManager {
             final int[] result = new int[]{-999}; // 使用数组来在内部类中修改值
             final boolean[] completed = new boolean[]{false};
             final String finalToken = token; // 创建 final 副本
+
+            // 创建一个更安全的 joinChannel 调用方式
             final Thread joinThread = new Thread(() -> {
                 try {
                     Log.d(TAG, "joinChannel 子线程开始执行...");
                     // 使用带 ChannelMediaOptions 的新 API
-                    result[0] = rtcEngine.joinChannel(finalToken, channelName, 0, options);
-                    completed[0] = true;
-                    Log.d(TAG, "joinChannel 子线程执行完成，返回值: " + result[0]);
+                    int ret = rtcEngine.joinChannel(finalToken, channelName, 0, options);
+                    synchronized(completed) {
+                        result[0] = ret;
+                        completed[0] = true;
+                    }
+                    Log.d(TAG, "joinChannel 子线程执行完成，返回值: " + ret);
                 } catch (Throwable e) {
                     Log.e(TAG, "joinChannel 子线程抛出异常", e);
-                    completed[0] = true;
-                    result[0] = -1000; // 标记为异常
+                    synchronized(completed) {
+                        completed[0] = true;
+                        result[0] = -1000; // 标记为异常
+                    }
                 }
             });
 
@@ -406,7 +475,12 @@ public class RoomManager {
 
             // 等待最多 5 秒
             int waitCount = 0;
-            while (!completed[0] && waitCount < 50) {
+            while (waitCount < 50) {
+                synchronized(completed) {
+                    if (completed[0]) {
+                        break;
+                    }
+                }
                 try {
                     Thread.sleep(100);
                     waitCount++;
@@ -419,7 +493,10 @@ public class RoomManager {
                 }
             }
 
-            int ret = result[0];
+            int ret;
+            synchronized(completed) {
+                ret = result[0];
+            }
 
             if (!completed[0]) {
                 Log.e(TAG, "joinChannel 调用超时（5秒），强制放弃");
@@ -649,7 +726,7 @@ public class RoomManager {
 
     /**
      * 离开房间
-     * 注意：此方法会阻塞直到离开完成（最多2秒），确保状态清理
+     * 注意：此方法会发起离开请求，实际状态重置由 SDK 回调完成
      */
     public void leaveRoom() {
         Log.d(TAG, "=== RoomManager.leaveRoom 开始 ===");
@@ -658,6 +735,9 @@ public class RoomManager {
         // 如果当前不在房间中，且不需要清理，直接返回
         if (!isInRoom && currentChannelName == null && !isJoiningRoom) {
             Log.d(TAG, "当前不在任何房间中，无需离开");
+            // 确保状态完全重置
+            isLeavingRoom = false;
+            isJoiningRoom = false;
             return;
         }
 
@@ -675,13 +755,6 @@ public class RoomManager {
 
         // 保存当前频道名，供后续清理使用
         final String channelToLeave = currentChannelName;
-
-        // 立即重置房间状态
-        isInRoom = false;
-        currentChannelName = null;
-        currentUserId = null;
-        currentToken = null;
-        isBroadcaster = false;
 
         // 同步执行离开操作（阻塞当前线程，直到完成或超时）
         final boolean[] leaveCompleted = new boolean[]{false};
@@ -704,87 +777,83 @@ public class RoomManager {
 
         leaveThread.start();
 
-        // 等待最多 2 秒
+        // 等待最多 1 秒，确保 leaveChannel 被调用
         try {
-            Log.d(TAG, "等待 leaveChannel 完成（最多2秒）...");
-            leaveThread.join(2000);
+            Log.d(TAG, "等待 leaveChannel 发起请求（最多1秒）...");
+            leaveThread.join(1000);
         } catch (InterruptedException e) {
             Log.e(TAG, "等待 leaveChannel 被中断", e);
         }
 
         if (!leaveCompleted[0]) {
-            Log.w(TAG, "leaveChannel 超时（2秒），强制继续");
-        } else {
-            Log.d(TAG, "leaveChannel 正常完成");
-        }
-
-        // 清空当前频道的成员列表
-        if (channelToLeave != null && roomMembers.containsKey(channelToLeave)) {
-            roomMembers.get(channelToLeave).clear();
-            Log.d(TAG, "已清空频道 " + channelToLeave + " 的成员列表");
-        }
-
-        // 额外等待 300ms，确保 SDK 内部状态完全清理
-        try {
-            Log.d(TAG, "额外等待 300ms，确保 SDK 状态清理...");
-            Thread.sleep(300);
-        } catch (InterruptedException e) {
-            Log.e(TAG, "等待被中断", e);
-        }
-
-        Log.d(TAG, "离开房间操作完成");
-
-        // 确保标志一定被重置
-        Log.d(TAG, "准备重置 isLeavingRoom 标志...");
-        isLeavingRoom = false;
-        Log.d(TAG, "isLeavingRoom 已重置为 false");
-
-        if (roomStateListener != null) {
-            roomStateListener.onLeftRoom();
-            Log.d(TAG, "已通知 onLeftRoom");
-        }
-
-        // RTM 异步释放（不阻塞离开流程）
-        if (rtmClient != null) {
-            final RtmClient clientToRelease = rtmClient;
-            rtmClient = null;
-
+            Log.w(TAG, "leaveChannel 调用超时（1秒），强制标记为完成");
+            // 如果调用超时，仍然保持 isLeavingRoom 标志，等待回调或超时处理
+            // 但会设置一个定时器，如果长时间没有回调则重置状态
             new Thread(() -> {
                 try {
-                    Log.d(TAG, "开始 RTM logout...");
-                    clientToRelease.logout(new ResultCallback<Void>() {
-                        @Override
-                        public void onSuccess(Void responseInfo) {
-                            Log.d(TAG, "RTM logout 成功");
-                            try {
-                                clientToRelease.release();
-                            } catch (Exception ex) {
-                                Log.e(TAG, "RTM release 失败", ex);
-                            }
-                        }
+                    Thread.sleep(5000); // 等待5秒
+                    if (isLeavingRoom) {
+                        Log.e(TAG, "离开频道回调超时（5秒内未收到回调），重置状态");
+                        isLeavingRoom = false;
+                        isJoiningRoom = false;
 
-                        @Override
-                        public void onFailure(ErrorInfo errorInfo) {
-                            Log.w(TAG, "RTM logout 失败: " + errorInfo.toString());
-                            try {
-                                clientToRelease.release();
-                            } catch (Exception ex) {
-                                Log.e(TAG, "RTM release 失败", ex);
-                            }
+                        if (roomStateListener != null) {
+                            roomStateListener.onLeftRoom();
                         }
-                    });
-                } catch (Exception e) {
-                    Log.e(TAG, "释放 RTM 客户端失败", e);
-                    try {
-                        clientToRelease.release();
-                    } catch (Exception ex) {
-                        Log.e(TAG, "强制释放 RTM 客户端失败", ex);
                     }
+                } catch (InterruptedException e) {
+                    Log.d(TAG, "离开超时检测线程被中断");
                 }
             }).start();
         }
 
-        Log.d(TAG, "=== RoomManager.leaveRoom 完成 ===");
+        Log.d(TAG, "离开房间操作发起完成，等待回调确认");
+
+        Log.d(TAG, "=== RoomManager.leaveRoom 发起完成 ===");
+    }
+
+    /**
+     * 处理离开频道成功事件（由 DeviceManager 调用）
+     */
+    public void handleLeaveChannel() {
+        Log.d("Agora", "=== RoomManager.handleLeaveChannel 被调用 ===");
+        Log.d("Agora", "当前频道名称: " + currentChannelName);
+        Log.d("Agora", "本地用户ID: " + currentUserId);
+        Log.d("Agora", "当前状态: isLeavingRoom=" + isLeavingRoom + ", isInRoom=" + isInRoom);
+
+        // 只有在确实正在离开房间时才重置状态
+        if (isLeavingRoom) {
+            isInRoom = false;
+            isLeavingRoom = false;
+            isJoiningRoom = false;
+
+            // 重置房间相关信息
+            currentChannelName = null;
+            currentUserId = null;
+            currentToken = null;
+            isBroadcaster = false;
+
+            // 清空当前频道的成员列表
+            if (currentChannelName != null && roomMembers.containsKey(currentChannelName)) {
+                roomMembers.get(currentChannelName).clear();
+                Log.d("Agora", "已清空频道 " + currentChannelName + " 的成员列表");
+            }
+
+            // 通知监听器
+            if (roomStateListener != null) {
+                Log.d("Agora", "通知 RoomStateListener 离开房间完成");
+                roomStateListener.onLeftRoom();
+            } else {
+                Log.e("Agora", "roomStateListener 为 null，无法通知 UI");
+            }
+
+            // 更新成员数量的 LiveData
+            memberCountLiveData.postValue(0);
+        } else {
+            Log.d("Agora", "非预期的离开频道回调，忽略");
+        }
+
+        Log.d("Agora", "=== handleLeaveChannel 完成 ===");
     }
 
     /**
@@ -818,17 +887,32 @@ public class RoomManager {
         Log.d("Agora", "用户ID: " + userId);
         Log.d("Agora", "当前频道名称: " + currentChannelName);
 
-        if (currentChannelName != null && roomMembers.containsKey(currentChannelName)) {
-            if (!roomMembers.get(currentChannelName).contains(userId)) {
-                roomMembers.get(currentChannelName).add(userId);
+        // 使用加入的频道名称，而不是当前频道名称，以处理加入过程中的情况
+        String targetChannel = currentChannelName; // 使用当前频道名称
+
+        if (targetChannel != null && roomMembers.containsKey(targetChannel)) {
+            if (!roomMembers.get(targetChannel).contains(userId)) {
+                roomMembers.get(targetChannel).add(userId);
                 Log.d("Agora", "添加新用户到成员列表: " + userId);
-                Log.d("Agora", "当前成员数: " + roomMembers.get(currentChannelName).size());
-                Log.d("Agora", "成员列表: " + roomMembers.get(currentChannelName));
+                Log.d("Agora", "当前成员数: " + roomMembers.get(targetChannel).size());
+                Log.d("Agora", "成员列表: " + roomMembers.get(targetChannel));
+
+                // 更新成员数量的 LiveData
+                memberCountLiveData.postValue(roomMembers.get(targetChannel).size());
             } else {
                 Log.d("Agora", "用户已在成员列表中，跳过添加: " + userId);
             }
+        } else if (targetChannel != null) {
+            // 如果频道不存在成员列表，创建一个新的
+            List<String> members = new ArrayList<>();
+            members.add(userId);
+            roomMembers.put(targetChannel, members);
+            Log.d("Agora", "为频道创建成员列表并添加用户: " + userId + ", 频道: " + targetChannel);
+
+            // 更新成员数量的 LiveData
+            memberCountLiveData.postValue(members.size());
         } else {
-            Log.e("Agora", "无法添加用户: currentChannelName=" + currentChannelName + ", containsKey=" + roomMembers.containsKey(currentChannelName));
+            Log.e("Agora", "无法添加用户: 当前频道名称为 null");
         }
 
         // 通知监听器
@@ -851,13 +935,22 @@ public class RoomManager {
         Log.d("Agora", "用户ID: " + userId);
         Log.d("Agora", "当前频道名称: " + currentChannelName);
 
-        if (currentChannelName != null && roomMembers.containsKey(currentChannelName)) {
-            boolean removed = roomMembers.get(currentChannelName).remove(userId);
-            Log.d("Agora", "从成员列表移除用户: " + userId + ", 成功: " + removed);
-            Log.d("Agora", "当前成员数: " + roomMembers.get(currentChannelName).size());
-            Log.d("Agora", "成员列表: " + roomMembers.get(currentChannelName));
+        String targetChannel = currentChannelName; // 使用当前频道名称
+
+        if (targetChannel != null && roomMembers.containsKey(targetChannel)) {
+            boolean removed = roomMembers.get(targetChannel).remove(userId);
+            if (removed) {
+                Log.d("Agora", "从成员列表移除用户: " + userId + ", 成功: " + removed);
+                Log.d("Agora", "当前成员数: " + roomMembers.get(targetChannel).size());
+                Log.d("Agora", "成员列表: " + roomMembers.get(targetChannel));
+
+                // 更新成员数量的 LiveData
+                memberCountLiveData.postValue(roomMembers.get(targetChannel).size());
+            } else {
+                Log.d("Agora", "用户不在成员列表中: " + userId);
+            }
         } else {
-            Log.e("Agora", "无法移除用户: currentChannelName=" + currentChannelName + ", containsKey=" + roomMembers.containsKey(currentChannelName));
+            Log.e("Agora", "无法移除用户: currentChannelName=" + currentChannelName + ", containsKey=" + (targetChannel != null && roomMembers.containsKey(targetChannel)));
         }
 
         // 通知监听器
@@ -888,14 +981,18 @@ public class RoomManager {
             Log.d("Agora", "创建新的成员列表，频道: " + channel);
         }
 
-        if (!roomMembers.get(channel).contains(String.valueOf(uid))) {
-            roomMembers.get(channel).add(String.valueOf(uid));
+        // 只有当用户不是本地用户时才添加（本地用户已在createChatRoom中添加）
+        String userIdStr = String.valueOf(uid);
+        // 检查用户是否已经在成员列表中，避免重复添加
+        if (!roomMembers.get(channel).contains(userIdStr)) {
+            roomMembers.get(channel).add(userIdStr);
             Log.d("Agora", "添加用户到成员列表: " + uid);
-            Log.d("Agora", "当前成员数: " + roomMembers.get(channel).size());
-            Log.d("Agora", "成员列表: " + roomMembers.get(channel));
         } else {
             Log.d("Agora", "用户已在成员列表中，跳过添加: " + uid);
         }
+
+        // 更新成员数量的 LiveData
+        memberCountLiveData.postValue(roomMembers.get(channel).size());
 
         // 标记加入完成，通知 UI
         if (isJoiningRoom) {
@@ -921,4 +1018,6 @@ public class RoomManager {
 
         Log.d("Agora", "=== handleJoinChannelSuccess 完成 ===");
     }
+
+
 }
