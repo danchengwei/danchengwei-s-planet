@@ -26,43 +26,43 @@ import io.agora.rtc2.DeviceInfo;
  */
 public class DeviceManager {
     private static final String TAG = "DeviceManager";
-    
+
     private RtcEngine rtcEngine;
     private Context context;
     private String appId;
-    
+
     // 存储设备信息
     private Map<String, String> audioDevices = new HashMap<>();
     private Map<String, String> videoDevices = new HashMap<>();
-    
+
     // 存储视频渲染视图
     private Map<Integer, Object> localVideoViews = new HashMap<>(); // uid -> view
     private Map<Integer, Object> remoteVideoViews = new HashMap<>(); // uid -> view
-    
+
     // 流控制状态
     private boolean isLocalVideoEnabled = true;
     private boolean isLocalAudioEnabled = true;
     private boolean isRemoteVideoEnabled = true;
     private boolean isRemoteAudioEnabled = true;
-    
+
     // 房间事件监听器
     private RoomEventListener roomEventListener;
-    
+
     public interface RoomEventListener {
         void onUserJoined(int uid);
         void onUserLeft(int uid);
         void onJoinChannelSuccess(String channel, int uid, int elapsed);
     }
-    
+
     public void setRoomEventListener(RoomEventListener listener) {
         this.roomEventListener = listener;
     }
-    
+
     public DeviceManager(Context context, String appId) {
         this.context = context;
         this.appId = appId;
     }
-    
+
     /**
      * 初始化设备管理器
      */
@@ -77,7 +77,7 @@ public class DeviceManager {
                 Log.d("Agora", "频道名称: " + channel);
                 Log.d("Agora", "用户ID: " + uid);
                 Log.d("Agora", "耗时: " + elapsed + "ms");
-                
+
                 // 加入频道成功
                 if (roomEventListener != null) {
                     Log.d("Agora", "DeviceManager 准备通知 RoomManager.onJoinChannelSuccess");
@@ -85,16 +85,16 @@ public class DeviceManager {
                 } else {
                     Log.e("Agora", "roomEventListener 为 null，无法通知 RoomManager");
                 }
-                
+
                 Log.d("Agora", "=== DeviceManager.onJoinChannelSuccess 完成 ===");
             }
-            
+
             @Override
             public void onUserJoined(int uid, int elapsed) {
                 Log.d("Agora", "=== DeviceManager.onUserJoined 被调用 ===");
                 Log.d("Agora", "用户ID: " + uid);
                 Log.d("Agora", "耗时: " + elapsed + "ms");
-                
+
                 // 用户加入
                 if (roomEventListener != null) {
                     Log.d("Agora", "DeviceManager 准备通知 RoomManager.onUserJoined");
@@ -102,61 +102,76 @@ public class DeviceManager {
                 } else {
                     Log.e("Agora", "roomEventListener 为 null，无法通知 RoomManager");
                 }
-                
+
                 Log.d("Agora", "=== DeviceManager.onUserJoined 完成 ===");
             }
-            
+
             @Override
             public void onUserOffline(int uid, int reason) {
                 Log.d("Agora", "=== DeviceManager.onUserOffline 被调用 ===");
                 Log.d("Agora", "用户ID: " + uid);
                 Log.d("Agora", "离开原因: " + reason);
-                
+
                 // 用户离开
                 if (deviceStatusListener != null) {
                     deviceStatusListener.onRemoteVideoStateChanged(uid, false);
                 }
-                
+
                 if (roomEventListener != null) {
                     Log.d("Agora", "DeviceManager 准备通知 RoomManager.onUserLeft");
                     roomEventListener.onUserLeft(uid);
                 } else {
                     Log.e("Agora", "roomEventListener 为 null，无法通知 RoomManager");
                 }
-                
+
                 Log.d("Agora", "=== DeviceManager.onUserOffline 完成 ===");
             }
-            
+
             @Override
             public void onRemoteVideoStateChanged(int uid, int state, int reason, int elapsed) {
-                Log.d(TAG, "远程视频状态改变回调。用户ID: " + uid + ", 状态: " + state + ", 原因: " + reason + ", 耗时: " + elapsed + "ms");
-                // 远程视频状态变化
-                boolean enabled = (state == Constants.REMOTE_VIDEO_STATE_DECODING || 
-                                  state == Constants.REMOTE_VIDEO_STATE_STARTING);
+                Log.d(TAG, "=== onRemoteVideoStateChanged ===");
+                Log.d(TAG, "用户ID: " + uid + ", 状态: " + state + ", 原因: " + reason + ", 耗时: " + elapsed + "ms");
+
+                String stateName = getRemoteVideoStateName(state);
+                Log.d(TAG, "远程视频状态: " + stateName);
+
+                // 判断视频是否可用：只有 DECODING 和 STARTING 状态才算可用
+                boolean enabled = (state == Constants.REMOTE_VIDEO_STATE_DECODING ||
+                        state == Constants.REMOTE_VIDEO_STATE_STARTING);
+                Log.d(TAG, "是否启用: " + enabled);
+
+                // 如果视频状态为 STOPPED、FROZEN 或 FAILED，也通知移除视图
+                if (state == Constants.REMOTE_VIDEO_STATE_STOPPED ||
+                        state == Constants.REMOTE_VIDEO_STATE_FROZEN ||
+                        state == Constants.REMOTE_VIDEO_STATE_FAILED) {
+                    Log.d(TAG, "远程视频已停止/冻结/失败，将移除视图");
+                    enabled = false;
+                }
+
                 if (deviceStatusListener != null) {
                     deviceStatusListener.onRemoteVideoStateChanged(uid, enabled);
-                    Log.d(TAG, "通知 DeviceStatusListener 远程视频状态改变。用户ID: " + uid + ", 启用: " + enabled);
+                    Log.d(TAG, "已通知 DeviceStatusListener 远程视频状态改变");
                 } else {
-                    Log.e(TAG, "deviceStatusListener 为空，无法通知远程视频状态改变。");
+                    Log.e(TAG, "deviceStatusListener 为空，无法通知远程视频状态改变");
                 }
             }
-            
+
             @Override
             public void onRemoteAudioStateChanged(int uid, int state, int reason, int elapsed) {
                 // 远程音频状态变化
-                boolean enabled = (state == Constants.REMOTE_AUDIO_STATE_DECODING || 
-                                  state == Constants.REMOTE_AUDIO_STATE_STARTING);
+                boolean enabled = (state == Constants.REMOTE_AUDIO_STATE_DECODING ||
+                        state == Constants.REMOTE_AUDIO_STATE_STARTING);
                 if (deviceStatusListener != null) {
                     deviceStatusListener.onAudioQualityChanged(uid, state);
                 }
             }
-            
+
             @Override
             public void onLocalVideoStateChanged(io.agora.rtc2.Constants.VideoSourceType sourceType, int localVideoState, int error) {
                 Log.d(TAG, "本地视频状态改变回调。视频源类型: " + sourceType + ", 状态: " + localVideoState + ", 错误码: " + error);
                 // 本地视频状态变化
-                boolean enabled = (localVideoState == Constants.LOCAL_VIDEO_STREAM_STATE_CAPTURING || 
-                                  localVideoState == Constants.LOCAL_VIDEO_STREAM_STATE_ENCODING);
+                boolean enabled = (localVideoState == Constants.LOCAL_VIDEO_STREAM_STATE_CAPTURING ||
+                        localVideoState == Constants.LOCAL_VIDEO_STREAM_STATE_ENCODING);
                 if (deviceStatusListener != null) {
                     deviceStatusListener.onLocalVideoStateChanged(enabled);
                     Log.d(TAG, "通知 DeviceStatusListener 本地视频状态改变。启用: " + enabled);
@@ -164,7 +179,7 @@ public class DeviceManager {
                     Log.e(TAG, "deviceStatusListener 为空，无法通知本地视频状态改变。");
                 }
             }
-            
+
             @Override
             public void onAudioRouteChanged(int routing) {
                 // 音频路由变化
@@ -173,18 +188,70 @@ public class DeviceManager {
                     deviceStatusListener.onAudioDeviceChanged(String.valueOf(routing), deviceName);
                 }
             }
+
+            @Override
+            public void onError(int err) {
+                Log.e(TAG, "=== Agora SDK 错误 ===");
+                Log.e(TAG, "错误码: " + err);
+                Log.e(TAG, "错误描述: " + getErrorDescription(err));
+
+                // 根据错误码处理不同的错误
+                switch (err) {
+                    case 2: // ERR_INVALID_ARGUMENT
+                        Log.e(TAG, "错误原因: 无效的参数");
+                        break;
+                    case 3: // ERR_NOT_READY
+                        Log.e(TAG, "错误原因: SDK 未准备好");
+                        break;
+                    case 7: // ERR_NOT_INITIALIZED
+                        Log.e(TAG, "错误原因: SDK 未初始化");
+                        break;
+                    case 10: // ERR_INVALID_APP_ID
+                        Log.e(TAG, "错误原因: 无效的 App ID");
+                        break;
+                    case 17: // ERR_JOIN_CHANNEL_REJECTED
+                        Log.e(TAG, "错误原因: 加入频道被拒绝");
+                        break;
+                    case 101: // ERR_INVALID_CHANNEL_NAME
+                        Log.e(TAG, "错误原因: 无效的频道名称");
+                        break;
+                    default:
+                        Log.e(TAG, "错误原因: 未知错误");
+                        break;
+                }
+            }
         };
-        
+
         Log.d(TAG, "尝试创建 RtcEngine，App ID: " + appId);
         rtcEngine = RtcEngine.create(config);
         Log.d(TAG, "RtcEngine 创建成功。");
+
+        // 注意：暂时不设置频道配置，使用默认配置
+        // 频道配置会在 joinChannel 时通过 ChannelMediaOptions 传递
+        Log.d(TAG, "使用默认配置，不预先设置频道模式");
+
+        // 启用音频模块
+        Log.d(TAG, "尝试启用音频模块。");
+        rtcEngine.enableAudio();
+        Log.d(TAG, "音频模块已启用。");
 
         // 启用视频模块
         Log.d(TAG, "尝试启用视频模块。");
         rtcEngine.enableVideo();
         Log.d(TAG, "视频模块已启用。");
+
+        // 设置适合手机的视频编码配置（竖屏）
+        Log.d(TAG, "设置视频编码配置。");
+        VideoEncoderConfiguration videoConfig = new VideoEncoderConfiguration(
+                480, 854,  // 分辨率：480x854 (适合竖屏手机)
+                VideoEncoderConfiguration.FRAME_RATE.FRAME_RATE_FPS_15,  // 15fps
+                VideoEncoderConfiguration.STANDARD_BITRATE,  // 标准码率
+                VideoEncoderConfiguration.ORIENTATION_MODE.ORIENTATION_MODE_ADAPTIVE  // 自适应方向
+        );
+        int configResult = rtcEngine.setVideoEncoderConfiguration(videoConfig);
+        Log.d(TAG, "视频编码配置设置完成，结果: " + configResult);
     }
-    
+
     /**
      * 根据音频路由值获取设备名称
      */
@@ -214,7 +281,85 @@ public class DeviceManager {
                 return "Unknown Audio Route: " + routing;
         }
     }
-    
+
+    /**
+     * 根据远程视频状态值获取状态名称
+     */
+    private String getRemoteVideoStateName(int state) {
+        switch (state) {
+            case Constants.REMOTE_VIDEO_STATE_STOPPED:
+                return "STOPPED (已停止)";
+            case Constants.REMOTE_VIDEO_STATE_STARTING:
+                return "STARTING (启动中)";
+            case Constants.REMOTE_VIDEO_STATE_DECODING:
+                return "DECODING (解码中)";
+            case Constants.REMOTE_VIDEO_STATE_FROZEN:
+                return "FROZEN (已冻结)";
+            case Constants.REMOTE_VIDEO_STATE_FAILED:
+                return "FAILED (失败)";
+            default:
+                return "UNKNOWN (未知状态: " + state + ")";
+        }
+    }
+
+    /**
+     * 根据错误码获取错误描述
+     */
+    private String getErrorDescription(int err) {
+        switch (err) {
+            case 1:
+                return "ERR_FAILED (一般错误)";
+            case 2:
+                return "ERR_INVALID_ARGUMENT (无效的参数)";
+            case 3:
+                return "ERR_NOT_READY (SDK 未准备好)";
+            case 4:
+                return "ERR_NOT_SUPPORTED (不支持的功能)";
+            case 5:
+                return "ERR_BUFFER_TOO_SMALL (缓冲区太小)";
+            case 6:
+                return "ERR_NOT_INITIALIZED (SDK 未初始化)";
+            case 7:
+                return "ERR_INVALID_STATE (无效的状态)";
+            case 8:
+                return "ERR_NO_PERMISSION (没有权限)";
+            case 9:
+                return "ERR_TIMEDOUT (超时)";
+            case 10:
+                return "ERR_INVALID_APP_ID (无效的 App ID)";
+            case 11:
+                return "ERR_INVALID_CHANNEL_NAME (无效的频道名称)";
+            case 12:
+                return "ERR_TOKEN_EXPIRED (Token 已过期)";
+            case 13:
+                return "ERR_INVALID_TOKEN (无效的 Token)";
+            case 14:
+                return "ERR_CONNECTION_INTERRUPTED (连接中断)";
+            case 15:
+                return "ERR_CONNECTION_LOST (连接丢失)";
+            case 16:
+                return "ERR_NOT_IN_CHANNEL (不在频道中)";
+            case 17:
+                return "ERR_TOO_OFTEN (调用过于频繁)";
+            case 18:
+                return "ERR_USE_POLLING_MODE (使用轮询模式)";
+            case 19:
+                return "ERR_JOIN_CHANNEL_REJECTED (加入频道被拒绝)";
+            case 20:
+                return "ERR_LEAVE_CHANNEL_REJECTED (离开频道被拒绝)";
+            case 101:
+                return "ERR_INVALID_CHANNEL_NAME (无效的频道名称)";
+            case 102:
+                return "ERR_CHANNEL_KEY_EXPIRED (频道 Key 已过期)";
+            case 109:
+                return "ERR_TOKEN_EXPIRED (Token 已过期)";
+            case 110:
+                return "ERR_INVALID_TOKEN (无效的 Token)";
+            default:
+                return "UNKNOWN (未知错误码: " + err + ")";
+        }
+    }
+
     /**
      * 获取音频设备信息
      */
@@ -224,7 +369,7 @@ public class DeviceManager {
         }
         return null;
     }
-    
+
     /**
      * 列出可用的音频录制设备
      */
@@ -239,7 +384,7 @@ public class DeviceManager {
         }
         return devices;
     }
-    
+
     /**
      * 列出可用的音频播放设备
      */
@@ -253,7 +398,7 @@ public class DeviceManager {
         }
         return devices;
     }
-    
+
     /**
      * 列出可用的视频设备
      */
@@ -266,7 +411,7 @@ public class DeviceManager {
         }
         return devices;
     }
-    
+
     /**
      * 设置音频录制设备
      */
@@ -277,7 +422,7 @@ public class DeviceManager {
         }
         return -1; // 失败
     }
-    
+
     /**
      * 设置音频播放设备
      */
@@ -288,7 +433,7 @@ public class DeviceManager {
         }
         return -1; // 失败
     }
-    
+
     /**
      * 设置视频设备
      */
@@ -301,12 +446,12 @@ public class DeviceManager {
             } else {
                 configuration = new CameraCapturerConfiguration(CameraCapturerConfiguration.CAMERA_DIRECTION.CAMERA_REAR);
             }
-            
+
             return rtcEngine.setCameraCapturerConfiguration(configuration);
         }
         return -1; // 失败
     }
-    
+
     /**
      * 启动音频录制设备测试
      */
@@ -316,7 +461,7 @@ public class DeviceManager {
         }
         return -1; // 失败
     }
-    
+
     /**
      * 停止音频录制设备测试
      */
@@ -326,7 +471,7 @@ public class DeviceManager {
         }
         return -1; // 失败
     }
-    
+
     /**
      * 启动音频播放设备测试
      */
@@ -336,7 +481,7 @@ public class DeviceManager {
         }
         return -1; // 失败
     }
-    
+
     /**
      * 停止音频播放设备测试
      */
@@ -346,7 +491,7 @@ public class DeviceManager {
         }
         return -1; // 失败
     }
-    
+
     /**
      * 切换摄像头
      */
@@ -360,264 +505,7 @@ public class DeviceManager {
         Log.e(TAG, "切换摄像头失败，rtcEngine 为空。");
         return -1; // 失败
     }
-    
-    /**
-     * 启用本地视频
-     */
-    public int enableLocalVideo(boolean enabled) {
-        Log.d(TAG, "调用 enableLocalVideo，启用状态: " + enabled);
-        if (rtcEngine != null) {
-            int result = rtcEngine.enableLocalVideo(enabled);
-            this.isLocalVideoEnabled = enabled;
-            Log.d(TAG, "rtcEngine.enableLocalVideo 返回结果: " + result);
-            return result;
-        }
-        Log.e(TAG, "启用本地视频失败，rtcEngine 为空。");
-        return -1; // 失败
-    }
-    
-    /**
-     * 启用本地音频
-     */
-    public int enableLocalAudio(boolean enabled) {
-        if (rtcEngine != null) {
-            int result = enabled ? rtcEngine.enableAudio() : rtcEngine.disableAudio();
-            this.isLocalAudioEnabled = enabled;
-            return result;
-        }
-        return -1; // 失败
-    }
-    
-    /**
-     * 静音本地音频
-     */
-    public int muteLocalAudio(boolean muted) {
-        Log.d(TAG, "调用 muteLocalAudio，静音状态: " + muted);
-        if (rtcEngine != null) {
-            int result = rtcEngine.muteLocalAudioStream(muted);
-            this.isLocalAudioEnabled = !muted;
-            Log.d(TAG, "rtcEngine.muteLocalAudioStream 返回结果: " + result);
-            return result;
-        }
-        Log.e(TAG, "静音本地音频失败，rtcEngine 为空。");
-        return -1; // 失败
-    }
-    
-    /**
-     * 静音本地视频
-     */
-    public int muteLocalVideo(boolean muted) {
-        Log.d(TAG, "调用 muteLocalVideo，静音状态: " + muted);
-        if (rtcEngine != null) {
-            int result = rtcEngine.muteLocalVideoStream(muted);
-            this.isLocalVideoEnabled = !muted;
-            Log.d(TAG, "rtcEngine.muteLocalVideoStream 返回结果: " + result);
-            return result;
-        }
-        Log.e(TAG, "静音本地视频失败，rtcEngine 为空。");
-        return -1; // 失败
-    }
-    
-    /**
-     * 静音远程音频
-     */
-    public int muteRemoteAudio(int uid, boolean muted) {
-        if (rtcEngine != null) {
-            return rtcEngine.muteRemoteAudioStream(uid, muted);
-        }
-        return -1; // 失败
-    }
-    
-    /**
-     * 静音远程视频
-     */
-    public int muteRemoteVideo(int uid, boolean muted) {
-        if (rtcEngine != null) {
-            return rtcEngine.muteRemoteVideoStream(uid, muted);
-        }
-        return -1; // 失败
-    }
-    
-    /**
-     * 静音所有远程音频
-     */
-    public int muteAllRemoteAudio(boolean muted) {
-        if (rtcEngine != null) {
-            return rtcEngine.muteAllRemoteAudioStreams(muted);
-        }
-        return -1; // 失败
-    }
-    
-    /**
-     * 静音所有远程视频
-     */
-    public int muteAllRemoteVideo(boolean muted) {
-        if (rtcEngine != null) {
-            return rtcEngine.muteAllRemoteVideoStreams(muted);
-        }
-        return -1; // 失败
-    }
-    
-    /**
-     * 设置本地视频渲染视图
-     */
-    public int setupLocalVideo(Object view, int renderMode) {
-        Log.d(TAG, "调用 setupLocalVideo，视图: " + view + ", 渲染模式: " + renderMode);
-        if (rtcEngine != null && view != null) {
-            // 确保view是SurfaceView或TextureView类型
-            if (view instanceof SurfaceView || view instanceof TextureView) {
-                VideoCanvas canvas = new VideoCanvas((android.view.View) view, renderMode, 0);
-                int result = rtcEngine.setupLocalVideo(canvas);
-                Log.d(TAG, "rtcEngine.setupLocalVideo 返回结果: " + result);
-                if (result == 0) {
-                    localVideoViews.put(0, view); // 本地视频使用uid 0
-                    Log.d(TAG, "本地视频视图已成功存储，view: " + view);
-                } else {
-                    Log.e(TAG, "设置本地视频失败，返回码: " + result);
-                }
-                return result;
-            } else {
-                Log.e(TAG, "设置本地视频失败，视图类型不正确: " + view.getClass().getSimpleName());
-            }
-        } else {
-            Log.e(TAG, "设置本地视频失败，rtcEngine 或 view 为空。rtcEngine: " + (rtcEngine != null) + ", view: " + (view != null));
-        }
-        return -1; // 失败
-    }
-    
-    /**
-     * 设置远程视频渲染视图
-     */
-    public int setupRemoteVideo(Object view, int uid, int renderMode) {
-        Log.d(TAG, "调用 setupRemoteVideo，视图: " + view + ", 用户ID: " + uid + ", 渲染模式: " + renderMode);
-        if (rtcEngine != null && view != null) {
-            // 确保view是SurfaceView或TextureView类型
-            if (view instanceof SurfaceView || view instanceof TextureView) {
-                VideoCanvas canvas = new VideoCanvas((android.view.View) view, renderMode, uid);
-                int result = rtcEngine.setupRemoteVideo(canvas);
-                Log.d(TAG, "rtcEngine.setupRemoteVideo 返回结果: " + result);
-                if (result == 0) {
-                    remoteVideoViews.put(uid, view);
-                    Log.d(TAG, "远程视频视图已成功存储，用户ID: " + uid + ", view: " + view);
-                } else {
-                    Log.e(TAG, "设置远程视频失败，返回码: " + result);
-                }
-                return result;
-            } else {
-                Log.e(TAG, "设置远程视频失败，视图类型不正确: " + view.getClass().getSimpleName());
-            }
-        } else {
-            Log.e(TAG, "设置远程视频失败，rtcEngine 或 view 为空。rtcEngine: " + (rtcEngine != null) + ", view: " + (view != null));
-        }
-        return -1; // 失败
-    }
-    
-    /**
-     * 启用视频模块
-     */
-    public int enableVideo() {
-        if (rtcEngine != null) {
-            return rtcEngine.enableVideo();
-        }
-        return -1; // 失败
-    }
-    
-    /**
-     * 禁用视频模块
-     */
-    public int disableVideo() {
-        if (rtcEngine != null) {
-            return rtcEngine.disableVideo();
-        }
-        return -1; // 失败
-    }
-    
-    /**
-     * 开始预览
-     */
-    public int startPreview() {
-        Log.d(TAG, "调用 startPreview，尝试开启本地视频预览。");
-        if (rtcEngine != null) {
-            int result = rtcEngine.startPreview();
-            Log.d(TAG, "rtcEngine.startPreview 返回结果: " + result);
-            return result;
-        }
-        Log.e(TAG, "开启预览失败，rtcEngine 为空。");
-        return -1; // 失败
-    }
-    
-    /**
-     * 停止预览
-     */
-    public int stopPreview() {
-        Log.d(TAG, "调用 stopPreview，尝试停止本地视频预览。");
-        if (rtcEngine != null) {
-            int result = rtcEngine.stopPreview();
-            Log.d(TAG, "rtcEngine.stopPreview 返回结果: " + result);
-            return result;
-        }
-        Log.e(TAG, "停止预览失败，rtcEngine 为空。");
-        return -1; // 失败
-    }
-    
-    /**
-     * 设置视频编码配置
-     */
-    public int setVideoEncoderConfiguration(VideoEncoderConfiguration configuration) {
-        if (rtcEngine != null) {
-            return rtcEngine.setVideoEncoderConfiguration(configuration);
-        }
-        return -1; // 失败
-    }
-    
-    /**
-     * 设置远程视频订阅选项
-     */
-    public int setRemoteVideoSubscriptionOptions(int uid, VideoSubscriptionOptions options) {
-        if (rtcEngine != null) {
-            return rtcEngine.setRemoteVideoSubscriptionOptions(uid, options);
-        }
-        return -1; // 失败
-    }
-    
-    /**
-     * 调整用户播放信号音量
-     */
-    public int adjustUserPlaybackSignalVolume(int uid, int volume) {
-        if (rtcEngine != null) {
-            return rtcEngine.adjustUserPlaybackSignalVolume(uid, volume);
-        }
-        return -1; // 失败
-    }
-    
-    /**
-     * 获取本地视频启用状态
-     */
-    public boolean isLocalVideoEnabled() {
-        return isLocalVideoEnabled;
-    }
-    
-    /**
-     * 获取本地音频启用状态
-     */
-    public boolean isLocalAudioEnabled() {
-        return isLocalAudioEnabled;
-    }
-    
-    /**
-     * 获取远程视频启用状态
-     */
-    public boolean isRemoteVideoEnabled() {
-        return isRemoteVideoEnabled;
-    }
-    
-    /**
-     * 获取远程音频启用状态
-     */
-    public boolean isRemoteAudioEnabled() {
-        return isRemoteAudioEnabled;
-    }
-    
+
     /**
      * 销毁设备管理器
      */
@@ -626,20 +514,250 @@ public class DeviceManager {
             rtcEngine.destroy();
             rtcEngine = null;
         }
-        
+
         localVideoViews.clear();
         remoteVideoViews.clear();
         audioDevices.clear();
         videoDevices.clear();
     }
-    
+
+    /**
+     * 检查RtcEngine是否可用
+     */
+    private boolean isRtcEngineAvailable() {
+        return rtcEngine != null;
+    }
+
+    /**
+     * 启用本地视频
+     */
+    public int enableLocalVideo(boolean enabled) {
+        Log.d(TAG, "调用 enableLocalVideo，启用状态: " + enabled);
+        if (isRtcEngineAvailable()) {
+            int result = rtcEngine.enableLocalVideo(enabled);
+            this.isLocalVideoEnabled = enabled;
+            Log.d(TAG, "rtcEngine.enableLocalVideo 返回结果: " + result);
+            return result;
+        }
+        Log.e(TAG, "启用本地视频失败，rtcEngine 为空。");
+        return -1; // 失败
+    }
+
+    /**
+     * 启用本地音频
+     */
+    public int enableLocalAudio(boolean enabled) {
+        if (isRtcEngineAvailable()) {
+            int result = enabled ? rtcEngine.enableAudio() : rtcEngine.disableAudio();
+            this.isLocalAudioEnabled = enabled;
+            return result;
+        }
+        return -1; // 失败
+    }
+
+    /**
+     * 静音本地音频
+     */
+    public int muteLocalAudio(boolean muted) {
+        Log.d(TAG, "=== muteLocalAudio ===");
+        Log.d(TAG, "静音状态: " + muted);
+        if (isRtcEngineAvailable()) {
+            int result = rtcEngine.muteLocalAudioStream(muted);
+            this.isLocalAudioEnabled = !muted;
+            Log.d(TAG, "rtcEngine.muteLocalAudioStream 返回结果: " + result);
+            Log.d(TAG, "本地音频推流状态: " + (muted ? "停止" : "开启"));
+            return result;
+        }
+        Log.e(TAG, "静音本地音频失败，rtcEngine 为空。");
+        return -1; // 失败
+    }
+
+    /**
+     * 静音本地视频
+     */
+    public int muteLocalVideo(boolean muted) {
+        Log.d(TAG, "=== muteLocalVideo ===");
+        Log.d(TAG, "静音状态: " + muted);
+        if (isRtcEngineAvailable()) {
+            int result = rtcEngine.muteLocalVideoStream(muted);
+            this.isLocalVideoEnabled = !muted;
+            Log.d(TAG, "rtcEngine.muteLocalVideoStream 返回结果: " + result);
+            Log.d(TAG, "本地视频推流状态: " + (muted ? "停止" : "开启"));
+            return result;
+        }
+        Log.e(TAG, "静音本地视频失败，rtcEngine 为空。");
+        return -1; // 失败
+    }
+
+    /**
+     * 设置本地视频渲染视图
+     */
+    public int setupLocalVideo(Object view, int renderMode) {
+        Log.d(TAG, "=== setupLocalVideo ===");
+        Log.d(TAG, "视图: " + view + ", 渲染模式: " + renderMode);
+        if (isRtcEngineAvailable() && view != null) {
+            if (view instanceof SurfaceView || view instanceof TextureView) {
+                VideoCanvas canvas = new VideoCanvas((android.view.View) view, renderMode, 0);
+                int result = rtcEngine.setupLocalVideo(canvas);
+                Log.d(TAG, "rtcEngine.setupLocalVideo 返回结果: " + result);
+                if (result == 0) {
+                    localVideoViews.put(0, view);
+                    Log.d(TAG, "本地视频视图已成功存储，view: " + view);
+                    Log.d(TAG, "本地视频渲染已设置");
+                } else {
+                    Log.e(TAG, "设置本地视频失败，返回码: " + result);
+                }
+                return result;
+            } else {
+                Log.e(TAG, "设置本地视频失败，视图类型不正确: " + view.getClass().getSimpleName());
+            }
+        } else {
+            Log.e(TAG, "设置本地视频失败，rtcEngine 或 view 为空。rtcEngine: " + (isRtcEngineAvailable()) + ", view: " + (view != null));
+        }
+        return -1; // 失败
+    }
+
+    /**
+     * 设置远程视频渲染视图
+     */
+    public int setupRemoteVideo(Object view, int uid, int renderMode) {
+        Log.d(TAG, "=== setupRemoteVideo ===");
+        Log.d(TAG, "视图: " + view + ", 用户ID: " + uid + ", 渲染模式: " + renderMode);
+        if (isRtcEngineAvailable() && view != null) {
+            if (view instanceof SurfaceView || view instanceof TextureView) {
+                VideoCanvas canvas = new VideoCanvas((android.view.View) view, renderMode, uid);
+                int result = rtcEngine.setupRemoteVideo(canvas);
+                Log.d(TAG, "rtcEngine.setupRemoteVideo 返回结果: " + result);
+                if (result == 0) {
+                    remoteVideoViews.put(uid, view);
+                    Log.d(TAG, "远程视频视图已成功存储，用户ID: " + uid + ", view: " + view);
+                    Log.d(TAG, "远程视频渲染已设置，开始接收视频流");
+                } else {
+                    Log.e(TAG, "设置远程视频失败，返回码: " + result);
+                }
+                return result;
+            } else {
+                Log.e(TAG, "设置远程视频失败，视图类型不正确: " + view.getClass().getSimpleName());
+            }
+        } else {
+            Log.e(TAG, "设置远程视频失败，rtcEngine 或 view 为空。rtcEngine: " + (isRtcEngineAvailable()) + ", view: " + (view != null));
+        }
+        return -1; // 失败
+    }
+
+    /**
+     * 启用视频模块
+     */
+    public int enableVideo() {
+        if (isRtcEngineAvailable()) {
+            return rtcEngine.enableVideo();
+        }
+        return -1; // 失败
+    }
+
+    /**
+     * 禁用视频模块
+     */
+    public int disableVideo() {
+        if (isRtcEngineAvailable()) {
+            return rtcEngine.disableVideo();
+        }
+        return -1; // 失败
+    }
+
+    /**
+     * 开始预览
+     */
+    public int startPreview() {
+        Log.d(TAG, "调用 startPreview，尝试开启本地视频预览。");
+        if (isRtcEngineAvailable()) {
+            int result = rtcEngine.startPreview();
+            Log.d(TAG, "rtcEngine.startPreview 返回结果: " + result);
+            return result;
+        }
+        Log.e(TAG, "开启预览失败，rtcEngine 为空。");
+        return -1; // 失败
+    }
+
+    /**
+     * 停止预览
+     */
+    public int stopPreview() {
+        Log.d(TAG, "调用 stopPreview，尝试停止本地视频预览。");
+        if (isRtcEngineAvailable()) {
+            int result = rtcEngine.stopPreview();
+            Log.d(TAG, "rtcEngine.stopPreview 返回结果: " + result);
+            return result;
+        }
+        Log.e(TAG, "停止预览失败，rtcEngine 为空。");
+        return -1; // 失败
+    }
+
+    /**
+     * 设置视频编码配置
+     */
+    public int setVideoEncoderConfiguration(VideoEncoderConfiguration configuration) {
+        if (isRtcEngineAvailable()) {
+            return rtcEngine.setVideoEncoderConfiguration(configuration);
+        }
+        return -1; // 失败
+    }
+
+    /**
+     * 设置远程视频订阅选项
+     */
+    public int setRemoteVideoSubscriptionOptions(int uid, VideoSubscriptionOptions options) {
+        if (isRtcEngineAvailable()) {
+            return rtcEngine.setRemoteVideoSubscriptionOptions(uid, options);
+        }
+        return -1; // 失败
+    }
+
+    /**
+     * 调整用户播放信号音量
+     */
+    public int adjustUserPlaybackSignalVolume(int uid, int volume) {
+        if (isRtcEngineAvailable()) {
+            return rtcEngine.adjustUserPlaybackSignalVolume(uid, volume);
+        }
+        return -1; // 失败
+    }
+
+    /**
+     * 获取本地视频启用状态
+     */
+    public boolean isLocalVideoEnabled() {
+        return isLocalVideoEnabled;
+    }
+
+    /**
+     * 获取本地音频启用状态
+     */
+    public boolean isLocalAudioEnabled() {
+        return isLocalAudioEnabled;
+    }
+
+    /**
+     * 获取远程视频启用状态
+     */
+    public boolean isRemoteVideoEnabled() {
+        return isRemoteVideoEnabled;
+    }
+
+    /**
+     * 获取远程音频启用状态
+     */
+    public boolean isRemoteAudioEnabled() {
+        return isRemoteAudioEnabled;
+    }
+
     /**
      * 获取RtcEngine实例
      */
     public RtcEngine getRtcEngine() {
         return rtcEngine;
     }
-    
+
     /**
      * 设备状态回调接口
      */
@@ -650,9 +768,9 @@ public class DeviceManager {
         void onRemoteVideoStateChanged(int uid, boolean enabled);
         void onAudioQualityChanged(int uid, int quality);
     }
-    
+
     private DeviceStatusListener deviceStatusListener;
-    
+
     public void setDeviceStatusListener(DeviceStatusListener listener) {
         this.deviceStatusListener = listener;
     }

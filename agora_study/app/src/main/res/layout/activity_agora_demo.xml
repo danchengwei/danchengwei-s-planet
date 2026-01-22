@@ -72,48 +72,15 @@
         android:layout_below="@id/topBar"
         android:layout_above="@id/bottomToolbar">
 
-        <!-- Remote Video (Main Video) -->
-        <FrameLayout
-            android:id="@+id/flRemoteVideo"
+        <GridLayout
+            android:id="@+id/videoGridLayout"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="#000000">
-
-            <TextView
-                android:id="@+id/tvRemoteLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/remote_video_title"
-                android:textColor="#FFFFFF"
-                android:textSize="12sp"
-                android:layout_gravity="top|start"
-                android:layout_margin="12dp"
-                android:background="#80000000"
-                android:padding="6dp" />
-        </FrameLayout>
-
-        <!-- Local Video (Picture-in-Picture) -->
-        <FrameLayout
-            android:id="@+id/flLocalVideo"
-            android:layout_width="120dp"
-            android:layout_height="160dp"
-            android:layout_gravity="top|end"
-            android:layout_margin="12dp"
+            android:columnCount="2"
+            android:rowCount="2"
+            android:layout_gravity="center"
             android:background="#000000"
-            android:elevation="8dp">
-
-            <TextView
-                android:id="@+id/tvLocalLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/local_video_title"
-                android:textColor="#FFFFFF"
-                android:textSize="10sp"
-                android:layout_gravity="top|start"
-                android:layout_margin="6dp"
-                android:background="#80000000"
-                android:padding="3dp" />
-        </FrameLayout>
+            android:visibility="gone" />
 
         <!-- Connect Prompt (Initially visible, hides after joining) -->
         <LinearLayout
@@ -144,6 +111,42 @@
                 android:textSize="15sp"
                 android:textStyle="bold" />
         </LinearLayout>
+
+        <!-- Loading Overlay -->
+        <FrameLayout
+            android:id="@+id/loadingOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#CC000000"
+            android:visibility="gone"
+            android:clickable="true"
+            android:focusable="true">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:padding="24dp"
+                android:background="@drawable/bg_circle_button">
+
+                <ProgressBar
+                    android:id="@+id/progressBar"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:indeterminateTint="#FFFFFF" />
+
+                <TextView
+                    android:id="@+id/tvLoadingMessage"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="正在加载..."
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:layout_marginTop="12dp" />
+            </LinearLayout>
+        </FrameLayout>
     </FrameLayout>
 
     <!-- Bottom Chat Panel (Slides up from bottom) -->

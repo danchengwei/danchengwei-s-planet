@@ -12,6 +12,8 @@ import android.widget.ImageButton;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.LinearLayout;
+import android.widget.GridLayout;
+import android.view.View;
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.app.AlertDialog;
@@ -25,6 +27,9 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.ArrayList;
 
 
 /**
@@ -45,8 +50,7 @@ public class AgoraDemoActivity extends AppCompatActivity {
     private ImageButton btnSwitchCamera; // 新增的切换摄像头按钮
     private Button btnSendChat;
     private EditText etChatMessage; // 聊天输入框仍然保留
-    private FrameLayout flLocalVideo;
-    private FrameLayout flRemoteVideo;
+    private GridLayout videoGridLayout;
     private ImageButton btnToggleChat;
     private ImageButton btnCloseChat;
     private LinearLayout chatPanel;
@@ -55,6 +59,8 @@ public class AgoraDemoActivity extends AppCompatActivity {
     private ChatMessageAdapter chatMessageAdapter;
     private LinearLayout bottomToolbar;
     private TextView tvChannelPrompt; // 新增：用于显示频道提示
+    private FrameLayout loadingOverlay; // 加载遮罩层
+    private TextView tvLoadingMessage; // 加载提示文本
 
     // 状态信息显示
     private TextView tvConnectionStatus;
@@ -64,12 +70,13 @@ public class AgoraDemoActivity extends AppCompatActivity {
     private TextView tvChannelNumber;
     private TextView tvUserCount;
 
-    // 视频视图
+    // 视频视图管理
+    private Map<Integer, View> videoViews = new HashMap<>(); // 用户ID -> 视图
     private SurfaceView localSurfaceView;
-    private SurfaceView remoteSurfaceView;
     private int currentRemoteUid = 0;
     private boolean audioMuted = true;
     private boolean videoMuted = true;
+    private String currentChannelName = DEFAULT_CHANNEL_NAME; // 缓存当前频道名
 
     private static final int PERMISSION_REQ_ID_RECORD_AUDIO = 22;
     private static final int PERMISSION_REQ_ID_CAMERA = 23;
@@ -91,7 +98,7 @@ public class AgoraDemoActivity extends AppCompatActivity {
         } else {
             // 检查是否需要显示权限请求对话框
             if (shouldShowRequestPermissionRationale(Manifest.permission.RECORD_AUDIO) ||
-                shouldShowRequestPermissionRationale(Manifest.permission.CAMERA)) {
+                    shouldShowRequestPermissionRationale(Manifest.permission.CAMERA)) {
                 // 用户之前拒绝过权限，显示说明对话框
                 showPermissionRationaleDialog();
             } else {
@@ -147,15 +154,9 @@ public class AgoraDemoActivity extends AppCompatActivity {
                         Toast.makeText(AgoraDemoActivity.this, getString(R.string.user_joined_msg, userId), Toast.LENGTH_SHORT).show();
                         updateUserCount();
 
-                        // 自动设置远程视频视图
-                        try {
-                            int uid = Integer.parseInt(userId);
-                            if (remoteSurfaceView == null) {
-                                setupRemoteVideoView(uid);
-                            }
-                        } catch (NumberFormatException e) {
-                            Log.e("Agora", "解析用户ID失败", e);
-                        }
+                        // 不在这里添加视频视图，等待视频流可用时再添加
+                        // 视频视图会在 onRemoteVideoStateChanged 回调中添加
+                        Log.d("Agora", "用户加入，等待视频流可用...");
                     });
                     Log.d("Agora", "=== UI 处理用户加入事件完成 ===");
                 }
@@ -167,10 +168,14 @@ public class AgoraDemoActivity extends AppCompatActivity {
                     runOnUiThread(() -> {
                         Toast.makeText(AgoraDemoActivity.this, getString(R.string.user_left_msg, userId), Toast.LENGTH_SHORT).show();
 
-                        // 清除对应的远程视频视图
-                        flRemoteVideo.removeAllViews();
-                        remoteSurfaceView = null;
-                        currentRemoteUid = 0;
+                        // 移除对应的视频视图
+                        try {
+                            int uid = Integer.parseInt(userId);
+                            removeVideoView(uid);
+                        } catch (NumberFormatException e) {
+                            Log.e("Agora", "解析用户ID失败", e);
+                        }
+
                         updateUserCount();
                     });
                     Log.d("Agora", "=== UI 处理用户离开事件完成 ===");
@@ -218,8 +223,8 @@ public class AgoraDemoActivity extends AppCompatActivity {
                 @Override
                 public void onRemoteVideoStateChanged(int uid, boolean enabled) {
                     Log.d(TAG, "远程视频状态改变，用户ID " + uid + ": " + enabled);
-                    if (enabled && remoteSurfaceView == null) {
-                        // 当远程视频流可用且我们还没有设置视图时，创建并设置远程视频视图
+                    if (enabled) {
+                        // 当远程视频流可用时，创建并设置远程视频视图
                         runOnUiThread(() -> setupRemoteVideoView(uid));
                     }
                 }
@@ -250,15 +255,61 @@ public class AgoraDemoActivity extends AppCompatActivity {
                 @Override
                 public void onRemoteVideoStateChanged(int uid, boolean enabled) {
                     Log.d(TAG, "远程视频状态改变，用户ID " + uid + ": " + enabled);
-                    if (enabled && remoteSurfaceView == null) {
+                    if (enabled && !videoViews.containsKey(uid)) {
                         // 当远程视频流可用且我们还没有设置视图时，创建并设置远程视频视图
                         runOnUiThread(() -> setupRemoteVideoView(uid));
+                    } else if (!enabled && videoViews.containsKey(uid)) {
+                        // 当远程视频流不可用时，移除视频视图
+                        runOnUiThread(() -> {
+                            removeVideoView(uid);
+                            updateUserCount(); // 更新人数和视图数量
+                        });
                     }
                 }
 
                 @Override
                 public void onAudioQualityChanged(int uid, int quality) {
                     Log.d(TAG, "用户ID " + uid + " 音频质量改变，质量: " + quality);
+                }
+            });
+
+            // 设置房间状态监听器
+            serviceManager.getRoomManager().setRoomStateListener(new RoomManager.RoomStateListener() {
+                @Override
+                public void onJoiningRoom() {
+                    Log.d(TAG, "房间状态：开始加入房间");
+                    runOnUiThread(() -> showLoading("正在加入房间..."));
+                }
+
+                @Override
+                public void onJoinedRoom() {
+                    Log.d(TAG, "房间状态：成功加入房间");
+                    runOnUiThread(() -> {
+                        hideLoading();
+                        // 加入成功后立即更新用户数量
+                        updateUserCount();
+                    });
+                }
+
+                @Override
+                public void onLeavingRoom() {
+                    Log.d(TAG, "房间状态：开始离开房间");
+                    runOnUiThread(() -> showLoading("正在离开房间..."));
+                }
+
+                @Override
+                public void onLeftRoom() {
+                    Log.d(TAG, "房间状态：成功离开房间");
+                    runOnUiThread(() -> hideLoading());
+                }
+
+                @Override
+                public void onRoomError(String error) {
+                    Log.e(TAG, "房间错误：" + error);
+                    runOnUiThread(() -> {
+                        hideLoading();
+                        Toast.makeText(AgoraDemoActivity.this, error, Toast.LENGTH_LONG).show();
+                    });
                 }
             });
 
@@ -342,14 +393,15 @@ public class AgoraDemoActivity extends AppCompatActivity {
         btnSwitchCamera = findViewById(R.id.btnSwitchCamera); // 新增的切换摄像头按钮
         btnSendChat = findViewById(R.id.btnSendChat);
         etChatMessage = findViewById(R.id.etChatMessage); // 聊天输入框仍然保留
-        flLocalVideo = findViewById(R.id.flLocalVideo);
-        flRemoteVideo = findViewById(R.id.flRemoteVideo);
+        videoGridLayout = findViewById(R.id.videoGridLayout);
         btnToggleChat = findViewById(R.id.btnToggleChat);
         btnCloseChat = findViewById(R.id.btnCloseChat);
         chatPanel = findViewById(R.id.chatPanel);
         llConnectPrompt = findViewById(R.id.llConnectPrompt);
         bottomToolbar = findViewById(R.id.bottomToolbar); // 初始化底部工具栏
         tvChannelPrompt = findViewById(R.id.tvChannelPrompt); // 初始化频道提示TextView
+        loadingOverlay = findViewById(R.id.loadingOverlay); // 初始化加载遮罩层
+        tvLoadingMessage = findViewById(R.id.tvLoadingMessage); // 初始化加载提示文本
 
         tvConnectionStatus = findViewById(R.id.tvConnectionStatus);
         tvAudioLabel = findViewById(R.id.tvAudioLabel);
@@ -417,11 +469,13 @@ public class AgoraDemoActivity extends AppCompatActivity {
                 return;
             }
 
-            String channelName = DEFAULT_CHANNEL_NAME; // 使用固定频道名
-            Log.d("Agora", "当前频道名称: " + channelName);
+            // 使用缓存的频道名称
+            String channelName = currentChannelName;
+            Log.d("Agora", "使用缓存的频道名称: " + channelName);
 
-            if (channelName.isEmpty()) {
+            if (channelName == null || channelName.isEmpty()) {
                 Log.e("Agora", "频道名称为空");
+                tvUserCount.setText("人数: 0");
                 return;
             }
 
@@ -432,6 +486,7 @@ public class AgoraDemoActivity extends AppCompatActivity {
             Log.d("Agora", "成员数量: " + count);
 
             tvUserCount.setText(getString(R.string.user_count_prefix, count));
+
             Log.d("Agora", "=== 用户数量更新完成 ===");
         } catch (Exception e) {
             Log.e("Agora", "更新用户数量失败", e);
@@ -494,29 +549,22 @@ public class AgoraDemoActivity extends AppCompatActivity {
             Log.d("Agora", "频道名称: " + channelName);
             Log.d("Agora", "用户ID: " + userId);
 
+            // serviceManager.createRoom 会处理之前的状态清理
             serviceManager.createRoom(channelName, userId, true);
 
             updateConnectionStatus("已连接");
             updateChannelInfo(channelName);
 
-            // 显示底部工具栏和隐藏连接提示
+            // 显示底部工具栏和网格布局，隐藏连接提示
             llConnectPrompt.setVisibility(android.view.View.GONE);
             bottomToolbar.setVisibility(android.view.View.VISIBLE);
-
-            // 延迟更新用户数量，确保成员列表已更新
-            runOnUiThread(() -> {
-                new android.os.Handler().postDelayed(() -> {
-                    Log.d("Agora", "=== 延迟1秒后更新用户数量 ===");
-                    updateUserCount();
-                }, 1000);
-            });
+            videoGridLayout.setVisibility(android.view.View.VISIBLE);
 
             Toast.makeText(this, getString(R.string.joined_channel_msg, channelName), Toast.LENGTH_SHORT).show();
 
-            // 成功加入频道后，如果视频未静音，则开启本地视频推送
-            if (!videoMuted) {
-                toggleVideo(); // 强制刷新视频状态并开启本地推送
-            }
+            // 成功加入频道后，不自动开启视频，等待用户手动点击按钮
+            // 人数更新会在 onJoinedRoom 回调中处理
+            Log.d("Agora", "加入频道完成，等待用户手动开启视频");
         } catch (Exception e) {
             Log.e("Agora", "加入频道失败", e);
             Toast.makeText(this, getString(R.string.join_failed, e.getMessage()), Toast.LENGTH_LONG).show();
@@ -536,30 +584,49 @@ public class AgoraDemoActivity extends AppCompatActivity {
             return;
         }
 
-        try {
-            Log.d("Agora", "调用 serviceManager.leaveRoom()");
-            serviceManager.leaveRoom();
+        // 启动异步离开操作，加载状态由 RoomStateListener 管理
+        new Thread(() -> {
+            try {
+                Log.d("Agora", "调用 serviceManager.leaveRoom()");
+                serviceManager.leaveRoom();
+                Log.d("Agora", "leaveRoom 调用完成");
 
-            flLocalVideo.removeAllViews();
-            flRemoteVideo.removeAllViews();
-            localSurfaceView = null;
-            remoteSurfaceView = null;
-            currentRemoteUid = 0;
+                // 在UI线程更新UI
+                runOnUiThread(() -> {
+                    // 清空视频视图
+                    videoGridLayout.removeAllViews();
+                    videoViews.clear();
+                    localSurfaceView = null;
+                    currentRemoteUid = 0;
 
-            llConnectPrompt.setVisibility(android.view.View.VISIBLE);
-            bottomToolbar.setVisibility(android.view.View.GONE);
-            chatPanel.setVisibility(android.view.View.GONE);
+                    // 重置状态
+                    audioMuted = true;
+                    videoMuted = true;
 
-            updateConnectionStatus("未连接");
-            updateChannelInfo("-");
-            tvUserCount.setText("人数: 0");
+                    // 更新UI状态
+                    btnToggleAudio.setImageResource(R.drawable.ic_mic_off);
+                    tvAudioLabel.setTextColor(0xFFFF3B30);
+                    btnToggleVideo.setImageResource(R.drawable.ic_videocam_off);
+                    tvVideoLabel.setTextColor(0xFFFF3B30);
 
-            Log.d("Agora", "离开频道完成");
-            Toast.makeText(this, getString(R.string.left_channel_msg), Toast.LENGTH_SHORT).show();
-        } catch (Exception e) {
-            Log.e("Agora", "离开频道失败", e);
-            Toast.makeText(this, getString(R.string.leave_failed, e.getMessage()), Toast.LENGTH_LONG).show();
-        }
+                    llConnectPrompt.setVisibility(android.view.View.VISIBLE);
+                    bottomToolbar.setVisibility(android.view.View.GONE);
+                    chatPanel.setVisibility(android.view.View.GONE);
+                    videoGridLayout.setVisibility(android.view.View.GONE);
+
+                    updateConnectionStatus("未连接");
+                    updateChannelInfo("-");
+                    tvUserCount.setText("人数: 0");
+
+                    Toast.makeText(this, getString(R.string.left_channel_msg), Toast.LENGTH_SHORT).show();
+                });
+            } catch (Exception e) {
+                Log.e("Agora", "离开频道失败", e);
+                runOnUiThread(() -> {
+                    Toast.makeText(this, getString(R.string.leave_failed, e.getMessage()), Toast.LENGTH_LONG).show();
+                });
+            }
+        }).start();
     }
 
     /**
@@ -573,16 +640,24 @@ public class AgoraDemoActivity extends AppCompatActivity {
 
         try {
             audioMuted = !audioMuted;
+            Log.d(TAG, "=== 切换音频 ===");
+            Log.d(TAG, "新状态: " + (audioMuted ? "静音" : "开启"));
+
             serviceManager.getDeviceManager().muteLocalAudio(audioMuted);
+            Log.d(TAG, "已调用 muteLocalAudio(" + audioMuted + ")");
 
             if (audioMuted) {
                 btnToggleAudio.setImageResource(R.drawable.ic_mic_off);
                 tvAudioLabel.setTextColor(0xFFFF3B30);
                 Toast.makeText(this, getString(R.string.audio_muted), Toast.LENGTH_SHORT).show();
+                Log.d(TAG, "音频已静音，停止推流");
             } else {
+                serviceManager.getDeviceManager().enableLocalAudio(true);
+                Log.d(TAG, "已调用 enableLocalAudio(true)");
                 btnToggleAudio.setImageResource(R.drawable.ic_mic_on);
                 tvAudioLabel.setTextColor(0xFFFFFFFF);
                 Toast.makeText(this, getString(R.string.audio_unmuted), Toast.LENGTH_SHORT).show();
+                Log.d(TAG, "音频已开启，开始推流");
             }
         } catch (Exception e) {
             Log.e(TAG, "切换音频失败", e);
@@ -601,39 +676,73 @@ public class AgoraDemoActivity extends AppCompatActivity {
 
         try {
             videoMuted = !videoMuted;
+            Log.d(TAG, "=== 切换视频 ===");
+            Log.d(TAG, "新状态: " + (videoMuted ? "关闭" : "开启"));
 
             if (videoMuted) {
                 serviceManager.getDeviceManager().muteLocalVideo(true);
                 serviceManager.getDeviceManager().stopPreview();
+                Log.d(TAG, "已调用 muteLocalVideo(true) 和 stopPreview()");
 
                 btnToggleVideo.setImageResource(R.drawable.ic_videocam_off);
                 tvVideoLabel.setTextColor(0xFFFF3B30);
                 Toast.makeText(this, getString(R.string.video_muted), Toast.LENGTH_SHORT).show();
 
-                flLocalVideo.removeAllViews();
+                // 移除本地视频视图
+                removeVideoView(0); // 本地视频使用 uid 0
                 localSurfaceView = null;
+
+                // 验证人数和网格布局的view数是否一致
+                updateUserCount();
+
+                Log.d(TAG, "视频已关闭，停止推流");
             } else {
+                // 先更新 UI 状态
                 btnToggleVideo.setImageResource(R.drawable.ic_videocam);
                 tvVideoLabel.setTextColor(0xFFFFFFFF);
 
-                // 确保每次开启视频时都重新设置本地视频视图
+                Log.d(TAG, "准备添加本地视频视图...");
                 if (localSurfaceView == null) {
                     localSurfaceView = new SurfaceView(this);
+                    Log.d(TAG, "创建新的 SurfaceView");
                 }
-                flLocalVideo.removeAllViews(); // 移除旧视图（如果有）
-                flLocalVideo.addView(localSurfaceView);
 
-                int setupResult = serviceManager.getDeviceManager().setupLocalVideo(localSurfaceView, 1);
-                Log.d(TAG, "setupLocalVideo result: " + setupResult);
+                // 先添加本地视频到网格布局（UI 操作）
+                final SurfaceView surfaceToSetup = localSurfaceView;
+                addVideoView(0, localSurfaceView, "我"); // 本地视频使用 uid 0
 
-                if (setupResult == 0) {
-                    serviceManager.getDeviceManager().enableLocalVideo(true);
-                    serviceManager.getDeviceManager().muteLocalVideo(false);
-                    serviceManager.getDeviceManager().startPreview();
-                    Toast.makeText(this, getString(R.string.video_unmuted), Toast.LENGTH_SHORT).show();
-                } else {
-                    Toast.makeText(this, "设置本地视频失败，错误码: " + setupResult, Toast.LENGTH_LONG).show();
-                }
+                // 在后台线程设置视频，避免阻塞主线程
+                new Thread(() -> {
+                    try {
+                        int setupResult = serviceManager.getDeviceManager().setupLocalVideo(surfaceToSetup, 1);
+                        Log.d(TAG, "setupLocalVideo 返回值: " + setupResult);
+
+                        if (setupResult == 0) {
+                            serviceManager.getDeviceManager().enableLocalVideo(true);
+                            serviceManager.getDeviceManager().muteLocalVideo(false);
+                            serviceManager.getDeviceManager().startPreview();
+                            Log.d(TAG, "已调用 enableLocalVideo(true), muteLocalVideo(false), startPreview()");
+
+                            runOnUiThread(() -> {
+                                Toast.makeText(this, getString(R.string.video_unmuted), Toast.LENGTH_SHORT).show();
+                                // 验证人数和网格布局的view数是否一致
+                                updateUserCount();
+                            });
+
+                            Log.d(TAG, "视频已开启，开始推流");
+                        } else {
+                            runOnUiThread(() -> {
+                                Toast.makeText(this, "设置本地视频失败，错误码: " + setupResult, Toast.LENGTH_LONG).show();
+                            });
+                            Log.e(TAG, "设置本地视频失败，错误码: " + setupResult);
+                        }
+                    } catch (Exception e) {
+                        Log.e(TAG, "设置本地视频异常", e);
+                        runOnUiThread(() -> {
+                            Toast.makeText(this, "设置本地视频异常: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                        });
+                    }
+                }).start();
             }
         } catch (Exception e) {
             Log.e(TAG, "切换视频失败", e);
@@ -690,23 +799,165 @@ public class AgoraDemoActivity extends AppCompatActivity {
      * 设置远程视频视图
      */
     private void setupRemoteVideoView(int uid) {
-        if (remoteSurfaceView == null) {
-            currentRemoteUid = uid;
-            remoteSurfaceView = new SurfaceView(this);
-            flRemoteVideo.removeAllViews();
-            flRemoteVideo.addView(remoteSurfaceView);
+        Log.d(TAG, "准备添加远程视频视图，uid: " + uid);
 
-            Log.d(TAG, "设置远程视频视图，uid: " + uid);
+        // 添加远程视频到网格布局
+        addVideoView(uid, null, String.valueOf(uid));
+    }
 
-            // 设置远程视频视图
-            int result = serviceManager.getDeviceManager().setupRemoteVideo(remoteSurfaceView, uid, 1); // RENDER_MODE_HIDDEN
-            Log.d(TAG, "setupRemoteVideo 返回值: " + result);
+    /**
+     * 添加视频视图到网格布局
+     */
+    private void addVideoView(int uid, SurfaceView surfaceView, String userName) {
+        Log.d(TAG, "=== 添加视频视图 ===");
+        Log.d(TAG, "用户ID: " + uid + ", 用户名: " + userName);
 
-            if (result == 0) {
-                Toast.makeText(this, "已连接到用户: " + uid, Toast.LENGTH_SHORT).show();
+        // 如果该用户ID已存在，先移除旧视图（不更新布局）
+        if (videoViews.containsKey(uid)) {
+            View oldView = videoViews.get(uid);
+            videoGridLayout.removeView(oldView);
+            videoViews.remove(uid);
+            Log.d(TAG, "已移除旧的视频视图");
+        }
+
+        // 创建视频视图项
+        View videoView = getLayoutInflater().inflate(R.layout.item_video_view, videoGridLayout, false);
+        SurfaceView videoSurface;
+        TextView tvUserName = videoView.findViewById(R.id.tvUserName);
+
+        // 设置用户名
+        tvUserName.setText(userName);
+
+        // 如果是本地视频，使用传入的 SurfaceView
+        if (uid == 0) {
+            // 本地视频，使用传入的 SurfaceView 或创建新的
+            if (surfaceView != null) {
+                videoSurface = surfaceView;
             } else {
-                Toast.makeText(this, "设置远程视频失败，错误码: " + result, Toast.LENGTH_LONG).show();
+                videoSurface = new SurfaceView(this);
             }
+        } else {
+            // 远程视频，创建新的 SurfaceView
+            videoSurface = new SurfaceView(this);
+        }
+
+        // 设置视频 SurfaceView
+        FrameLayout videoContainer = (FrameLayout) videoView;
+        videoContainer.addView(videoSurface, 0);
+
+        // 添加到网格布局
+        videoGridLayout.addView(videoView);
+
+        // 保存到 map
+        videoViews.put(uid, videoView);
+
+        // 更新网格布局的行列数
+        updateGridLayout();
+
+        // 在后台线程设置视频，避免阻塞主线程
+        final SurfaceView finalVideoSurface = videoSurface;
+        new Thread(() -> {
+            try {
+                int setupResult;
+                if (uid == 0) {
+                    // 本地视频
+                    setupResult = serviceManager.getDeviceManager().setupLocalVideo(finalVideoSurface, 1);
+                    Log.d(TAG, "setupLocalVideo 返回值: " + setupResult);
+                } else {
+                    // 远程视频
+                    setupResult = serviceManager.getDeviceManager().setupRemoteVideo(finalVideoSurface, uid, 1);
+                    Log.d(TAG, "setupRemoteVideo 返回值: " + setupResult);
+                }
+
+                if (setupResult != 0) {
+                    Log.e(TAG, "设置视频失败，错误码: " + setupResult);
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "设置视频异常", e);
+            }
+        }).start();
+
+        Log.d(TAG, "=== 添加视频视图完成 ===");
+    }
+
+    /**
+     * 移除视频视图
+     */
+    private void removeVideoView(int uid) {
+        Log.d(TAG, "=== 移除视频视图 ===");
+        Log.d(TAG, "用户ID: " + uid);
+
+        // 从 map 中获取视图
+        View videoView = videoViews.get(uid);
+        if (videoView != null) {
+            // 从网格布局中移除
+            videoGridLayout.removeView(videoView);
+
+            // 从 map 中移除
+            videoViews.remove(uid);
+
+            Log.d(TAG, "已移除视频视图");
+        }
+
+        // 更新网格布局的行列数
+        updateGridLayout();
+
+        Log.d(TAG, "=== 移除视频视图完成 ===");
+    }
+
+    /**
+     * 更新网格布局的行列数
+     */
+    private void updateGridLayout() {
+        // 使用网格布局中的实际子视图数量，而不是 videoViews.size()
+        int videoCount = videoGridLayout.getChildCount();
+        Log.d(TAG, "=== 更新网格布局 ===");
+        Log.d(TAG, "网格布局中的视图数量: " + videoCount);
+
+        // 根据视频数量计算行列数
+        int columnCount = 2;
+        int rowCount = Math.max(1, (videoCount + 1) / 2); // 至少保留1行
+
+        videoGridLayout.setColumnCount(columnCount);
+        videoGridLayout.setRowCount(rowCount);
+
+        Log.d(TAG, "列数: " + columnCount + ", 行数: " + rowCount);
+    }
+
+    /**
+     * 显示加载遮罩层
+     */
+    private void showLoading(String message) {
+        if (loadingOverlay != null) {
+            loadingOverlay.setVisibility(View.VISIBLE);
+        }
+        if (tvLoadingMessage != null) {
+            tvLoadingMessage.setText(message);
+        }
+
+        // 禁用按钮，防止重复点击
+        if (btnJoinChannel != null) {
+            btnJoinChannel.setEnabled(false);
+        }
+        if (btnLeaveChannel != null) {
+            btnLeaveChannel.setEnabled(false);
+        }
+    }
+
+    /**
+     * 隐藏加载遮罩层
+     */
+    private void hideLoading() {
+        if (loadingOverlay != null) {
+            loadingOverlay.setVisibility(View.GONE);
+        }
+
+        // 恢复按钮可用状态
+        if (btnJoinChannel != null) {
+            btnJoinChannel.setEnabled(true);
+        }
+        if (btnLeaveChannel != null) {
+            btnLeaveChannel.setEnabled(true);
         }
     }
 

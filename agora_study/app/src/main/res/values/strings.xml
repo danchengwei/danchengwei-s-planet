@@ -3,7 +3,7 @@
     <string name="demo_title">Agora视频通话演示</string>
     <string name="current_channel_prompt">当前可用频道: %s</string>
     <string name="channel_info_prefix">频道: %s</string>
-    <string name="user_count_prefix">人数: %d</string>
+    <string name="user_count_prefix">人数: %s</string>
     <string name="channel_name_hint">请输入频道名称</string>
     <string name="join_channel_btn">加入频道</string>
     <string name="leave_channel_btn">离开频道</string>
