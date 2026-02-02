@@ -1,0 +1,9 @@
+{
+  "skill_name": "skill-signaling-server",
+  "skill_description": "signaling-server 模块的专用Skill",
+  "trigger_keywords": ["signaling-server", "signaling-server模块", "signaling-server相关"],
+  "entry_point": "workflow.md",
+  "version": "1.0.0",
+  "author": "Trae AI",
+  "tags": ["signaling-server", "module", "auto-generated"]
+}

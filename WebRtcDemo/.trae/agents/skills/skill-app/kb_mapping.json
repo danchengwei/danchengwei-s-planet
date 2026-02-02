@@ -1,0 +1,24 @@
+{
+  "knowledge_base": {
+    "version": "project_v1.0",
+    "modules": [
+      {
+        "module_name": "app",
+        "kb_path": "knowledge-base/project_v1.0/module-app",
+        "priority": 1
+      }
+    ],
+    "mapping_rules": [
+      {
+        "pattern": "app.*",
+        "module": "app",
+        "confidence": 0.9
+      },
+      {
+        "pattern": ".*app.*",
+        "module": "app",
+        "confidence": 0.7
+      }
+    ]
+  }
+}

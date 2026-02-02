@@ -1,0 +1,24 @@
+{
+  "knowledge_base": {
+    "version": "project_v1.0",
+    "modules": [
+      {
+        "module_name": "userservice",
+        "kb_path": "knowledge-base/project_v1.0/module-userservice",
+        "priority": 1
+      }
+    ],
+    "mapping_rules": [
+      {
+        "pattern": "userservice.*",
+        "module": "userservice",
+        "confidence": 0.9
+      },
+      {
+        "pattern": ".*userservice.*",
+        "module": "userservice",
+        "confidence": 0.7
+      }
+    ]
+  }
+}

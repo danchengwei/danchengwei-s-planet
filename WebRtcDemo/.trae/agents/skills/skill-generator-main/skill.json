@@ -1,0 +1,34 @@
+{
+  "id": "skill-generator-main-v1",
+  "name": "ModuleSkillGenerator",
+  "version": "1.0.0",
+  "description": "Trae专属：自动扫描Android项目模块，生成各模块Skill，解决代码漏洞/规范/业务模糊问题",
+  "trigger": {
+    "type": "trae-project-opened",  
+    "context": ["android", "kotlin", "java"], 
+    "priority": 100  
+  },
+  "permissions": [
+    "trae:read-project-files",
+    "trae:write-project-files",
+    "trae:execute-scripts",
+    "trae:list-skill-directories",
+    "trae:call-llm-api"
+  ],
+  "entry": {
+    "workflow": "workflow.md",
+    "main_script": "scripts/skill_creator.py"
+  },
+  "config": {
+    "project_version": "v1.0",
+    "module_root": "app/src/main/java/com/example/webrtctest/",
+    "skip_dirs": [".git", "venv", "build", "test"],
+    "skill_output_dir": ".trae/agents/skills/", 
+    "kb_root": ".trae/agents/skills/skill-generator-main/knowledge-base/"
+  },
+  "trae_config": {  
+    "auto_register": true,  
+    "auto_refresh": true,  
+    "show_in_skill_list": true  
+  }
+}

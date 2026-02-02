@@ -1,0 +1,9 @@
+{
+  "skill_name": "skill-app",
+  "skill_description": "app 模块的专用Skill",
+  "trigger_keywords": ["app", "app模块", "app相关"],
+  "entry_point": "workflow.md",
+  "version": "1.0.0",
+  "author": "Trae AI",
+  "tags": ["app", "module", "auto-generated"]
+}

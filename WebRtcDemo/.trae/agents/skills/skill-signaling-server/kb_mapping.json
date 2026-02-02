@@ -1,0 +1,24 @@
+{
+  "knowledge_base": {
+    "version": "project_v1.0",
+    "modules": [
+      {
+        "module_name": "signaling-server",
+        "kb_path": "knowledge-base/project_v1.0/module-signaling-server",
+        "priority": 1
+      }
+    ],
+    "mapping_rules": [
+      {
+        "pattern": "signaling-server.*",
+        "module": "signaling-server",
+        "confidence": 0.9
+      },
+      {
+        "pattern": ".*signaling-server.*",
+        "module": "signaling-server",
+        "confidence": 0.7
+      }
+    ]
+  }
+}

@@ -1,0 +1,1 @@
+# Skill Generator 脚本初始化文件

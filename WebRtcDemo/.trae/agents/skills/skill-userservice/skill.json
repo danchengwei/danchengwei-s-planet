@@ -1,0 +1,9 @@
+{
+  "skill_name": "skill-userservice",
+  "skill_description": "userservice 模块的专用Skill",
+  "trigger_keywords": ["userservice", "userservice模块", "userservice相关"],
+  "entry_point": "workflow.md",
+  "version": "1.0.0",
+  "author": "Trae AI",
+  "tags": ["userservice", "module", "auto-generated"]
+}
