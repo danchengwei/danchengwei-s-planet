@@ -11,7 +11,7 @@ public class AgoraConfig {
     // Token（在生产环境中应从服务器获取）
     // 在开发测试阶段，可以使用空字符串或临时Token
     // 注意：临时Token通常只有24小时有效期，过期后需要重新生成
-    public static final String TEMP_TOKEN = "007eJxTYFDr3duw23f7yWNpr9+tVIlYcVimZ8nX360q6Tq2Ghxqny4qMJhbGFkkmRmbJRqkmZsYANkp5kmJSRYmiWZJZkbmJonrQ2syGwIZGfIvG7IyMkAgiM/GYGhkbGJqxsAAAPDVH/E=";  // 开发模式使用空Token
+    public static final String TEMP_TOKEN = "007eJxTYJjZoL9qiqRSy2FtC/esGpWP76bOkIhzqTi26I8ql6/ruZcKDOYWRhZJZsZmiQZp5iYGQHaKeVJikoVJolmSmZG5SSLH86bMhkBGhvSu9ayMDBAI4rMxGBoZm5iaMTAAACtoHgo=";  // 开发模式使用空Token
 
     // 是否使用开发模式（不使用Token）
     public static final boolean DEVELOPMENT_MODE = true;
@@ -21,6 +21,26 @@ public class AgoraConfig {
 
     // 用户ID（在实际应用中应该从用户系统获取）
     public static final String DEFAULT_USER_ID = "user_" + System.currentTimeMillis();
+
+    // Chat相关配置
+    // Chat AppKey
+    public static final String CHAT_APP_KEY = "6110009367#1647862";
+    // Chat数据中心
+    public static final String CHAT_DATA_CENTER = "Singapore";
+    // Chat数据中心代码
+    public static final String CHAT_AREA_CODE = "SG";
+    // Chat WebSocket地址
+    public static final String CHAT_IM_SERVER = "msync-api-61.chat.agora.io";
+    // Chat REST API地址
+    public static final String CHAT_REST_SERVER = "a61.chat.agora.io";
+    // Chat测试用户名
+    public static final String CHAT_TEST_USERNAME = "test1";
+    // 第二个测试用户
+    public static final String CHAT_TEST_USERNAME_2 = "test2";
+    // test1测试用户的token
+    public static final String CHAT_TEST_TOKEN = "007eJxTYODQ+uuzvmvJyq4lle+1llYwM7bNNI5iOHFIjdXI1zzh6CwFBnMLI4skM2OzRIM0cxMDIDvFPCkxycIk0SzJzMjcJHHhh6bMhkBGhoOvKpgYGVgZGIEQxFdhsDA1TjVLMzfQNTA0T9Y1NEwz1LWwSErWNTBONjJIMUwxNrM0AwDRHyXZ";
+    // test2测试用户的token
+    public static final String CHAT_TEST_TOKEN_2 = "007eJxTYPiwndFD6EOIzWF5rcr5CwTvhGs+f62TN29HvMMf66alqkoKDOYWRhZJZsZmiQZp5iYGQHaKeVJikoVJolmSmZG5SWL/h6bMhkBGhoTFnxgZGVgZGIEQxFdhsDA1TjWxMDPQNTA0T9Y1NEwz1E00ME/VTUsyT7IwNklKTrG0AAAnLCcB";
 
     /**
      * 获取App ID

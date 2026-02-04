@@ -252,7 +252,7 @@ public class RoomManager {
                 this.currentToken = token;
                 this.isBroadcaster = isBroadcaster;
 
-                // 预先创建房间成员列表，避免查询时为空
+                        // 预先创建房间成员列表，避免查询时为空
                 // 在每次加入房间时都重新初始化成员列表
                 if (!roomMembers.containsKey(channelName)) {
                     roomMembers.put(channelName, new ArrayList<>());
@@ -261,12 +261,11 @@ public class RoomManager {
                     roomMembers.get(channelName).clear();
                 }
 
-                // 将当前用户添加到成员列表
-                roomMembers.get(channelName).add(userId);
                 Log.d(TAG, "预先创建/清空房间成员列表，频道: " + channelName + ", 当前成员数: " + roomMembers.get(channelName).size());
 
-                // 更新成员数量的 LiveData
-                memberCountLiveData.postValue(roomMembers.get(channelName).size());
+                // 不预先添加用户，等待SDK回调后再添加
+                // 这样可以确保使用一致的用户ID格式（SDK返回的数字ID）
+                memberCountLiveData.postValue(0);
 
                 // 直接加入 RTC 频道，不需要等待 RTM 登录
                 Log.d(TAG, "直接加入 RTC 频道（不等待 RTM）...");
@@ -309,7 +308,13 @@ public class RoomManager {
                     // RTM 在开发模式下使用 null Token
                     // RTC Token 不能用于 RTM
                     String rtmToken = null;
-                    Log.d(TAG, "RTM 使用 null Token（开发模式）");
+                    if (!AgoraConfig.DEVELOPMENT_MODE) {
+                        // 非开发模式下使用有效的 RTM token
+                        // 注意：RTM token 需要单独生成，不能使用 RTC token
+                        Log.d(TAG, "RTM 使用有效的 token（非开发模式）");
+                    } else {
+                        Log.d(TAG, "RTM 使用 null Token（开发模式）");
+                    }
 
                     RtmConfig rtmConfig = new RtmConfig.Builder(appId, userId)
                             .eventListener(rtmEventListener)
@@ -823,6 +828,9 @@ public class RoomManager {
 
         // 只有在确实正在离开房间时才重置状态
         if (isLeavingRoom) {
+            // 先保存当前频道名称，用于后续清理
+            String channelToClear = currentChannelName;
+            
             isInRoom = false;
             isLeavingRoom = false;
             isJoiningRoom = false;
@@ -834,9 +842,9 @@ public class RoomManager {
             isBroadcaster = false;
 
             // 清空当前频道的成员列表
-            if (currentChannelName != null && roomMembers.containsKey(currentChannelName)) {
-                roomMembers.get(currentChannelName).clear();
-                Log.d("Agora", "已清空频道 " + currentChannelName + " 的成员列表");
+            if (channelToClear != null && roomMembers.containsKey(channelToClear)) {
+                roomMembers.get(channelToClear).clear();
+                Log.d("Agora", "已清空频道 " + channelToClear + " 的成员列表");
             }
 
             // 通知监听器
@@ -949,6 +957,12 @@ public class RoomManager {
 
                 // 更新成员数量的 LiveData
                 memberCountLiveData.postValue(roomMembers.get(targetChannel).size());
+
+                // 通知监听器（只通知远程用户，不通知本地用户）
+                if (roomEventListener != null) {
+                    Log.d("Agora", "通知 UI 远程用户加入: " + userId);
+                    roomEventListener.onUserJoined(userId);
+                }
             } else {
                 Log.d("Agora", "用户已在成员列表中，跳过添加: " + userId);
             }
@@ -961,16 +975,14 @@ public class RoomManager {
 
             // 更新成员数量的 LiveData
             memberCountLiveData.postValue(members.size());
+
+            // 通知监听器
+            if (roomEventListener != null) {
+                Log.d("Agora", "通知 UI 用户加入: " + userId);
+                roomEventListener.onUserJoined(userId);
+            }
         } else {
             Log.e("Agora", "无法添加用户: 当前频道名称为 null");
-        }
-
-        // 通知监听器
-        if (roomEventListener != null) {
-            Log.d("Agora", "通知 UI 用户加入: " + userId);
-            roomEventListener.onUserJoined(userId);
-        } else {
-            Log.e("Agora", "roomEventListener 为 null，无法通知 UI");
         }
 
         Log.d("Agora", "=== handleUserJoined 完成 ===");
@@ -1031,7 +1043,7 @@ public class RoomManager {
             Log.d("Agora", "创建新的成员列表，频道: " + channel);
         }
 
-        // 只有当用户不是本地用户时才添加（本地用户已在createChatRoom中添加）
+        // 使用SDK返回的数字ID作为统一的用户ID格式
         String userIdStr = String.valueOf(uid);
         // 检查用户是否已经在成员列表中，避免重复添加
         if (!roomMembers.get(channel).contains(userIdStr)) {
@@ -1053,18 +1065,8 @@ public class RoomManager {
             Log.d("Agora", "加入房间流程完成，已通知 UI");
         }
 
-        // 通知监听器（但排除本地用户）
-        if (roomEventListener != null) {
-            // 只有当加入的用户不是本地用户时，才通知 UI
-            if (!String.valueOf(uid).equals(currentUserId)) {
-                Log.d("Agora", "通知 UI 远程用户加入频道: " + uid);
-                roomEventListener.onUserJoined(String.valueOf(uid));
-            } else {
-                Log.d("Agora", "本地用户加入频道，不通知 UI 添加视频视图");
-            }
-        } else {
-            Log.e("Agora", "roomEventListener 为 null，无法通知 UI");
-        }
+        // 通知监听器 - 移除用户加入通知，由handleUserJoined处理
+        // 避免重复通知用户加入事件
 
         Log.d("Agora", "=== handleJoinChannelSuccess 完成 ===");
     }

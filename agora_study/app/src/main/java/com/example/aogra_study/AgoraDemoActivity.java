@@ -41,6 +41,7 @@ public class AgoraDemoActivity extends AppCompatActivity {
     public static final String DEFAULT_CHANNEL_NAME = "123456"; // 固定频道名
 
     private AgoraServiceManager serviceManager;
+    private ChatController chatController;
 
     // UI组件
     private Button btnJoinChannel;
@@ -61,6 +62,7 @@ public class AgoraDemoActivity extends AppCompatActivity {
     private TextView tvChannelPrompt; // 新增：用于显示频道提示
     private FrameLayout loadingOverlay; // 加载遮罩层
     private TextView tvLoadingMessage; // 加载提示文本
+    private View chatRedDot; // 红点提示，当有新消息时显示
 
     // 状态信息显示
     private TextView tvConnectionStatus;
@@ -199,6 +201,11 @@ public class AgoraDemoActivity extends AppCompatActivity {
                         chatMessageAdapter.addMessage(chatMessage);
                         rvChatMessages.scrollToPosition(chatMessageAdapter.getItemCount() - 1);
 
+                        // 如果聊天面板隐藏，显示红点提示
+                        if (chatPanel.getVisibility() == View.GONE && chatRedDot != null) {
+                            chatRedDot.setVisibility(View.VISIBLE);
+                        }
+
                         // 显示Toast提示
                         Toast.makeText(AgoraDemoActivity.this, getString(R.string.message_received, userId + ": " + message), Toast.LENGTH_SHORT).show();
                     });
@@ -330,6 +337,9 @@ public class AgoraDemoActivity extends AppCompatActivity {
             Log.d(TAG, "Agora服务管理器初始化成功");
             updateConnectionStatus("Agora服务已初始化");
 
+            // 初始化ChatController
+            initChatController();
+
         } catch (Exception e) {
             Log.e(TAG, "初始化Agora服务管理器失败", e);
             Toast.makeText(this, getString(R.string.init_failed, e.getMessage()), Toast.LENGTH_LONG).show();
@@ -395,6 +405,72 @@ public class AgoraDemoActivity extends AppCompatActivity {
     }
 
     /**
+     * 初始化ChatController
+     */
+    private void initChatController() {
+        try {
+            // 初始化ChatController
+            chatController = new ChatController();
+            chatController.initChat(this, AgoraConfig.CHAT_APP_KEY);
+            
+            // 直接初始化Chat SDK，不需要登录
+            Log.d(TAG, "Chat SDK已初始化");
+            
+            // 添加消息监听器
+            chatController.addMessageListener(new io.agora.MessageListener() {
+                @Override
+                public void onMessageReceived(List<io.agora.chat.ChatMessage> messages) {
+                    runOnUiThread(() -> {
+                        for (io.agora.chat.ChatMessage message : messages) {
+                            // 处理接收到的消息
+                            String userId = message.getFrom();
+                            String content = message.getBody().toString();
+                            ChatMessage chatMessage = new ChatMessage(userId, content, false);
+                            chatMessageAdapter.addMessage(chatMessage);
+                            rvChatMessages.scrollToPosition(chatMessageAdapter.getItemCount() - 1);
+                        }
+                        
+                        // 如果聊天面板隐藏，显示红点提示
+                        if (chatPanel.getVisibility() == View.GONE && chatRedDot != null) {
+                            chatRedDot.setVisibility(View.VISIBLE);
+                        }
+                    });
+                }
+                
+                @Override
+                public void onCmdMessageReceived(List<io.agora.chat.ChatMessage> messages) {
+                    // 处理命令消息
+                }
+                
+                @Override
+                public void onMessageRead(List<io.agora.chat.ChatMessage> messages) {
+                    // 处理消息已读
+                }
+                
+                @Override
+                public void onMessageDelivered(List<io.agora.chat.ChatMessage> messages) {
+                    // 处理消息已送达
+                }
+                
+                @Override
+                public void onMessageRecalled(List<io.agora.chat.ChatMessage> messages) {
+                    // 处理消息已撤回
+                }
+                
+                @Override
+                public void onMessageChanged(io.agora.chat.ChatMessage message, Object change) {
+                    // 处理消息变化
+                }
+            });
+            
+            Log.d(TAG, "ChatController初始化成功");
+        } catch (Exception e) {
+            Log.e(TAG, "初始化ChatController失败", e);
+            Toast.makeText(this, "初始化Chat服务失败: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+    
+    /**
      * 初始化视图组件
      */
     private void initViews() {
@@ -428,6 +504,12 @@ public class AgoraDemoActivity extends AppCompatActivity {
         chatMessageAdapter = new ChatMessageAdapter();
         rvChatMessages.setLayoutManager(new LinearLayoutManager(this));
         rvChatMessages.setAdapter(chatMessageAdapter);
+
+        // 初始化红点提示
+        chatRedDot = findViewById(R.id.chatRedDot);
+        if (chatRedDot != null) {
+            chatRedDot.setVisibility(View.GONE); // 默认隐藏红点
+        }
 
         if (tvChannelPrompt != null) {
             tvChannelPrompt.setText(getString(R.string.current_channel_prompt, DEFAULT_CHANNEL_NAME));
@@ -524,6 +606,12 @@ public class AgoraDemoActivity extends AppCompatActivity {
         if (chatPanel.getVisibility() == android.view.View.GONE) {
             chatPanel.setVisibility(android.view.View.VISIBLE);
             tvChatLabel.setTextColor(0xFF007AFF);
+            
+            // 打开聊天面板时隐藏红点
+            if (chatRedDot != null) {
+                chatRedDot.setVisibility(View.GONE);
+                Log.d("Agora", "隐藏红点提示，因为聊天面板已打开");
+            }
 
             ObjectAnimator animator = ObjectAnimator.ofFloat(chatPanel, "translationY", 400f, 0f);
             animator.setDuration(300);
@@ -543,6 +631,7 @@ public class AgoraDemoActivity extends AppCompatActivity {
             public void onAnimationEnd(android.animation.Animator animation) {
                 chatPanel.setVisibility(android.view.View.GONE);
                 tvChatLabel.setTextColor(0xFFFFFFFF);
+                Log.d("Agora", "聊天面板已关闭");
             }
         });
     }
@@ -578,12 +667,128 @@ public class AgoraDemoActivity extends AppCompatActivity {
             // 成功加入频道后，不自动开启视频，等待用户手动点击按钮
             // 人数更新会在 onJoinedRoom 回调中处理
             Log.d("Agora", "加入频道完成，等待用户手动开启视频");
+            
+            // 初始化并登录Chat SDK
+            if (chatController == null) {
+                chatController = new ChatController();
+            }
+            chatController.initChat(this, AgoraConfig.CHAT_APP_KEY);
+            // 选择使用哪个用户的token
+            String username;
+            String token;
+            // 基于用户身份分配token
+            // 这里使用用户ID的哈希值来决定使用哪个token
+            // 确保两个用户分别使用不同的token
+            int userIdHash = userId.hashCode();
+            if (userIdHash % 2 == 0) {
+                // 偶数哈希值使用test2的token
+                username = AgoraConfig.CHAT_TEST_USERNAME_2;
+                token = AgoraConfig.CHAT_TEST_TOKEN_2;
+            } else {
+                // 奇数哈希值使用test1的token
+                username = AgoraConfig.CHAT_TEST_USERNAME;
+                token = AgoraConfig.CHAT_TEST_TOKEN;
+            }
+            Log.d("Agora", "准备登录Chat SDK，用户名: " + username + "，token长度: " + token.length() + "，用户ID: " + userId + "，哈希值: " + userIdHash);
+            chatController.login("test1", "007eJxTYPDS6Zl4sEsw7sS5miTVIzLM377skdIPmzYrl/375ocs9+IVGMwtjCySzIzNEg3SzE0MgOwU86TEJAuTRLMkMyNzk8RupubMhkBGhsXlC1gZGVgZGIEQxFdhsDA1TjVLMzfQNTA0T9Y1NEwz1LWwSErWNTBONjJIMUwxNrM0AwAv3CY2", new io.agora.CallBack() {
+                @Override
+                public void onSuccess() {
+                    Log.d("Agora", "Chat SDK登录成功");
+                    runOnUiThread(() -> {
+                        Toast.makeText(AgoraDemoActivity.this, "Chat服务初始化成功", Toast.LENGTH_SHORT).show();
+                    });
+                    
+                    // 注册消息监听器
+                    chatController.addMessageListener(new io.agora.MessageListener() {
+                        @Override
+                        public void onMessageReceived(List<io.agora.chat.ChatMessage> messages) {
+                            Log.d("Agora", "收到新消息: " + messages.size() + "条");
+                            for (io.agora.chat.ChatMessage message : messages) {
+                                // 处理收到的消息
+                                final String fromUser;
+                                String tempFromUser = message.getFrom();
+                                if (tempFromUser == null) {
+                                    tempFromUser = "未知用户";
+                                }
+                                // 映射测试用户为友好显示名称
+                                if (tempFromUser.equals(AgoraConfig.CHAT_TEST_USERNAME)) {
+                                    tempFromUser = "测试用户1";
+                                } else if (tempFromUser.equals(AgoraConfig.CHAT_TEST_USERNAME_2)) {
+                                    tempFromUser = "测试用户2";
+                                }
+                                fromUser = tempFromUser;
+                                
+                                final String content;
+                                String tempContent = "";
+                                if (message.getBody() != null) {
+                                    if (message.getType() == io.agora.chat.ChatMessage.Type.TXT) {
+                                        try {
+                                            tempContent = ((io.agora.chat.TextMessageBody)message.getBody()).getMessage();
+                                        } catch (ClassCastException e) {
+                                            Log.e("Agora", "Failed to cast message body to TextMessageBody", e);
+                                            tempContent = "[文本消息解析失败]";
+                                        }
+                                    } else if (message.getType() == io.agora.chat.ChatMessage.Type.IMAGE) {
+                                        tempContent = "[图片消息]";
+                                    } else if (message.getType() == io.agora.chat.ChatMessage.Type.FILE) {
+                                        try {
+                                            io.agora.chat.FileMessageBody fileBody = (io.agora.chat.FileMessageBody) message.getBody();
+                                            tempContent = "[文件消息: " + fileBody.getFileName() + "]";
+                                        } catch (ClassCastException e) {
+                                            Log.e("Agora", "Failed to cast message body to FileMessageBody", e);
+                                            tempContent = "[文件消息解析失败]";
+                                        }
+                                    } else if (message.getType() == io.agora.chat.ChatMessage.Type.VOICE) {
+                                        tempContent = "[语音消息]";
+                                    } else {
+                                        tempContent = message.getBody().toString();
+                                    }
+                                } else {
+                                    tempContent = "[空消息]";
+                                }
+                                content = tempContent;
+                                
+                                Log.d("Agora", "收到来自 " + fromUser + " 的消息: " + content + "，消息ID: " + message.getMsgId() + "，消息类型: " + message.getType());
+                                
+                                // 在UI线程更新聊天列表
+                                runOnUiThread(() -> {
+                                    ChatMessage chatMessage = new ChatMessage(fromUser, content, false);
+                                    chatMessageAdapter.addMessage(chatMessage);
+                                    rvChatMessages.scrollToPosition(chatMessageAdapter.getItemCount() - 1);
+                                    
+                                    // 显示红点提示
+                                    if (chatRedDot != null && chatPanel.getVisibility() == View.GONE) {
+                                        chatRedDot.setVisibility(View.VISIBLE);
+                                        Log.d("Agora", "显示红点提示，因为聊天面板未打开");
+                                    }
+                                    Log.d("Agora", "已将消息添加到聊天列表，当前列表消息数: " + chatMessageAdapter.getItemCount());
+                                });
+                            }
+                        }
+                    });
+                }
+                
+                @Override
+                public void onError(int code, String error) {
+                    Log.e("Agora", "Chat SDK登录失败，错误码: " + code + "，错误信息: " + error);
+                    runOnUiThread(() -> {
+                        Toast.makeText(AgoraDemoActivity.this, "Chat服务初始化失败: " + error, Toast.LENGTH_LONG).show();
+                    });
+                }
+                
+                @Override
+                public void onProgress(int progress, String status) {
+                    Log.d("Agora", "Chat SDK登录进度: " + progress + "%，状态: " + status);
+                }
+            });
         } catch (Exception e) {
             Log.e("Agora", "加入频道失败", e);
             Toast.makeText(this, getString(R.string.join_failed, e.getMessage()), Toast.LENGTH_LONG).show();
             updateConnectionStatus("连接失败: " + e.getMessage());
         }
     }
+
+
 
     /**
      * 离开频道
@@ -780,8 +985,8 @@ public class AgoraDemoActivity extends AppCompatActivity {
      * 发送聊天消息
      */
     private void sendChatMessage() {
-        if (serviceManager == null || !serviceManager.isInitialized()) {
-            Toast.makeText(this, "Agora服务未初始化", Toast.LENGTH_SHORT).show();
+        if (chatController == null || !chatController.isSdkInited()) {
+            Toast.makeText(this, "Chat服务未初始化", Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -792,14 +997,18 @@ public class AgoraDemoActivity extends AppCompatActivity {
         }
 
         try {
-            String channelName = DEFAULT_CHANNEL_NAME; // 使用固定频道名
-            serviceManager.getRoomManager().sendChatMessage(channelName, message);
+            // 使用ChatController发送消息
+            String toUser = AgoraConfig.CHAT_TEST_USERNAME_2; // 发送给第二个测试用户
+            Log.d("Agora", "准备发送消息，内容: " + message + "，接收方: " + toUser);
+            io.agora.chat.ChatMessage sentMessage = chatController.sendTextMessage(message, toUser);
+            Log.d("Agora", "发送消息成功，消息ID: " + sentMessage.getMsgId());
             etChatMessage.setText(""); // 清空输入框
 
             // 添加消息到聊天列表
             ChatMessage chatMessage = new ChatMessage("我", message, true);
             chatMessageAdapter.addMessage(chatMessage);
             rvChatMessages.scrollToPosition(chatMessageAdapter.getItemCount() - 1);
+            Log.d("Agora", "已将发送的消息添加到聊天列表，当前列表消息数: " + chatMessageAdapter.getItemCount());
 
             Toast.makeText(this, getString(R.string.message_sent), Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
