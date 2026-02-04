@@ -51,8 +51,11 @@ public class AgoraServiceManager {
         try {
             Log.d("Agora", "初始化 RTMController...");
             rtmController = new RTMController();
-            rtmController.initializeRtmClient(appId, AgoraConfig.generateUserId(), null);
-            Log.d("Agora", "RTMController 初始化完成");
+            // 使用应用的UID生成用户ID，确保token和username一一对应
+            int appUid = context.getApplicationInfo().uid;
+            String userId = "user_" + appUid;
+            rtmController.initializeRtmClient(appId, userId, null);
+            Log.d("Agora", "RTMController 初始化完成，用户ID: " + userId + "，应用UID: " + appUid);
         } catch (UnsatisfiedLinkError e) {
             Log.e("Agora", "Failed to initialize RTM client due to native library error: " + e.getMessage());
             // 创建一个空的RTMController对象，以便后续不会出现空指针异常
@@ -63,13 +66,14 @@ public class AgoraServiceManager {
         }
 
         // 初始化ChatController
-        Log.d("Agora", "初始化 ChatController...");
+        Log.d(TAG, "初始化 ChatController...");
         chatController = new ChatController();
         try {
-            chatController.initChat(context, appId);
-            Log.d("Agora", "ChatController 初始化完成");
+            // 使用Chat专用的AppKey初始化
+            chatController.initChat(context, AgoraConfig.CHAT_APP_KEY);
+            Log.d(TAG, "ChatController 初始化完成");
         } catch (Exception e) {
-            Log.e("Agora", "Failed to initialize ChatController: " + e.getMessage());
+            Log.e(TAG, "Failed to initialize ChatController: " + e.getMessage());
             e.printStackTrace(); // 添加堆栈跟踪以帮助调试
             // 创建一个空的chatController对象，以便后续不会出现空指针异常
             chatController = new ChatController();
@@ -262,7 +266,7 @@ public class AgoraServiceManager {
         if (roomManager != null) {
             // 不再主动调用 leaveRoom，让 joinChannel 自己处理频道切换
             // 这样可以避免 leaveChannel 阻塞导致的问题
-            Log.d(TAG, "直接调用 createChatRoom，让 SDK 自动处理频道切换");
+            Log.d("Agora", "直接调用 createChatRoom，让 SDK 自动处理频道切换");
             roomManager.createChatRoom(channelName, userId, AgoraConfig.getDefaultToken(), isBroadcaster);
         }
     }

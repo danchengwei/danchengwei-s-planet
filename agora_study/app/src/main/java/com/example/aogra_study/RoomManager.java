@@ -149,7 +149,7 @@ public class RoomManager {
             Log.d("RoomManager", "频道配置和音视频模块已在 DeviceManager 中启用");
         }
 
-        Log.d(TAG, "RTC引擎初始化完成");
+        Log.d("Agora", "RTC引擎初始化完成");
 
         // 初始化RTM客户端
         rtmEventListener = new RtmEventListener() {
@@ -189,15 +189,15 @@ public class RoomManager {
      * 创建聊天室
      */
     public void createChatRoom(String channelName, String userId, String token, boolean isBroadcaster) {
-        Log.d(TAG, "=== RoomManager.createChatRoom 开始 ===");
-        Log.d(TAG, "频道名称: " + channelName);
-        Log.d(TAG, "用户ID: " + userId);
-        Log.d(TAG, "是否为主播: " + isBroadcaster);
-        Log.d(TAG, "当前状态: isJoiningRoom=" + isJoiningRoom + ", isLeavingRoom=" + isLeavingRoom);
+        Log.d("Agora", "=== RoomManager.createChatRoom 开始 ===");
+        Log.d("Agora", "频道名称: " + channelName);
+        Log.d("Agora", "用户ID: " + userId);
+        Log.d("Agora", "是否为主播: " + isBroadcaster);
+        Log.d("Agora", "当前状态: isJoiningRoom=" + isJoiningRoom + ", isLeavingRoom=" + isLeavingRoom);
 
         // 如果正在加入房间，拒绝新的加入请求
         if (isJoiningRoom) {
-            Log.w(TAG, "正在加入房间，拒绝新的加入请求");
+            Log.w("Agora", "正在加入房间，拒绝新的加入请求");
             if (roomStateListener != null) {
                 roomStateListener.onRoomError("正在加入房间，请稍后再试");
             }
@@ -206,7 +206,7 @@ public class RoomManager {
 
         // 如果正在离开房间，等待片刻再尝试加入
         if (isLeavingRoom) {
-            Log.w(TAG, "正在离开房间，等待片刻后加入");
+            Log.w("Agora", "正在离开房间，等待片刻后加入");
             new Thread(() -> {
                 try {
                     // 等待最多3秒让离开操作完成
@@ -218,14 +218,14 @@ public class RoomManager {
 
                     // 检查是否已经可以加入
                     if (isLeavingRoom) {
-                        Log.e(TAG, "等待离开房间超时，强制重置状态");
+                        Log.e("Agora", "等待离开房间超时，强制重置状态");
                         isLeavingRoom = false;
                     }
 
                     // 递归调用，确保此时不再处于离开状态
                     createChatRoom(channelName, userId, token, isBroadcaster);
                 } catch (InterruptedException e) {
-                    Log.e(TAG, "等待被中断", e);
+                    Log.e("Agora", "等待被中断", e);
                     if (roomStateListener != null) {
                         roomStateListener.onRoomError("加入房间被中断");
                     }
@@ -245,7 +245,7 @@ public class RoomManager {
             try {
                 // 不等待 isLeavingRoom，直接继续
                 // Agora SDK 的 joinChannel 会自动处理频道切换
-                Log.d(TAG, "开始加入流程，不等待离开完成");
+                Log.d("Agora", "开始加入流程，不等待离开完成");
 
                 this.currentChannelName = channelName;
                 this.currentUserId = userId;
@@ -261,14 +261,14 @@ public class RoomManager {
                     roomMembers.get(channelName).clear();
                 }
 
-                Log.d(TAG, "预先创建/清空房间成员列表，频道: " + channelName + ", 当前成员数: " + roomMembers.get(channelName).size());
+                Log.d("Agora", "预先创建/清空房间成员列表，频道: " + channelName + ", 当前成员数: " + roomMembers.get(channelName).size());
 
                 // 不预先添加用户，等待SDK回调后再添加
                 // 这样可以确保使用一致的用户ID格式（SDK返回的数字ID）
                 memberCountLiveData.postValue(0);
 
                 // 直接加入 RTC 频道，不需要等待 RTM 登录
-                Log.d(TAG, "直接加入 RTC 频道（不等待 RTM）...");
+                Log.d("Agora", "直接加入 RTC 频道（不等待 RTM）...");
                 joinChannel(channelName, userId, token, isBroadcaster);
 
                 // 设置超时机制：如果 10 秒内没有收到 handleJoinChannelSuccess 回调，重置状态
@@ -276,14 +276,14 @@ public class RoomManager {
                     try {
                         Thread.sleep(10000); // 等待 10 秒
                         if (isJoiningRoom) {
-                            Log.e(TAG, "加入频道超时（10秒内未收到回调），重置状态");
+                            Log.e("Agora", "加入频道超时（10秒内未收到回调），重置状态");
                             isJoiningRoom = false;
                             if (roomStateListener != null) {
                                 roomStateListener.onRoomError("加入频道超时，请检查网络或重试");
                             }
                         }
                     } catch (InterruptedException e) {
-                        Log.d(TAG, "超时检测线程被中断");
+                        Log.d("Agora", "超时检测线程被中断");
                     }
                 }).start();
 
@@ -293,17 +293,17 @@ public class RoomManager {
                 try {
                     // 先释放旧的 RTM 客户端
                     if (rtmClient != null) {
-                        Log.d(TAG, "释放旧的 RTM 客户端");
+                        Log.d("Agora", "释放旧的 RTM 客户端");
                         try {
                             rtmClient.logout(null);
                             rtmClient.release();
                         } catch (Exception e) {
-                            Log.e(TAG, "释放旧 RTM 客户端失败", e);
+                            Log.e("Agora", "释放旧 RTM 客户端失败", e);
                         }
                         rtmClient = null;
                     }
 
-                    Log.d(TAG, "初始化 RTM 客户端（用于聊天功能）...");
+                    Log.d("Agora", "初始化 RTM 客户端（用于聊天功能）...");
 
                     // RTM 在开发模式下使用 null Token
                     // RTC Token 不能用于 RTM
@@ -311,42 +311,42 @@ public class RoomManager {
                     if (!AgoraConfig.DEVELOPMENT_MODE) {
                         // 非开发模式下使用有效的 RTM token
                         // 注意：RTM token 需要单独生成，不能使用 RTC token
-                        Log.d(TAG, "RTM 使用有效的 token（非开发模式）");
+                        Log.d("Agora", "RTM 使用有效的 token（非开发模式）");
                     } else {
-                        Log.d(TAG, "RTM 使用 null Token（开发模式）");
+                        Log.d("Agora", "RTM 使用 null Token（开发模式）");
                     }
 
                     RtmConfig rtmConfig = new RtmConfig.Builder(appId, userId)
                             .eventListener(rtmEventListener)
                             .build();
                     this.rtmClient = RtmClient.create(rtmConfig);
-                    Log.d(TAG, "RTM 客户端创建完成");
+                    Log.d("Agora", "RTM 客户端创建完成");
 
                     // 登录RTM
-                    Log.d(TAG, "开始 RTM 登录...");
+                    Log.d("Agora", "开始 RTM 登录...");
                     rtmClient.login(rtmToken, new ResultCallback<Void>() {
                         @Override
                         public void onSuccess(Void responseInfo) {
-                            Log.d(TAG, "RTM 登录成功（聊天功能可用）");
+                            Log.d("Agora", "RTM 登录成功（聊天功能可用）");
                         }
 
                         @Override
                         public void onFailure(ErrorInfo errorInfo) {
-                            Log.w(TAG, "RTM 登录失败（聊天功能不可用）: " + errorInfo.toString());
-                            Log.w(TAG, "RTC 功能仍然正常工作");
+                            Log.w("Agora", "RTM 登录失败（聊天功能不可用）: " + errorInfo.toString());
+                            Log.w("Agora", "RTC 功能仍然正常工作");
                         }
                     });
                 } catch (Exception e) {
-                    Log.w(TAG, "RTM 初始化失败（聊天功能不可用）: " + e.getMessage());
-                    Log.w(TAG, "RTC 功能仍然正常工作");
+                    Log.w("Agora", "RTM 初始化失败（聊天功能不可用）: " + e.getMessage());
+                    Log.w("Agora", "RTC 功能仍然正常工作");
                 }
 
                 // RTM 初始化完成，但不重置 isJoiningRoom
                 // 等待 handleJoinChannelSuccess 回调后才算真正加入成功
 
-                Log.d(TAG, "=== RoomManager.createChatRoom 完成 ===");
+                Log.d("Agora", "=== RoomManager.createChatRoom 完成 ===");
             } catch (Exception e) {
-                Log.e(TAG, "创建聊天室失败", e);
+                Log.e("Agora", "创建聊天室失败", e);
                 isJoiningRoom = false;
                 if (roomStateListener != null) {
                     roomStateListener.onRoomError("加入房间失败: " + e.getMessage());
@@ -371,15 +371,15 @@ public class RoomManager {
      * 加入频道
      */
     private void joinChannel(String channelName, String userId, String token, boolean isBroadcaster) {
-        Log.d(TAG, "=== RoomManager.joinChannel 开始 ===");
-        Log.d(TAG, "频道名称: " + channelName);
-        Log.d(TAG, "用户ID: " + userId);
-        Log.d(TAG, "是否为主播: " + isBroadcaster);
-        Log.d(TAG, "rtcEngine 是否为 null: " + (rtcEngine == null));
+        Log.d("Agora", "=== RoomManager.joinChannel 开始 ===");
+        Log.d("Agora", "频道名称: " + channelName);
+        Log.d("Agora", "用户ID: " + userId);
+        Log.d("Agora", "是否为主播: " + isBroadcaster);
+        Log.d("Agora", "rtcEngine 是否为 null: " + (rtcEngine == null));
 
         // 检查是否正在离开房间，如果是则取消本次加入
         if (isLeavingRoom) {
-            Log.w(TAG, "正在离开房间，取消加入频道");
+            Log.w("Agora", "正在离开房间，取消加入频道");
             // 重置加入标志并通知错误
             isJoiningRoom = false;
             if (roomStateListener != null) {
@@ -389,7 +389,7 @@ public class RoomManager {
         }
 
         if (rtcEngine == null) {
-            Log.e(TAG, "rtcEngine 为 null，无法加入频道");
+            Log.e("Agora", "rtcEngine 为 null，无法加入频道");
             isJoiningRoom = false;
             if (roomStateListener != null) {
                 roomStateListener.onRoomError("RTC 引擎未初始化");
@@ -402,25 +402,25 @@ public class RoomManager {
             this.currentToken = token;
             this.isBroadcaster = isBroadcaster;
 
-            Log.d(TAG, "准备加入频道");
-            Log.d(TAG, "注意：不调用 leaveChannel，让 SDK 自动处理频道切换");
+            Log.d("Agora", "准备加入频道");
+            Log.d("Agora", "注意：不调用 leaveChannel，让 SDK 自动处理频道切换");
 
             // 诊断：Token 检查
             if (token != null && !token.isEmpty()) {
-                Log.d(TAG, "使用 Token 加入（生产模式）");
-                Log.d(TAG, "Token 长度: " + token.length());
+                Log.d("Agora", "使用 Token 加入（生产模式）");
+                Log.d("Agora", "Token 长度: " + token.length());
             } else {
-                Log.d(TAG, "使用空 Token 加入（测试模式）");
+                Log.d("Agora", "使用空 Token 加入（测试模式）");
                 token = null; // 确保是 null 而不是空字符串
             }
 
             // 诊断：检查 RTC Engine 基本响应
             try {
-                Log.d(TAG, "诊断：检查 RTC Engine 是否响应...");
+                Log.d("Agora", "诊断：检查 RTC Engine 是否响应...");
                 // 不调用可能阻塞的 API，只检查对象是否有效
-                Log.d(TAG, "诊断：RTC Engine 对象有效: " + (rtcEngine != null));
+                Log.d("Agora", "诊断：RTC Engine 对象有效: " + (rtcEngine != null));
             } catch (Exception e) {
-                Log.e(TAG, "诊断：RTC Engine 检查失败！", e);
+                Log.e("Agora", "诊断：RTC Engine 检查失败！", e);
                 isJoiningRoom = false;
                 if (roomStateListener != null) {
                     roomStateListener.onRoomError("RTC Engine 异常");
@@ -428,7 +428,7 @@ public class RoomManager {
                 return;
             }
 
-            Log.d(TAG, "准备配置频道媒体选项...");
+            Log.d("Agora", "准备配置频道媒体选项...");
             // 准备完整的频道媒体选项（包括频道模式和用户角色）
             final ChannelMediaOptions options = new ChannelMediaOptions();
             options.channelProfile = Constants.CHANNEL_PROFILE_LIVE_BROADCASTING; // 直播模式
@@ -438,13 +438,13 @@ public class RoomManager {
             options.publishMicrophoneTrack = true; // 始终允许发布麦克风流，由 muteLocalAudio 控制
             options.publishCameraTrack = true; // 始终允许发布摄像头流，由 muteLocalVideo 控制
 
-            Log.d(TAG, "频道媒体选项配置完成");
-            Log.d(TAG, "channelProfile: LIVE_BROADCASTING");
-            Log.d(TAG, "clientRoleType: BROADCASTER");
-            Log.d(TAG, "autoSubscribeAudio: " + options.autoSubscribeAudio);
-            Log.d(TAG, "autoSubscribeVideo: " + options.autoSubscribeVideo);
-            Log.d(TAG, "publishMicrophoneTrack: " + options.publishMicrophoneTrack);
-            Log.d(TAG, "publishCameraTrack: " + options.publishCameraTrack);
+            Log.d("Agora", "频道媒体选项配置完成");
+            Log.d("Agora", "channelProfile: LIVE_BROADCASTING");
+            Log.d("Agora", "clientRoleType: BROADCASTER");
+            Log.d("Agora", "autoSubscribeAudio: " + options.autoSubscribeAudio);
+            Log.d("Agora", "autoSubscribeVideo: " + options.autoSubscribeVideo);
+            Log.d("Agora", "publishMicrophoneTrack: " + options.publishMicrophoneTrack);
+            Log.d("Agora", "publishCameraTrack: " + options.publishCameraTrack);
 
             // 使用超时机制调用 joinChannel
             final int[] result = new int[]{-999}; // 使用数组来在内部类中修改值
@@ -454,16 +454,16 @@ public class RoomManager {
             // 创建一个更安全的 joinChannel 调用方式
             final Thread joinThread = new Thread(() -> {
                 try {
-                    Log.d(TAG, "joinChannel 子线程开始执行...");
+                    Log.d("Agora", "joinChannel 子线程开始执行...");
                     // 使用带 ChannelMediaOptions 的新 API
                     int ret = rtcEngine.joinChannel(finalToken, channelName, 0, options);
                     synchronized(completed) {
                         result[0] = ret;
                         completed[0] = true;
                     }
-                    Log.d(TAG, "joinChannel 子线程执行完成，返回值: " + ret);
+                    Log.d("Agora", "joinChannel 子线程执行完成，返回值: " + ret);
                 } catch (Throwable e) {
-                    Log.e(TAG, "joinChannel 子线程抛出异常", e);
+                    Log.e("Agora", "joinChannel 子线程抛出异常", e);
                     synchronized(completed) {
                         completed[0] = true;
                         result[0] = -1000; // 标记为异常
@@ -472,9 +472,9 @@ public class RoomManager {
             });
 
             // 加入频道 - 使用最简单的 API
-            Log.d(TAG, "开始调用 rtcEngine.joinChannel...");
-            Log.d(TAG, "使用简化 API: joinChannel(token, channel, uid)");
-            Log.d(TAG, "参数: token=" + (token != null && !token.isEmpty() ? "已设置" : "null") + ", channel=" + channelName);
+            Log.d("Agora", "开始调用 rtcEngine.joinChannel...");
+            Log.d("Agora", "使用简化 API: joinChannel(token, channel, uid)");
+            Log.d("Agora", "参数: token=" + (token != null && !token.isEmpty() ? "已设置" : "null") + ", channel=" + channelName);
 
             joinThread.start();
 
@@ -490,10 +490,10 @@ public class RoomManager {
                     Thread.sleep(100);
                     waitCount++;
                     if (waitCount % 10 == 0) {
-                        Log.d(TAG, "等待 joinChannel 完成... (" + (waitCount / 10) + " 秒)");
+                        Log.d("Agora", "等待 joinChannel 完成... (" + (waitCount / 10) + " 秒)");
                     }
                 } catch (InterruptedException e) {
-                    Log.e(TAG, "等待被中断", e);
+                    Log.e("Agora", "等待被中断", e);
                     break;
                 }
             }
@@ -504,7 +504,7 @@ public class RoomManager {
             }
 
             if (!completed[0]) {
-                Log.e(TAG, "joinChannel 调用超时（5秒），强制放弃");
+                Log.e("Agora", "joinChannel 调用超时（5秒），强制放弃");
                 // 不要中断线程，让它自然结束
                 isJoiningRoom = false;
                 if (roomStateListener != null) {
@@ -513,14 +513,14 @@ public class RoomManager {
                 return;
             }
 
-            Log.d(TAG, "joinChannel 返回值: " + ret);
+            Log.d("Agora", "joinChannel 返回值: " + ret);
 
             if (ret == 0) {
-                Log.d(TAG, "joinChannel 调用成功，等待 handleJoinChannelSuccess 回调...");
-                Log.d(TAG, "如果 10 秒内未收到回调，将自动超时");
-                Log.d(TAG, "音视频已在初始化时启用，默认静音状态");
+                Log.d("Agora", "joinChannel 调用成功，等待 handleJoinChannelSuccess 回调...");
+                Log.d("Agora", "如果 10 秒内未收到回调，将自动超时");
+                Log.d("Agora", "音视频已在初始化时启用，默认静音状态");
             } else {
-                Log.e(TAG, "joinChannel 调用失败，错误码: " + ret);
+                Log.e("Agora", "joinChannel 调用失败，错误码: " + ret);
                 // 加入失败，重置标志并通知错误
                 isJoiningRoom = false;
                 if (roomStateListener != null) {
@@ -528,9 +528,9 @@ public class RoomManager {
                 }
             }
 
-            Log.d(TAG, "=== RoomManager.joinChannel 完成 ===");
+            Log.d("Agora", "=== RoomManager.joinChannel 完成 ===");
         } catch (Exception e) {
-            Log.e(TAG, "加入频道异常", e);
+            Log.e("Agora", "加入频道异常", e);
             e.printStackTrace();
             // 异常时重置标志并通知错误
             isJoiningRoom = false;
@@ -712,20 +712,20 @@ public class RoomManager {
      * 获取房间成员列表
      */
     public List<String> getRoomMembers(String channelName) {
-        Log.d(TAG, "=== RoomManager.getRoomMembers 被调用 === ");
-        Log.d(TAG, "请求的频道名称: " + channelName);
-        Log.d(TAG, "当前频道名称: " + currentChannelName);
-        Log.d(TAG, "所有频道: " + roomMembers.keySet());
+        Log.d("Agora", "=== RoomManager.getRoomMembers 被调用 === ");
+        Log.d("Agora", "请求的频道名称: " + channelName);
+        Log.d("Agora", "当前频道名称: " + currentChannelName);
+        Log.d("Agora", "所有频道: " + roomMembers.keySet());
 
         if (roomMembers.containsKey(channelName)) {
             List<String> members = roomMembers.get(channelName);
-            Log.d(TAG, "频道 " + channelName + " 的成员数: " + members.size());
-            Log.d(TAG, "频道 " + channelName + " 的成员: " + members);
+            Log.d("Agora", "频道 " + channelName + " 的成员数: " + members.size());
+            Log.d("Agora", "频道 " + channelName + " 的成员: " + members);
             return new ArrayList<>(members);
         }
 
-        Log.e(TAG, "频道 " + channelName + " 不存在成员列表");
-        Log.d(TAG, "=== getRoomMembers 返回空列表 ===");
+        Log.e("Agora", "频道 " + channelName + " 不存在成员列表");
+        Log.d("Agora", "=== getRoomMembers 返回空列表 ===");
         return new ArrayList<>();
     }
 
@@ -734,12 +734,12 @@ public class RoomManager {
      * 注意：此方法会发起离开请求，实际状态重置由 SDK 回调完成
      */
     public void leaveRoom() {
-        Log.d(TAG, "=== RoomManager.leaveRoom 开始 ===");
-        Log.d(TAG, "当前状态: isInRoom=" + isInRoom + ", isLeavingRoom=" + isLeavingRoom + ", isJoiningRoom=" + isJoiningRoom);
+        Log.d("Agora", "=== RoomManager.leaveRoom 开始 ===");
+        Log.d("Agora", "当前状态: isInRoom=" + isInRoom + ", isLeavingRoom=" + isLeavingRoom + ", isJoiningRoom=" + isJoiningRoom);
 
         // 如果当前不在房间中，且不需要清理，直接返回
         if (!isInRoom && currentChannelName == null && !isJoiningRoom) {
-            Log.d(TAG, "当前不在任何房间中，无需离开");
+            Log.d("Agora", "当前不在任何房间中，无需离开");
             // 确保状态完全重置
             isLeavingRoom = false;
             isJoiningRoom = false;
@@ -748,7 +748,7 @@ public class RoomManager {
 
         // 如果正在离开房间，不重复执行
         if (isLeavingRoom) {
-            Log.w(TAG, "已经在离开房间中，跳过重复调用");
+            Log.w("Agora", "已经在离开房间中，跳过重复调用");
             return;
         }
 
@@ -766,16 +766,16 @@ public class RoomManager {
         final Thread leaveThread = new Thread(() -> {
             try {
                 if (rtcEngine != null) {
-                    Log.d(TAG, "准备调用 leaveChannel...");
+                    Log.d("Agora", "准备调用 leaveChannel...");
                     rtcEngine.leaveChannel();
-                    Log.d(TAG, "已执行 rtcEngine.leaveChannel()");
+                    Log.d("Agora", "已执行 rtcEngine.leaveChannel()");
                     leaveCompleted[0] = true;
                 } else {
-                    Log.w(TAG, "rtcEngine 为 null，跳过 leaveChannel");
+                    Log.w("Agora", "rtcEngine 为 null，跳过 leaveChannel");
                     leaveCompleted[0] = true;
                 }
             } catch (Exception e) {
-                Log.e(TAG, "离开 RTC 频道失败", e);
+                Log.e("Agora", "离开 RTC 频道失败", e);
                 leaveCompleted[0] = true;
             }
         });
@@ -784,21 +784,21 @@ public class RoomManager {
 
         // 等待最多 1 秒，确保 leaveChannel 被调用
         try {
-            Log.d(TAG, "等待 leaveChannel 发起请求（最多1秒）...");
+            Log.d("Agora", "等待 leaveChannel 发起请求（最多1秒）...");
             leaveThread.join(1000);
         } catch (InterruptedException e) {
-            Log.e(TAG, "等待 leaveChannel 被中断", e);
+            Log.e("Agora", "等待 leaveChannel 被中断", e);
         }
 
         if (!leaveCompleted[0]) {
-            Log.w(TAG, "leaveChannel 调用超时（1秒），强制标记为完成");
+            Log.w("Agora", "leaveChannel 调用超时（1秒），强制标记为完成");
             // 如果调用超时，仍然保持 isLeavingRoom 标志，等待回调或超时处理
             // 但会设置一个定时器，如果长时间没有回调则重置状态
             new Thread(() -> {
                 try {
                     Thread.sleep(5000); // 等待5秒
                     if (isLeavingRoom) {
-                        Log.e(TAG, "离开频道回调超时（5秒内未收到回调），重置状态");
+                        Log.e("Agora", "离开频道回调超时（5秒内未收到回调），重置状态");
                         isLeavingRoom = false;
                         isJoiningRoom = false;
 
@@ -807,14 +807,14 @@ public class RoomManager {
                         }
                     }
                 } catch (InterruptedException e) {
-                    Log.d(TAG, "离开超时检测线程被中断");
+                    Log.d("Agora", "离开超时检测线程被中断");
                 }
             }).start();
         }
 
-        Log.d(TAG, "离开房间操作发起完成，等待回调确认");
+        Log.d("Agora", "离开房间操作发起完成，等待回调确认");
 
-        Log.d(TAG, "=== RoomManager.leaveRoom 发起完成 ===");
+        Log.d("Agora", "=== RoomManager.leaveRoom 发起完成 ===");
     }
 
     /**

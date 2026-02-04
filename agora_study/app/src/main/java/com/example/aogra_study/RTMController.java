@@ -29,9 +29,9 @@ public class RTMController {
                     .build();
             this.rtmClient = RtmClient.create(rtmConfig);
         } catch (UnsatisfiedLinkError e) {
-            Log.e(TAG, "Failed to initialize RTM client due to native library error: " + e.getMessage());
+            Log.e("Agora", "Failed to initialize RTM client due to native library error: " + e.getMessage());
         } catch (Exception e) {
-            Log.e(TAG, "Failed to initialize RTM client: " + e.getMessage());
+            Log.e("Agora", "Failed to initialize RTM client: " + e.getMessage());
         }
     }
 
@@ -42,7 +42,7 @@ public class RTMController {
         if(rtmClient != null) {
             rtmClient.login(token, callback);
         } else {
-            Log.w(TAG, "RTM client is not initialized");
+            Log.w("Agora", "RTM client is not initialized");
             if (callback != null) {
                 callback.onFailure(new ErrorInfo(RtmErrorCode.INVALID_PARAMETER, "RTM client is not initialized"));
             }
@@ -56,7 +56,7 @@ public class RTMController {
         if(rtmClient != null) {
             rtmClient.logout(callback);
         } else {
-            Log.w(TAG, "RTM client is not initialized");
+            Log.w("Agora", "RTM client is not initialized");
             if (callback != null) {
                 callback.onFailure(new ErrorInfo(RtmErrorCode.INVALID_PARAMETER, "RTM client is not initialized"));
             }
@@ -72,7 +72,7 @@ public class RTMController {
             options.setChannelType(RtmChannelType.USER);
             rtmClient.publish(peerId, message, options, callback);
         } else {
-            Log.w(TAG, "RTM client is not initialized");
+            Log.w("Agora", "RTM client is not initialized");
             if (callback != null) {
                 callback.onFailure(new ErrorInfo(RtmErrorCode.INVALID_PARAMETER, "RTM client is not initialized"));
             }
@@ -91,7 +91,7 @@ public class RTMController {
                 return null;
             }
         }
-        Log.w(TAG, "RTM client is not initialized");
+        Log.w("Agora", "RTM client is not initialized");
         return null;
     }
 
@@ -104,7 +104,7 @@ public class RTMController {
         if(rtmClient != null) {
             // 实际上RTM SDK中没有这个方法，需要通过其他方式实现
         } else {
-            Log.w(TAG, "RTM client is not initialized");
+            Log.w("Agora", "RTM client is not initialized");
             if (callback != null) {
                 callback.onFailure(new ErrorInfo(RtmErrorCode.INVALID_PARAMETER, "RTM client is not initialized"));
             }

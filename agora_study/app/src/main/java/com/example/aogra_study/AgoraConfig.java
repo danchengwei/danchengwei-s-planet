@@ -38,9 +38,9 @@ public class AgoraConfig {
     // 第二个测试用户
     public static final String CHAT_TEST_USERNAME_2 = "test2";
     // test1测试用户的token
-    public static final String CHAT_TEST_TOKEN = "007eJxTYODQ+uuzvmvJyq4lle+1llYwM7bNNI5iOHFIjdXI1zzh6CwFBnMLI4skM2OzRIM0cxMDIDvFPCkxycIk0SzJzMjcJHHhh6bMhkBGhoOvKpgYGVgZGIEQxFdhsDA1TjVLMzfQNTA0T9Y1NEwz1LWwSErWNTBONjJIMUwxNrM0AwDRHyXZ";
+    public static final String CHAT_TEST_TOKEN = "0007eJxTYHj3vFaoZbFs46yu6TFf2VL/fXIOX1cmLsEYH1e439Dy4C0FBnMLI4skM2OzRIM0cxMDIDvFPCkxycIk0SzJzMjcJDFLsDmzIZCRoTR/IhMjAysDIxCC+CoMFqbGqWZp5ga6BobmybqGhmmGuhYWScm6BsbJRgYphinGZpZmACz/Jc4=";
     // test2测试用户的token
-    public static final String CHAT_TEST_TOKEN_2 = "007eJxTYPiwndFD6EOIzWF5rcr5CwTvhGs+f62TN29HvMMf66alqkoKDOYWRhZJZsZmiQZp5iYGQHaKeVJikoVJolmSmZG5SWL/h6bMhkBGhoTFnxgZGVgZGIEQxFdhsDA1TjWxMDPQNTA0T9Y1NEwz1E00ME/VTUsyT7IwNklKTrG0AAAnLCcB";
+    public static final String CHAT_TEST_TOKEN_2 = "007eJxTYFh/lWWmZqq8d9uHBe8E5tzmDZorc7hNeZXpiwCGkK6YafsVGMwtjCySzIzNEg3SzE0MgOwU86TEJAuTRLMkMyNzk8QawebMhkBGhiNRUkyMDKwMjEAI4qswWJgap5pYmBnoGhiaJ+saGqYZ6iYamKfqpiWZJ1kYmyQlp1haAADQ0yVp";
 
     /**
      * 获取App ID

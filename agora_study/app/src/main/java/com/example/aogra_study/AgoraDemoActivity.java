@@ -111,7 +111,7 @@ public class AgoraDemoActivity extends AppCompatActivity {
             updateConnectionStatus("等待权限授权...");
         }
 
-        Log.d(TAG, "AgoraDemoActivity初始化完成");
+        Log.d("Agora", "AgoraDemoActivity初始化完成");
 
         // 初始UI状态：隐藏视频和工具栏，显示连接提示
         llConnectPrompt.setVisibility(android.view.View.VISIBLE);
@@ -217,22 +217,22 @@ public class AgoraDemoActivity extends AppCompatActivity {
             serviceManager.getDeviceManager().setDeviceStatusListener(new DeviceManager.DeviceStatusListener() {
                 @Override
                 public void onAudioDeviceChanged(String deviceId, String deviceName) {
-                    Log.d(TAG, "音频设备改变: " + deviceName);
+                    Log.d("Agora", "音频设备改变: " + deviceName);
                 }
 
                 @Override
                 public void onVideoDeviceChanged(String deviceId, String deviceName) {
-                    Log.d(TAG, "视频设备改变: " + deviceName);
+                    Log.d("Agora", "视频设备改变: " + deviceName);
                 }
 
                 @Override
                 public void onLocalVideoStateChanged(boolean enabled) {
-                    Log.d(TAG, "本地视频状态改变: " + enabled);
+                    Log.d("Agora", "本地视频状态改变: " + enabled);
                 }
 
                 @Override
                 public void onRemoteVideoStateChanged(int uid, boolean enabled) {
-                    Log.d(TAG, "远程视频状态改变，用户ID " + uid + ": " + enabled);
+                    Log.d("Agora", "远程视频状态改变，用户ID " + uid + ": " + enabled);
                     if (enabled) {
                         // 当远程视频流可用时，创建并设置远程视频视图
                         runOnUiThread(() -> setupRemoteVideoView(uid));
@@ -241,7 +241,7 @@ public class AgoraDemoActivity extends AppCompatActivity {
 
                 @Override
                 public void onAudioQualityChanged(int uid, int quality) {
-                    Log.d(TAG, "用户ID " + uid + " 音频质量改变，质量: " + quality);
+                    Log.d("Agora", "用户ID " + uid + " 音频质量改变，质量: " + quality);
                 }
             });
 
@@ -249,22 +249,22 @@ public class AgoraDemoActivity extends AppCompatActivity {
             serviceManager.getRoomManager().setDeviceStatusListener(new RoomManager.DeviceStatusListener() {
                 @Override
                 public void onAudioDeviceChanged(String deviceId, String deviceName) {
-                    Log.d(TAG, "音频设备改变: " + deviceName);
+                    Log.d("Agora", "音频设备改变: " + deviceName);
                 }
 
                 @Override
                 public void onVideoDeviceChanged(String deviceId, String deviceName) {
-                    Log.d(TAG, "视频设备改变: " + deviceName);
+                    Log.d("Agora", "视频设备改变: " + deviceName);
                 }
 
                 @Override
                 public void onLocalVideoStateChanged(boolean enabled) {
-                    Log.d(TAG, "本地视频状态改变: " + enabled);
+                    Log.d("Agora", "本地视频状态改变: " + enabled);
                 }
 
                 @Override
                 public void onRemoteVideoStateChanged(int uid, boolean enabled) {
-                    Log.d(TAG, "远程视频状态改变，用户ID " + uid + ": " + enabled);
+                    Log.d("Agora", "远程视频状态改变，用户ID " + uid + ": " + enabled);
                     if (enabled && !videoViews.containsKey(uid)) {
                         // 当远程视频流可用且我们还没有设置视图时，创建并设置远程视频视图
                         runOnUiThread(() -> setupRemoteVideoView(uid));
@@ -279,7 +279,7 @@ public class AgoraDemoActivity extends AppCompatActivity {
 
                 @Override
                 public void onAudioQualityChanged(int uid, int quality) {
-                    Log.d(TAG, "用户ID " + uid + " 音频质量改变，质量: " + quality);
+                    Log.d("Agora", "用户ID " + uid + " 音频质量改变，质量: " + quality);
                 }
             });
 
@@ -287,13 +287,13 @@ public class AgoraDemoActivity extends AppCompatActivity {
             serviceManager.getRoomManager().setRoomStateListener(new RoomManager.RoomStateListener() {
                 @Override
                 public void onJoiningRoom() {
-                    Log.d(TAG, "房间状态：开始加入房间");
+                    Log.d("Agora", "房间状态：开始加入房间");
                     runOnUiThread(() -> showLoading("正在加入房间..."));
                 }
 
                 @Override
                 public void onJoinedRoom() {
-                    Log.d(TAG, "房间状态：成功加入房间");
+                    Log.d("Agora", "房间状态：成功加入房间");
                     runOnUiThread(() -> {
                         hideLoading();
                         // 加入成功后立即更新用户数量
@@ -313,19 +313,19 @@ public class AgoraDemoActivity extends AppCompatActivity {
 
                 @Override
                 public void onLeavingRoom() {
-                    Log.d(TAG, "房间状态：开始离开房间");
+                    Log.d("Agora", "房间状态：开始离开房间");
                     runOnUiThread(() -> showLoading("正在离开房间..."));
                 }
 
                 @Override
                 public void onLeftRoom() {
-                    Log.d(TAG, "房间状态：成功离开房间");
+                    Log.d("Agora", "房间状态：成功离开房间");
                     runOnUiThread(() -> hideLoading());
                 }
 
                 @Override
                 public void onRoomError(String error) {
-                    Log.e(TAG, "房间错误：" + error);
+                    Log.e("Agora", "房间错误：" + error);
                     runOnUiThread(() -> {
                         hideLoading();
                         Toast.makeText(AgoraDemoActivity.this, error, Toast.LENGTH_LONG).show();
@@ -334,14 +334,14 @@ public class AgoraDemoActivity extends AppCompatActivity {
             });
 
             // 初始化成功提示
-            Log.d(TAG, "Agora服务管理器初始化成功");
+            Log.d("Agora", "Agora服务管理器初始化成功");
             updateConnectionStatus("Agora服务已初始化");
 
             // 初始化ChatController
             initChatController();
 
         } catch (Exception e) {
-            Log.e(TAG, "初始化Agora服务管理器失败", e);
+            Log.e("Agora", "初始化Agora服务管理器失败", e);
             Toast.makeText(this, getString(R.string.init_failed, e.getMessage()), Toast.LENGTH_LONG).show();
             updateConnectionStatus("初始化失败: " + e.getMessage());
         }
@@ -646,10 +646,13 @@ public class AgoraDemoActivity extends AppCompatActivity {
         String channelName = DEFAULT_CHANNEL_NAME; // 使用固定频道名
 
         try {
-            String userId = AgoraConfig.generateUserId();
+            // 使用应用的UID生成用户ID，确保token和username一一对应
+            int appUid = getApplicationInfo().uid;
+            String userId = "user_" + appUid;
             Log.d("Agora", "=== 开始加入频道流程 ===");
             Log.d("Agora", "频道名称: " + channelName);
             Log.d("Agora", "用户ID: " + userId);
+            Log.d("Agora", "应用UID: " + appUid);
 
             // serviceManager.createRoom 会处理之前的状态清理
             serviceManager.createRoom(channelName, userId, true);
@@ -673,36 +676,34 @@ public class AgoraDemoActivity extends AppCompatActivity {
                 chatController = new ChatController();
             }
             chatController.initChat(this, AgoraConfig.CHAT_APP_KEY);
-            // 选择使用哪个用户的token
+            
+            // 根据应用的UID选择使用哪个用户的token
             String username;
             String token;
-            // 基于用户身份分配token
-            // 这里使用用户ID的哈希值来决定使用哪个token
-            // 确保两个用户分别使用不同的token
-            int userIdHash = userId.hashCode();
-            if (userIdHash % 2 == 0) {
-                // 偶数哈希值使用test2的token
+            if (appUid == 10337) {
                 username = AgoraConfig.CHAT_TEST_USERNAME_2;
                 token = AgoraConfig.CHAT_TEST_TOKEN_2;
-            } else {
-                // 奇数哈希值使用test1的token
+            } else if (appUid == 10379){
+                username = AgoraConfig.CHAT_TEST_USERNAME;
+                token = AgoraConfig.CHAT_TEST_TOKEN;
+            }else {
                 username = AgoraConfig.CHAT_TEST_USERNAME;
                 token = AgoraConfig.CHAT_TEST_TOKEN;
             }
-            Log.d("Agora", "准备登录Chat SDK，用户名: " + username + "，token长度: " + token.length() + "，用户ID: " + userId + "，哈希值: " + userIdHash);
-            chatController.login("test1", "007eJxTYPDS6Zl4sEsw7sS5miTVIzLM377skdIPmzYrl/375ocs9+IVGMwtjCySzIzNEg3SzE0MgOwU86TEJAuTRLMkMyNzk8RupubMhkBGhsXlC1gZGVgZGIEQxFdhsDA1TjVLMzfQNTA0T9Y1NEwz1LWwSErWNTBONjJIMUwxNrM0AwAv3CY2", new io.agora.CallBack() {
+            Log.d(TAG, "准备登录Chat SDK，用户名: " + username + "，token长度: " + token.length() + "，用户ID: " + userId + "，应用UID: " + appUid);
+            chatController.login("test1", "0007eJxTYHj3vFaoZbFs46yu6TFf2VL/fXIOX1cmLsEYH1e439Dy4C0FBnMLI4skM2OzRIM0cxMDIDvFPCkxycIk0SzJzMjcJDFLsDmzIZCRoTR/IhMjAysDIxCC+CoMFqbGqWZp5ga6BobmybqGhmmGuhYWScm6BsbJRgYphinGZpZmACz/Jc4=", new io.agora.CallBack() {
                 @Override
                 public void onSuccess() {
-                    Log.d("Agora", "Chat SDK登录成功");
+                    Log.d(TAG, "Chat SDK登录成功");
                     runOnUiThread(() -> {
                         Toast.makeText(AgoraDemoActivity.this, "Chat服务初始化成功", Toast.LENGTH_SHORT).show();
                     });
-                    
+
                     // 注册消息监听器
                     chatController.addMessageListener(new io.agora.MessageListener() {
                         @Override
                         public void onMessageReceived(List<io.agora.chat.ChatMessage> messages) {
-                            Log.d("Agora", "收到新消息: " + messages.size() + "条");
+                            Log.d(TAG, "收到新消息: " + messages.size() + "条");
                             for (io.agora.chat.ChatMessage message : messages) {
                                 // 处理收到的消息
                                 final String fromUser;
@@ -717,7 +718,7 @@ public class AgoraDemoActivity extends AppCompatActivity {
                                     tempFromUser = "测试用户2";
                                 }
                                 fromUser = tempFromUser;
-                                
+
                                 final String content;
                                 String tempContent = "";
                                 if (message.getBody() != null) {
@@ -747,38 +748,38 @@ public class AgoraDemoActivity extends AppCompatActivity {
                                     tempContent = "[空消息]";
                                 }
                                 content = tempContent;
-                                
-                                Log.d("Agora", "收到来自 " + fromUser + " 的消息: " + content + "，消息ID: " + message.getMsgId() + "，消息类型: " + message.getType());
-                                
+
+                                Log.d(TAG, "收到来自 " + fromUser + " 的消息: " + content + "，消息ID: " + message.getMsgId() + "，消息类型: " + message.getType());
+
                                 // 在UI线程更新聊天列表
                                 runOnUiThread(() -> {
                                     ChatMessage chatMessage = new ChatMessage(fromUser, content, false);
                                     chatMessageAdapter.addMessage(chatMessage);
                                     rvChatMessages.scrollToPosition(chatMessageAdapter.getItemCount() - 1);
-                                    
+
                                     // 显示红点提示
                                     if (chatRedDot != null && chatPanel.getVisibility() == View.GONE) {
                                         chatRedDot.setVisibility(View.VISIBLE);
-                                        Log.d("Agora", "显示红点提示，因为聊天面板未打开");
+                                        Log.d(TAG, "显示红点提示，因为聊天面板未打开");
                                     }
-                                    Log.d("Agora", "已将消息添加到聊天列表，当前列表消息数: " + chatMessageAdapter.getItemCount());
+                                    Log.d(TAG, "已将消息添加到聊天列表，当前列表消息数: " + chatMessageAdapter.getItemCount());
                                 });
                             }
                         }
                     });
                 }
-                
+
                 @Override
                 public void onError(int code, String error) {
-                    Log.e("Agora", "Chat SDK登录失败，错误码: " + code + "，错误信息: " + error);
+                    Log.e(TAG, "Chat SDK登录失败，错误码: " + code + "，错误信息: " + error);
                     runOnUiThread(() -> {
                         Toast.makeText(AgoraDemoActivity.this, "Chat服务初始化失败: " + error, Toast.LENGTH_LONG).show();
                     });
                 }
-                
+
                 @Override
                 public void onProgress(int progress, String status) {
-                    Log.d("Agora", "Chat SDK登录进度: " + progress + "%，状态: " + status);
+                    Log.d(TAG, "Chat SDK登录进度: " + progress + "%，状态: " + status);
                 }
             });
         } catch (Exception e) {
@@ -858,27 +859,27 @@ public class AgoraDemoActivity extends AppCompatActivity {
 
         try {
             audioMuted = !audioMuted;
-            Log.d(TAG, "=== 切换音频 ===");
-            Log.d(TAG, "新状态: " + (audioMuted ? "静音" : "开启"));
+            Log.d("Agora", "=== 切换音频 ===");
+            Log.d("Agora", "新状态: " + (audioMuted ? "静音" : "开启"));
 
             serviceManager.getDeviceManager().muteLocalAudio(audioMuted);
-            Log.d(TAG, "已调用 muteLocalAudio(" + audioMuted + ")");
+            Log.d("Agora", "已调用 muteLocalAudio(" + audioMuted + ")");
 
             if (audioMuted) {
                 btnToggleAudio.setImageResource(R.drawable.ic_mic_off);
                 tvAudioLabel.setTextColor(0xFFFF3B30);
                 Toast.makeText(this, getString(R.string.audio_muted), Toast.LENGTH_SHORT).show();
-                Log.d(TAG, "音频已静音，停止推流");
+                Log.d("Agora", "音频已静音，停止推流");
             } else {
                 serviceManager.getDeviceManager().enableLocalAudio(true);
-                Log.d(TAG, "已调用 enableLocalAudio(true)");
+                Log.d("Agora", "已调用 enableLocalAudio(true)");
                 btnToggleAudio.setImageResource(R.drawable.ic_mic_on);
                 tvAudioLabel.setTextColor(0xFFFFFFFF);
                 Toast.makeText(this, getString(R.string.audio_unmuted), Toast.LENGTH_SHORT).show();
-                Log.d(TAG, "音频已开启，开始推流");
+                Log.d("Agora", "音频已开启，开始推流");
             }
         } catch (Exception e) {
-            Log.e(TAG, "切换音频失败", e);
+            Log.e("Agora", "切换音频失败", e);
             Toast.makeText(this, getString(R.string.toggle_audio_failed, e.getMessage()), Toast.LENGTH_LONG).show();
         }
     }
@@ -894,13 +895,13 @@ public class AgoraDemoActivity extends AppCompatActivity {
 
         try {
             videoMuted = !videoMuted;
-            Log.d(TAG, "=== 切换视频 ===");
-            Log.d(TAG, "新状态: " + (videoMuted ? "关闭" : "开启"));
+            Log.d("Agora", "=== 切换视频 ===");
+            Log.d("Agora", "新状态: " + (videoMuted ? "关闭" : "开启"));
 
             if (videoMuted) {
                 serviceManager.getDeviceManager().muteLocalVideo(true);
                 serviceManager.getDeviceManager().stopPreview();
-                Log.d(TAG, "已调用 muteLocalVideo(true) 和 stopPreview()");
+                Log.d("Agora", "已调用 muteLocalVideo(true) 和 stopPreview()");
 
                 btnToggleVideo.setImageResource(R.drawable.ic_videocam_off);
                 tvVideoLabel.setTextColor(0xFFFF3B30);
@@ -913,16 +914,16 @@ public class AgoraDemoActivity extends AppCompatActivity {
                 // 验证人数和网格布局的view数是否一致
                 updateUserCount();
 
-                Log.d(TAG, "视频已关闭，停止推流");
+                Log.d("Agora", "视频已关闭，停止推流");
             } else {
                 // 先更新 UI 状态
                 btnToggleVideo.setImageResource(R.drawable.ic_videocam);
                 tvVideoLabel.setTextColor(0xFFFFFFFF);
 
-                Log.d(TAG, "准备添加本地视频视图...");
+                Log.d("Agora", "准备添加本地视频视图...");
                 if (localSurfaceView == null) {
                     localSurfaceView = new SurfaceView(this);
-                    Log.d(TAG, "创建新的 SurfaceView");
+                    Log.d("Agora", "创建新的 SurfaceView");
                 }
 
                 // 先添加本地视频到网格布局（UI 操作）
@@ -933,13 +934,13 @@ public class AgoraDemoActivity extends AppCompatActivity {
                 new Thread(() -> {
                     try {
                         int setupResult = serviceManager.getDeviceManager().setupLocalVideo(surfaceToSetup, 1);
-                        Log.d(TAG, "setupLocalVideo 返回值: " + setupResult);
+                        Log.d("Agora", "setupLocalVideo 返回值: " + setupResult);
 
                         if (setupResult == 0) {
                             serviceManager.getDeviceManager().enableLocalVideo(true);
                             serviceManager.getDeviceManager().muteLocalVideo(false);
                             serviceManager.getDeviceManager().startPreview();
-                            Log.d(TAG, "已调用 enableLocalVideo(true), muteLocalVideo(false), startPreview()");
+                            Log.d("Agora", "已调用 enableLocalVideo(true), muteLocalVideo(false), startPreview()");
 
                             runOnUiThread(() -> {
                                 Toast.makeText(this, getString(R.string.video_unmuted), Toast.LENGTH_SHORT).show();
@@ -947,15 +948,15 @@ public class AgoraDemoActivity extends AppCompatActivity {
                                 updateUserCount();
                             });
 
-                            Log.d(TAG, "视频已开启，开始推流");
+                            Log.d("Agora", "视频已开启，开始推流");
                         } else {
                             runOnUiThread(() -> {
                                 Toast.makeText(this, "设置本地视频失败，错误码: " + setupResult, Toast.LENGTH_LONG).show();
                             });
-                            Log.e(TAG, "设置本地视频失败，错误码: " + setupResult);
+                            Log.e("Agora", "设置本地视频失败，错误码: " + setupResult);
                         }
                     } catch (Exception e) {
-                        Log.e(TAG, "设置本地视频异常", e);
+                        Log.e("Agora", "设置本地视频异常", e);
                         runOnUiThread(() -> {
                             Toast.makeText(this, "设置本地视频异常: " + e.getMessage(), Toast.LENGTH_LONG).show();
                         });
@@ -963,7 +964,7 @@ public class AgoraDemoActivity extends AppCompatActivity {
                 }).start();
             }
         } catch (Exception e) {
-            Log.e(TAG, "切换视频失败", e);
+            Log.e("Agora", "切换视频失败", e);
             Toast.makeText(this, getString(R.string.toggle_video_failed, e.getMessage()), Toast.LENGTH_LONG).show();
         }
     }
@@ -997,18 +998,29 @@ public class AgoraDemoActivity extends AppCompatActivity {
         }
 
         try {
-            // 使用ChatController发送消息
-            String toUser = AgoraConfig.CHAT_TEST_USERNAME_2; // 发送给第二个测试用户
-            Log.d("Agora", "准备发送消息，内容: " + message + "，接收方: " + toUser);
+            // 根据应用的UID选择正确的接收用户
+            int appUid = getApplicationInfo().uid;
+            String toUser;
+            if (appUid == 10337) {
+                // 如果当前使用test2的token，发送给test1
+                toUser = AgoraConfig.CHAT_TEST_USERNAME;
+            } else if (appUid == 10379) {
+                // 如果当前使用test1的token，发送给test2
+                toUser = AgoraConfig.CHAT_TEST_USERNAME_2;
+            } else {
+                // 默认为test1发送给test2
+                toUser = AgoraConfig.CHAT_TEST_USERNAME_2;
+            }
+            Log.d(TAG, "准备发送消息，内容: " + message + "，接收方: " + toUser + "，应用UID: " + appUid);
             io.agora.chat.ChatMessage sentMessage = chatController.sendTextMessage(message, toUser);
-            Log.d("Agora", "发送消息成功，消息ID: " + sentMessage.getMsgId());
+            Log.d(TAG, "发送消息成功，消息ID: " + sentMessage.getMsgId());
             etChatMessage.setText(""); // 清空输入框
 
             // 添加消息到聊天列表
             ChatMessage chatMessage = new ChatMessage("我", message, true);
             chatMessageAdapter.addMessage(chatMessage);
             rvChatMessages.scrollToPosition(chatMessageAdapter.getItemCount() - 1);
-            Log.d("Agora", "已将发送的消息添加到聊天列表，当前列表消息数: " + chatMessageAdapter.getItemCount());
+            Log.d(TAG, "已将发送的消息添加到聊天列表，当前列表消息数: " + chatMessageAdapter.getItemCount());
 
             Toast.makeText(this, getString(R.string.message_sent), Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
@@ -1021,7 +1033,7 @@ public class AgoraDemoActivity extends AppCompatActivity {
      * 设置远程视频视图
      */
     private void setupRemoteVideoView(int uid) {
-        Log.d(TAG, "准备添加远程视频视图，uid: " + uid);
+        Log.d("Agora", "准备添加远程视频视图，uid: " + uid);
 
         // 添加远程视频到网格布局
         addVideoView(uid, null, String.valueOf(uid));
@@ -1031,15 +1043,15 @@ public class AgoraDemoActivity extends AppCompatActivity {
      * 添加视频视图到网格布局
      */
     private void addVideoView(int uid, SurfaceView surfaceView, String userName) {
-        Log.d(TAG, "=== 添加视频视图 ===");
-        Log.d(TAG, "用户ID: " + uid + ", 用户名: " + userName);
+        Log.d("Agora", "=== 添加视频视图 ===");
+        Log.d("Agora", "用户ID: " + uid + ", 用户名: " + userName);
 
         // 如果该用户ID已存在，先移除旧视图（不更新布局）
         if (videoViews.containsKey(uid)) {
             View oldView = videoViews.get(uid);
             videoGridLayout.removeView(oldView);
             videoViews.remove(uid);
-            Log.d(TAG, "已移除旧的视频视图");
+            Log.d("Agora", "已移除旧的视频视图");
         }
 
         // 创建视频视图项
@@ -1084,30 +1096,30 @@ public class AgoraDemoActivity extends AppCompatActivity {
                 if (uid == 0) {
                     // 本地视频
                     setupResult = serviceManager.getDeviceManager().setupLocalVideo(finalVideoSurface, 1);
-                    Log.d(TAG, "setupLocalVideo 返回值: " + setupResult);
+                    Log.d("Agora", "setupLocalVideo 返回值: " + setupResult);
                 } else {
                     // 远程视频
                     setupResult = serviceManager.getDeviceManager().setupRemoteVideo(finalVideoSurface, uid, 1);
-                    Log.d(TAG, "setupRemoteVideo 返回值: " + setupResult);
+                    Log.d("Agora", "setupRemoteVideo 返回值: " + setupResult);
                 }
 
                 if (setupResult != 0) {
-                    Log.e(TAG, "设置视频失败，错误码: " + setupResult);
+                    Log.e("Agora", "设置视频失败，错误码: " + setupResult);
                 }
             } catch (Exception e) {
-                Log.e(TAG, "设置视频异常", e);
+                Log.e("Agora", "设置视频异常", e);
             }
         }).start();
 
-        Log.d(TAG, "=== 添加视频视图完成 ===");
+        Log.d("Agora", "=== 添加视频视图完成 ===");
     }
 
     /**
      * 移除视频视图
      */
     private void removeVideoView(int uid) {
-        Log.d(TAG, "=== 移除视频视图 ===");
-        Log.d(TAG, "用户ID: " + uid);
+        Log.d("Agora", "=== 移除视频视图 ===");
+        Log.d("Agora", "用户ID: " + uid);
 
         // 从 map 中获取视图
         View videoView = videoViews.get(uid);
@@ -1122,22 +1134,22 @@ public class AgoraDemoActivity extends AppCompatActivity {
             if (serviceManager != null && serviceManager.getDeviceManager() != null) {
                 if (uid == 0) { // 本地视频
                     serviceManager.getDeviceManager().removeLocalVideoView();
-                    Log.d(TAG, "已解除本地视频视图绑定");
+                    Log.d("Agora", "已解除本地视频视图绑定");
                 } else { // 远程视频
                     serviceManager.getDeviceManager().removeRemoteVideoView(uid);
-                    Log.d(TAG, "已解除远程视频视图绑定，用户ID: " + uid);
+                    Log.d("Agora", "已解除远程视频视图绑定，用户ID: " + uid);
                 }
             } else {
-                Log.e(TAG, "serviceManager 或 DeviceManager 为 null，无法解除视频视图绑定");
+                Log.e("Agora", "serviceManager 或 DeviceManager 为 null，无法解除视频视图绑定");
             }
 
-            Log.d(TAG, "已移除视频视图");
+            Log.d("Agora", "已移除视频视图");
         }
 
         // 更新网格布局的行列数
         updateGridLayout();
 
-        Log.d(TAG, "=== 移除视频视图完成 ===");
+        Log.d("Agora", "=== 移除视频视图完成 ===");
     }
 
     /**
@@ -1146,8 +1158,8 @@ public class AgoraDemoActivity extends AppCompatActivity {
     private void updateGridLayout() {
         // 使用网格布局中的实际子视图数量，而不是 videoViews.size()
         int videoCount = videoGridLayout.getChildCount();
-        Log.d(TAG, "=== 更新网格布局 ===");
-        Log.d(TAG, "网格布局中的视图数量: " + videoCount);
+        Log.d("Agora", "=== 更新网格布局 ===");
+        Log.d("Agora", "网格布局中的视图数量: " + videoCount);
 
         // 根据视频数量计算行列数
         int columnCount = 2;
@@ -1156,7 +1168,7 @@ public class AgoraDemoActivity extends AppCompatActivity {
         videoGridLayout.setColumnCount(columnCount);
         videoGridLayout.setRowCount(rowCount);
 
-        Log.d(TAG, "列数: " + columnCount + ", 行数: " + rowCount);
+        Log.d("Agora", "列数: " + columnCount + ", 行数: " + rowCount);
     }
 
     /**

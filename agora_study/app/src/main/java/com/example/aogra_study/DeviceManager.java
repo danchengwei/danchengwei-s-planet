@@ -43,19 +43,19 @@ public class DeviceManager {
      * 解除本地视频渲染视图
      */
     public int removeLocalVideoView() {
-        Log.d(TAG, "=== removeLocalVideoView === 尝试解除本地视频渲染视图");
+        Log.d("Agora", "=== removeLocalVideoView === 尝试解除本地视频渲染视图");
         if (isRtcEngineAvailable()) {
             // 通过传入null视图来解除绑定
             int result = rtcEngine.setupLocalVideo(new VideoCanvas(null, 0, 0));
             if (result == 0) {
                 localVideoViews.remove(0);
-                Log.d(TAG, "本地视频视图已成功解除绑定并从缓存中移除");
+                Log.d("Agora", "本地视频视图已成功解除绑定并从缓存中移除");
             } else {
-                Log.e(TAG, "解除本地视频绑定失败，返回码: " + result);
+                Log.e("Agora", "解除本地视频绑定失败，返回码: " + result);
             }
             return result;
         }
-        Log.e(TAG, "解除本地视频绑定失败，rtcEngine 为空");
+        Log.e("Agora", "解除本地视频绑定失败，rtcEngine 为空");
         return -1; // 失败
     }
 
@@ -63,19 +63,19 @@ public class DeviceManager {
      * 解除远程视频渲染视图
      */
     public int removeRemoteVideoView(int uid) {
-        Log.d(TAG, "=== removeRemoteVideoView === 尝试解除远程用户 " + uid + " 的视频渲染视图");
+        Log.d("Agora", "=== removeRemoteVideoView === 尝试解除远程用户 " + uid + " 的视频渲染视图");
         if (isRtcEngineAvailable()) {
             // 通过传入null视图来解除绑定
             int result = rtcEngine.setupRemoteVideo(new VideoCanvas(null, 0, uid));
             if (result == 0) {
                 remoteVideoViews.remove(uid);
-                Log.d(TAG, "远程视频视图已成功解除绑定并从缓存中移除，用户ID: " + uid);
+                Log.d("Agora", "远程视频视图已成功解除绑定并从缓存中移除，用户ID: " + uid);
             } else {
-                Log.e(TAG, "解除远程视频绑定失败，返回码: " + result);
+                Log.e("Agora", "解除远程视频绑定失败，返回码: " + result);
             }
             return result;
         }
-        Log.e(TAG, "解除远程视频绑定失败，rtcEngine 为空");
+        Log.e("Agora", "解除远程视频绑定失败，rtcEngine 为空");
         return -1; // 失败
     }
 
@@ -170,30 +170,30 @@ public class DeviceManager {
 
             @Override
             public void onRemoteVideoStateChanged(int uid, int state, int reason, int elapsed) {
-                Log.d(TAG, "=== onRemoteVideoStateChanged ===");
-                Log.d(TAG, "用户ID: " + uid + ", 状态: " + state + ", 原因: " + reason + ", 耗时: " + elapsed + "ms");
+                Log.d("Agora", "=== onRemoteVideoStateChanged ===");
+                Log.d("Agora", "用户ID: " + uid + ", 状态: " + state + ", 原因: " + reason + ", 耗时: " + elapsed + "ms");
 
                 String stateName = getRemoteVideoStateName(state);
-                Log.d(TAG, "远程视频状态: " + stateName);
+                Log.d("Agora", "远程视频状态: " + stateName);
 
                 // 判断视频是否可用：只有 DECODING 和 STARTING 状态才算可用
                 boolean enabled = (state == Constants.REMOTE_VIDEO_STATE_DECODING ||
                         state == Constants.REMOTE_VIDEO_STATE_STARTING);
-                Log.d(TAG, "是否启用: " + enabled);
+                Log.d("Agora", "是否启用: " + enabled);
 
                 // 如果视频状态为 STOPPED、FROZEN 或 FAILED，也通知移除视图
                 if (state == Constants.REMOTE_VIDEO_STATE_STOPPED ||
                         state == Constants.REMOTE_VIDEO_STATE_FROZEN ||
                         state == Constants.REMOTE_VIDEO_STATE_FAILED) {
-                    Log.d(TAG, "远程视频已停止/冻结/失败，将移除视图");
+                    Log.d("Agora", "远程视频已停止/冻结/失败，将移除视图");
                     enabled = false;
                 }
 
                 if (deviceStatusListener != null) {
                     deviceStatusListener.onRemoteVideoStateChanged(uid, enabled);
-                    Log.d(TAG, "已通知 DeviceStatusListener 远程视频状态改变");
+                    Log.d("Agora", "已通知 DeviceStatusListener 远程视频状态改变");
                 } else {
-                    Log.e(TAG, "deviceStatusListener 为空，无法通知远程视频状态改变");
+                    Log.e("Agora", "deviceStatusListener 为空，无法通知远程视频状态改变");
                 }
             }
 
@@ -209,15 +209,15 @@ public class DeviceManager {
 
             @Override
             public void onLocalVideoStateChanged(io.agora.rtc2.Constants.VideoSourceType sourceType, int localVideoState, int error) {
-                Log.d(TAG, "本地视频状态改变回调。视频源类型: " + sourceType + ", 状态: " + localVideoState + ", 错误码: " + error);
+                Log.d("Agora", "本地视频状态改变回调。视频源类型: " + sourceType + ", 状态: " + localVideoState + ", 错误码: " + error);
                 // 本地视频状态变化
                 boolean enabled = (localVideoState == Constants.LOCAL_VIDEO_STREAM_STATE_CAPTURING ||
                         localVideoState == Constants.LOCAL_VIDEO_STREAM_STATE_ENCODING);
                 if (deviceStatusListener != null) {
                     deviceStatusListener.onLocalVideoStateChanged(enabled);
-                    Log.d(TAG, "通知 DeviceStatusListener 本地视频状态改变。启用: " + enabled);
+                    Log.d("Agora", "通知 DeviceStatusListener 本地视频状态改变。启用: " + enabled);
                 } else {
-                    Log.e(TAG, "deviceStatusListener 为空，无法通知本地视频状态改变。");
+                    Log.e("Agora", "deviceStatusListener 为空，无法通知本地视频状态改变。");
                 }
             }
 
@@ -232,47 +232,47 @@ public class DeviceManager {
 
             @Override
             public void onError(int err) {
-                Log.e(TAG, "=== Agora SDK 错误 ===");
-                Log.e(TAG, "错误码: " + err);
-                Log.e(TAG, "错误描述: " + getErrorDescription(err));
+                Log.e("Agora", "=== Agora SDK 错误 ===");
+                Log.e("Agora", "错误码: " + err);
+                Log.e("Agora", "错误描述: " + getErrorDescription(err));
 
                 // 根据错误码处理不同的错误
                 switch (err) {
                     case 2: // ERR_INVALID_ARGUMENT
-                        Log.e(TAG, "错误原因: 无效的参数");
+                        Log.e("Agora", "错误原因: 无效的参数");
                         break;
                     case 3: // ERR_NOT_READY
-                        Log.e(TAG, "错误原因: SDK 未准备好");
+                        Log.e("Agora", "错误原因: SDK 未准备好");
                         break;
                     case 7: // ERR_NOT_INITIALIZED
-                        Log.e(TAG, "错误原因: SDK 未初始化");
+                        Log.e("Agora", "错误原因: SDK 未初始化");
                         break;
                     case 10: // ERR_INVALID_APP_ID
-                        Log.e(TAG, "错误原因: 无效的 App ID");
+                        Log.e("Agora", "错误原因: 无效的 App ID");
                         break;
                     case 17: // ERR_JOIN_CHANNEL_REJECTED
-                        Log.e(TAG, "错误原因: 加入频道被拒绝");
+                        Log.e("Agora", "错误原因: 加入频道被拒绝");
                         break;
                     case 101: // ERR_INVALID_CHANNEL_NAME
-                        Log.e(TAG, "错误原因: 无效的频道名称");
+                        Log.e("Agora", "错误原因: 无效的频道名称");
                         break;
                     default:
-                        Log.e(TAG, "错误原因: 未知错误");
+                        Log.e("Agora", "错误原因: 未知错误");
                         break;
                 }
             }
 
             @Override
             public void onConnectionStateChanged(int state, int reason) {
-                Log.d(TAG, "=== onConnectionStateChanged ===");
-                Log.d(TAG, "连接状态: " + getConnectionStateName(state) + ", 原因: " + getConnectionStateChangedReasonName(reason));
+                Log.d("Agora", "=== onConnectionStateChanged ===");
+                Log.d("Agora", "连接状态: " + getConnectionStateName(state) + ", 原因: " + getConnectionStateChangedReasonName(reason));
 
                 // 检查是否是离开频道的状态变化
                 // 使用硬编码的值，对应 CONNECTION_CHANGED_REASON_LEAVE_CHANNEL (7) 和 CONNECTION_CHANGED_REASON_DISCONNECTED (2)
                 boolean isLeaveChannelReason = (reason == 2 || reason == 5 || reason == 7);
                 
                 if (state == io.agora.rtc2.Constants.CONNECTION_STATE_DISCONNECTED && isLeaveChannelReason) {
-                    Log.d(TAG, "检测到离开频道事件，通知 RoomManager");
+                    Log.d("Agora", "检测到离开频道事件，通知 RoomManager");
                     if (roomEventListener != null) {
                         roomEventListener.onLeaveChannel();
                     }
@@ -280,26 +280,26 @@ public class DeviceManager {
             }
         };
 
-        Log.d(TAG, "尝试创建 RtcEngine，App ID: " + appId);
+        Log.d("Agora", "尝试创建 RtcEngine，App ID: " + appId);
         rtcEngine = RtcEngine.create(config);
-        Log.d(TAG, "RtcEngine 创建成功。");
+        Log.d("Agora", "RtcEngine 创建成功。");
 
         // 注意：暂时不设置频道配置，使用默认配置
         // 频道配置会在 joinChannel 时通过 ChannelMediaOptions 传递
-        Log.d(TAG, "使用默认配置，不预先设置频道模式");
+        Log.d("Agora", "使用默认配置，不预先设置频道模式");
 
         // 启用音频模块
-        Log.d(TAG, "尝试启用音频模块。");
+        Log.d("Agora", "尝试启用音频模块。");
         rtcEngine.enableAudio();
-        Log.d(TAG, "音频模块已启用。");
+        Log.d("Agora", "音频模块已启用。");
 
         // 启用视频模块
-        Log.d(TAG, "尝试启用视频模块。");
+        Log.d("Agora", "尝试启用视频模块。");
         rtcEngine.enableVideo();
-        Log.d(TAG, "视频模块已启用。");
+        Log.d("Agora", "视频模块已启用。");
 
         // 设置适合手机的视频编码配置（竖屏）
-        Log.d(TAG, "设置视频编码配置。");
+        Log.d("Agora", "设置视频编码配置。");
         VideoEncoderConfiguration videoConfig = new VideoEncoderConfiguration(
                 480, 854,  // 分辨率：480x854 (适合竖屏手机)
                 VideoEncoderConfiguration.FRAME_RATE.FRAME_RATE_FPS_15,  // 15fps
@@ -307,7 +307,7 @@ public class DeviceManager {
                 VideoEncoderConfiguration.ORIENTATION_MODE.ORIENTATION_MODE_ADAPTIVE  // 自适应方向
         );
         int configResult = rtcEngine.setVideoEncoderConfiguration(videoConfig);
-        Log.d(TAG, "视频编码配置设置完成，结果: " + configResult);
+        Log.d("Agora", "视频编码配置设置完成，结果: " + configResult);
     }
 
     /**
@@ -620,13 +620,13 @@ public class DeviceManager {
      * 切换摄像头
      */
     public int switchCamera() {
-        Log.d(TAG, "调用 switchCamera，尝试切换摄像头。");
+        Log.d("Agora", "调用 switchCamera，尝试切换摄像头。");
         if (rtcEngine != null) {
             int result = rtcEngine.switchCamera();
-            Log.d(TAG, "rtcEngine.switchCamera 返回结果: " + result);
+            Log.d("Agora", "rtcEngine.switchCamera 返回结果: " + result);
             return result;
         }
-        Log.e(TAG, "切换摄像头失败，rtcEngine 为空。");
+        Log.e("Agora", "切换摄像头失败，rtcEngine 为空。");
         return -1; // 失败
     }
 
@@ -656,14 +656,14 @@ public class DeviceManager {
      * 启用本地视频
      */
     public int enableLocalVideo(boolean enabled) {
-        Log.d(TAG, "调用 enableLocalVideo，启用状态: " + enabled);
+        Log.d("Agora", "调用 enableLocalVideo，启用状态: " + enabled);
         if (isRtcEngineAvailable()) {
             int result = rtcEngine.enableLocalVideo(enabled);
             this.isLocalVideoEnabled = enabled;
-            Log.d(TAG, "rtcEngine.enableLocalVideo 返回结果: " + result);
+            Log.d("Agora", "rtcEngine.enableLocalVideo 返回结果: " + result);
             return result;
         }
-        Log.e(TAG, "启用本地视频失败，rtcEngine 为空。");
+        Log.e("Agora", "启用本地视频失败，rtcEngine 为空。");
         return -1; // 失败
     }
 
@@ -683,16 +683,16 @@ public class DeviceManager {
      * 静音本地音频
      */
     public int muteLocalAudio(boolean muted) {
-        Log.d(TAG, "=== muteLocalAudio ===");
-        Log.d(TAG, "静音状态: " + muted);
+        Log.d("Agora", "=== muteLocalAudio ===");
+        Log.d("Agora", "静音状态: " + muted);
         if (isRtcEngineAvailable()) {
             int result = rtcEngine.muteLocalAudioStream(muted);
             this.isLocalAudioEnabled = !muted;
-            Log.d(TAG, "rtcEngine.muteLocalAudioStream 返回结果: " + result);
-            Log.d(TAG, "本地音频推流状态: " + (muted ? "停止" : "开启"));
+            Log.d("Agora", "rtcEngine.muteLocalAudioStream 返回结果: " + result);
+            Log.d("Agora", "本地音频推流状态: " + (muted ? "停止" : "开启"));
             return result;
         }
-        Log.e(TAG, "静音本地音频失败，rtcEngine 为空。");
+        Log.e("Agora", "静音本地音频失败，rtcEngine 为空。");
         return -1; // 失败
     }
 
@@ -700,16 +700,16 @@ public class DeviceManager {
      * 静音本地视频
      */
     public int muteLocalVideo(boolean muted) {
-        Log.d(TAG, "=== muteLocalVideo ===");
-        Log.d(TAG, "静音状态: " + muted);
+        Log.d("Agora", "=== muteLocalVideo ===");
+        Log.d("Agora", "静音状态: " + muted);
         if (isRtcEngineAvailable()) {
             int result = rtcEngine.muteLocalVideoStream(muted);
             this.isLocalVideoEnabled = !muted;
-            Log.d(TAG, "rtcEngine.muteLocalVideoStream 返回结果: " + result);
-            Log.d(TAG, "本地视频推流状态: " + (muted ? "停止" : "开启"));
+            Log.d("Agora", "rtcEngine.muteLocalVideoStream 返回结果: " + result);
+            Log.d("Agora", "本地视频推流状态: " + (muted ? "停止" : "开启"));
             return result;
         }
-        Log.e(TAG, "静音本地视频失败，rtcEngine 为空。");
+        Log.e("Agora", "静音本地视频失败，rtcEngine 为空。");
         return -1; // 失败
     }
 
@@ -717,26 +717,26 @@ public class DeviceManager {
      * 设置本地视频渲染视图
      */
     public int setupLocalVideo(Object view, int renderMode) {
-        Log.d(TAG, "=== setupLocalVideo ===");
-        Log.d(TAG, "视图: " + view + ", 渲染模式: " + renderMode);
+        Log.d("Agora", "=== setupLocalVideo ===");
+        Log.d("Agora", "视图: " + view + ", 渲染模式: " + renderMode);
         if (isRtcEngineAvailable() && view != null) {
             if (view instanceof SurfaceView || view instanceof TextureView) {
                 VideoCanvas canvas = new VideoCanvas((android.view.View) view, renderMode, 0);
                 int result = rtcEngine.setupLocalVideo(canvas);
-                Log.d(TAG, "rtcEngine.setupLocalVideo 返回结果: " + result);
+                Log.d("Agora", "rtcEngine.setupLocalVideo 返回结果: " + result);
                 if (result == 0) {
                     localVideoViews.put(0, view);
-                    Log.d(TAG, "本地视频视图已成功存储，view: " + view);
-                    Log.d(TAG, "本地视频渲染已设置");
+                    Log.d("Agora", "本地视频视图已成功存储，view: " + view);
+                    Log.d("Agora", "本地视频渲染已设置");
                 } else {
-                    Log.e(TAG, "设置本地视频失败，返回码: " + result);
+                    Log.e("Agora", "设置本地视频失败，返回码: " + result);
                 }
                 return result;
             } else {
-                Log.e(TAG, "设置本地视频失败，视图类型不正确: " + view.getClass().getSimpleName());
+                Log.e("Agora", "设置本地视频失败，视图类型不正确: " + view.getClass().getSimpleName());
             }
         } else {
-            Log.e(TAG, "设置本地视频失败，rtcEngine 或 view 为空。rtcEngine: " + (isRtcEngineAvailable()) + ", view: " + (view != null));
+            Log.e("Agora", "设置本地视频失败，rtcEngine 或 view 为空。rtcEngine: " + (isRtcEngineAvailable()) + ", view: " + (view != null));
         }
         return -1; // 失败
     }
@@ -745,26 +745,26 @@ public class DeviceManager {
      * 设置远程视频渲染视图
      */
     public int setupRemoteVideo(Object view, int uid, int renderMode) {
-        Log.d(TAG, "=== setupRemoteVideo ===");
-        Log.d(TAG, "视图: " + view + ", 用户ID: " + uid + ", 渲染模式: " + renderMode);
+        Log.d("Agora", "=== setupRemoteVideo ===");
+        Log.d("Agora", "视图: " + view + ", 用户ID: " + uid + ", 渲染模式: " + renderMode);
         if (isRtcEngineAvailable() && view != null) {
             if (view instanceof SurfaceView || view instanceof TextureView) {
                 VideoCanvas canvas = new VideoCanvas((android.view.View) view, renderMode, uid);
                 int result = rtcEngine.setupRemoteVideo(canvas);
-                Log.d(TAG, "rtcEngine.setupRemoteVideo 返回结果: " + result);
+                Log.d("Agora", "rtcEngine.setupRemoteVideo 返回结果: " + result);
                 if (result == 0) {
                     remoteVideoViews.put(uid, view);
-                    Log.d(TAG, "远程视频视图已成功存储，用户ID: " + uid + ", view: " + view);
-                    Log.d(TAG, "远程视频渲染已设置，开始接收视频流");
+                    Log.d("Agora", "远程视频视图已成功存储，用户ID: " + uid + ", view: " + view);
+                    Log.d("Agora", "远程视频渲染已设置，开始接收视频流");
                 } else {
-                    Log.e(TAG, "设置远程视频失败，返回码: " + result);
+                    Log.e("Agora", "设置远程视频失败，返回码: " + result);
                 }
                 return result;
             } else {
-                Log.e(TAG, "设置远程视频失败，视图类型不正确: " + view.getClass().getSimpleName());
+                Log.e("Agora", "设置远程视频失败，视图类型不正确: " + view.getClass().getSimpleName());
             }
         } else {
-            Log.e(TAG, "设置远程视频失败，rtcEngine 或 view 为空。rtcEngine: " + (isRtcEngineAvailable()) + ", view: " + (view != null));
+            Log.e("Agora", "设置远程视频失败，rtcEngine 或 view 为空。rtcEngine: " + (isRtcEngineAvailable()) + ", view: " + (view != null));
         }
         return -1; // 失败
     }
@@ -793,13 +793,13 @@ public class DeviceManager {
      * 开始预览
      */
     public int startPreview() {
-        Log.d(TAG, "调用 startPreview，尝试开启本地视频预览。");
+        Log.d("Agora", "调用 startPreview，尝试开启本地视频预览。");
         if (isRtcEngineAvailable()) {
             int result = rtcEngine.startPreview();
-            Log.d(TAG, "rtcEngine.startPreview 返回结果: " + result);
+            Log.d("Agora", "rtcEngine.startPreview 返回结果: " + result);
             return result;
         }
-        Log.e(TAG, "开启预览失败，rtcEngine 为空。");
+        Log.e("Agora", "开启预览失败，rtcEngine 为空。");
         return -1; // 失败
     }
 
@@ -807,13 +807,13 @@ public class DeviceManager {
      * 停止预览
      */
     public int stopPreview() {
-        Log.d(TAG, "调用 stopPreview，尝试停止本地视频预览。");
+        Log.d("Agora", "调用 stopPreview，尝试停止本地视频预览。");
         if (isRtcEngineAvailable()) {
             int result = rtcEngine.stopPreview();
-            Log.d(TAG, "rtcEngine.stopPreview 返回结果: " + result);
+            Log.d("Agora", "rtcEngine.stopPreview 返回结果: " + result);
             return result;
         }
-        Log.e(TAG, "停止预览失败，rtcEngine 为空。");
+        Log.e("Agora", "停止预览失败，rtcEngine 为空。");
         return -1; // 失败
     }
 
