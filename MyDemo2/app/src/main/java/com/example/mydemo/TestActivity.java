@@ -3,6 +3,7 @@ package com.example.mydemo;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -64,5 +65,13 @@ public class TestActivity extends Activity {
     @Override
     protected void onStop() {
         super.onStop();
+        Log.d("TestActivity", "onStop");
+        Log.d("TestActivity", "onStop");
+        Log.d("TestActivity", "onStop");
+        Log.d("TestActivity", "onStop");
+        Log.d("TestActivity", "onStop");
+        Log.d("TestActivity", "onStop");
+
     }
+
 }
