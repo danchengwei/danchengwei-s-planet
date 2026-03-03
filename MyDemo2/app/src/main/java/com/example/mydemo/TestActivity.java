@@ -45,21 +45,25 @@ public class TestActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        Log.d("TestActivity", "onStop");
     }
 
     @Override
     protected void onPause() {
         super.onPause();
+        Log.d("TestActivity", "onStop");
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        Log.d("TestActivity", "onStop");
     }
 
     @Override
     protected void onStart() {
         super.onStart();
+        Log.d("TestActivity", "onStop");
     }
 
     @Override
