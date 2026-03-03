@@ -71,7 +71,7 @@ public class TestActivity extends Activity {
         Log.d("TestActivity", "onStop");
         Log.d("TestActivity", "onStop");
         Log.d("TestActivity", "onStop");
-
+        Log.d("TestActivity", "我真的拴q");
     }
 
 }
