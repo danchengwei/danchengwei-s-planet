@@ -1,0 +1,23 @@
+# 历史（曾用 Node/Electron）
+node_modules/
+dist/
+out/
+
+# Flutter / Dart
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+coverage/
+
+# IDE
+*.iml
+.idea/
+*.swp
+.DS_Store
+*.log*
+
+# 本地测试用配置（可含密钥，勿提交）；模板见 crash-tools-test-config.sample.json
+crash-tools-test-config.json
+crash-tools-test-config.example.json
