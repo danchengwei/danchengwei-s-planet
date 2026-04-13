@@ -18,6 +18,9 @@ class SettingsTab extends StatefulWidget {
 }
 
 class _SettingsTabState extends State<SettingsTab> {
+  /// 为 false 时尚未创建输入控制器（避免对未初始化的 late 调用 dispose）。
+  bool _fieldControllersReady = false;
+
   late TextEditingController _ak;
   late TextEditingController _sk;
   late TextEditingController _region;
@@ -50,7 +53,39 @@ class _SettingsTabState extends State<SettingsTab> {
     _bind();
   }
 
+  @override
+  void didUpdateWidget(covariant SettingsTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller.activeProject.id != widget.controller.activeProject.id) {
+      setState(_bind);
+    }
+  }
+
+  void _disposeFieldControllers() {
+    if (!_fieldControllersReady) return;
+    _ak.dispose();
+    _sk.dispose();
+    _region.dispose();
+    _appKey.dispose();
+    _os.dispose();
+    _biz.dispose();
+    _emasName.dispose();
+    _console.dispose();
+    _consoleTpl.dispose();
+    _llmUrl.dispose();
+    _llmPathCtrl.dispose();
+    _llmKey.dispose();
+    _llmModel.dispose();
+    _llmSystem.dispose();
+    _agentWd.dispose();
+    _agentExe.dispose();
+    _agentMode.dispose();
+    _agentArgs.dispose();
+    _fieldControllersReady = false;
+  }
+
   void _bind() {
+    _disposeFieldControllers();
     final c = widget.controller.config;
     _ak = TextEditingController(text: c.accessKeyId);
     _sk = TextEditingController(text: c.accessKeySecret);
@@ -76,6 +111,7 @@ class _SettingsTabState extends State<SettingsTab> {
     _migrateLegacyCursorAgentConfig();
     _inferAgentPresetFromControllers();
     _mockCrash = c.emasUseMockCrashData;
+    _fieldControllersReady = true;
   }
 
   /// 旧版 Cursor CLI（args）已移除，打开配置页时自动改为 Claude Code（stdin）。
@@ -140,24 +176,7 @@ class _SettingsTabState extends State<SettingsTab> {
 
   @override
   void dispose() {
-    _ak.dispose();
-    _sk.dispose();
-    _region.dispose();
-    _appKey.dispose();
-    _os.dispose();
-    _biz.dispose();
-    _emasName.dispose();
-    _console.dispose();
-    _consoleTpl.dispose();
-    _llmUrl.dispose();
-    _llmPathCtrl.dispose();
-    _llmKey.dispose();
-    _llmModel.dispose();
-    _llmSystem.dispose();
-    _agentWd.dispose();
-    _agentExe.dispose();
-    _agentMode.dispose();
-    _agentArgs.dispose();
+    _disposeFieldControllers();
     super.dispose();
   }
 
@@ -192,9 +211,10 @@ class _SettingsTabState extends State<SettingsTab> {
     }
   }
 
-  Future<void> _save() async {
+  /// 与「保存」相同的字段来源，用于一键检测（无需先点保存即可测当前表单）。
+  ToolConfig _toolConfigDraftFromFields() {
     final cur = widget.controller.config;
-    final next = ToolConfig(
+    return ToolConfig(
       accessKeyId: _ak.text,
       accessKeySecret: _sk.text,
       region: _region.text,
@@ -235,6 +255,10 @@ class _SettingsTabState extends State<SettingsTab> {
       mcpGitlabInstallAck: cur.mcpGitlabInstallAck,
       emasUseMockCrashData: _mockCrash,
     );
+  }
+
+  Future<void> _save() async {
+    final next = _toolConfigDraftFromFields();
     final sec = next.validateSecretEndpointsUseHttps();
     if (sec.isNotEmpty) {
       if (!mounted) return;
@@ -312,7 +336,10 @@ class _SettingsTabState extends State<SettingsTab> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
               children: [
-                _ConnectivityCard(controller: widget.controller),
+                _ConnectivityCard(
+                  controller: widget.controller,
+                  buildDraftConfig: _toolConfigDraftFromFields,
+                ),
                 const SizedBox(height: 20),
                 _settingsSection(
                   context,
@@ -625,11 +652,15 @@ class _SettingsTabState extends State<SettingsTab> {
   }
 }
 
-/// 配置页顶部：各服务连接状态与一键检测（保存下方字段后再测更准确）。
+/// 配置页顶部：各服务连接状态与一键检测（按当前表单内容探测，无需先保存）。
 class _ConnectivityCard extends StatefulWidget {
-  const _ConnectivityCard({required this.controller});
+  const _ConnectivityCard({
+    required this.controller,
+    required this.buildDraftConfig,
+  });
 
   final AppController controller;
+  final ToolConfig Function() buildDraftConfig;
 
   @override
   State<_ConnectivityCard> createState() => _ConnectivityCardState();
@@ -646,9 +677,13 @@ class _ConnectivityCardState extends State<_ConnectivityCard> {
       _busy = true;
       _emas = _gitlab = _llm = null;
     });
-    final e = await widget.controller.probeEmasConnection();
-    final g = await widget.controller.probeGitlabConnection();
-    final l = await widget.controller.probeLlmConnection();
+    // 存在测试配置文件时：启动已将其合并进内存并持久化，检测须与 [controller.config] 一致（避免表单未同步时偏差）。
+    final ToolConfig cfg = widget.controller.testLocalConfigAppliedPath != null
+        ? widget.controller.config
+        : widget.buildDraftConfig();
+    final e = await widget.controller.probeEmasConnection(cfg);
+    final g = await widget.controller.probeGitlabConnection(cfg);
+    final l = await widget.controller.probeLlmConnection(cfg);
     if (!mounted) return;
     setState(() {
       _emas = e;
@@ -687,7 +722,9 @@ class _ConnectivityCardState extends State<_ConnectivityCard> {
             ),
             const SizedBox(height: 6),
             Text(
-              '保存后可测连通性',
+              widget.controller.testLocalConfigAppliedPath != null
+                  ? '已加载测试配置 JSON，一键检测与当前工作区（含本机已持久化）一致。'
+                  : '按当前表单检测（可先改后测）；智谱等请选对应预设或路径填 chat/completions',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: cs.onSurfaceVariant,
                 height: 1.35,

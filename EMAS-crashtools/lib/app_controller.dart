@@ -678,31 +678,45 @@ ${jsonEncode(detail)}
 
   /// `crash-tools://open?path=...` 打开 payload 并执行 Agent。
   /// 探测 EMAS 列表接口（不覆盖当前 [lastIssues]）。
-  Future<String> probeEmasConnection() async {
-    if (_useEmasCrashMock) {
+  ///
+  /// [draft] 非空时（如配置页未保存的表单）用其中的 AK/业务字段探测；否则用已落盘的 [config] 与工作台状态。
+  Future<String> probeEmasConnection([ToolConfig? draft]) async {
+    final cfg = draft ?? config;
+    final bool mockCrash;
+    if (draft != null) {
+      mockCrash =
+          cfg.emasUseMockCrashData && cfg.bizModule.trim().toLowerCase() == 'crash';
+    } else {
+      mockCrash = _useEmasCrashMock;
+    }
+    if (mockCrash) {
       return 'Mock · 崩溃模块使用本地数据预览（未请求 EMAS）';
     }
 
-    final miss = config.validateEmas();
+    final miss = cfg.validateEmas();
     if (miss.isNotEmpty) return '未就绪：缺少 ${miss.join('、')}';
-    final ak = config.appKeyAsInt;
+    final ak = cfg.appKeyAsInt;
     if (ak == null) return '未就绪：AppKey 须为数字';
 
     final client = EmasAppMonitorClient(
-      accessKeyId: config.accessKeyId.trim(),
-      accessKeySecret: config.accessKeySecret.trim(),
-      regionId: config.region.trim(),
+      accessKeyId: cfg.accessKeyId.trim(),
+      accessKeySecret: cfg.accessKeySecret.trim(),
+      regionId: cfg.region.trim(),
     );
+    final biz = draft != null ? cfg.bizModule.trim() : activeBizModule;
+    final nameQ = draft != null
+        ? (cfg.emasListNameQuery.trim().isEmpty ? null : cfg.emasListNameQuery.trim())
+        : (listNameQuery.isEmpty ? null : listNameQuery);
     try {
       final r = await client.getIssues(
         appKey: ak,
-        bizModule: activeBizModule,
-        os: config.os.trim(),
+        bizModule: biz,
+        os: cfg.os.trim(),
         startTimeMs: rangeStartMs,
         endTimeMs: rangeEndMs,
         pageIndex: 1,
         pageSize: 1,
-        name: listNameQuery.isEmpty ? null : listNameQuery,
+        name: nameQ,
         extraBody: _emasStartupLaunchExtra,
       );
       return '正常 · 时间范围内共 ${r.total} 条聚合';
@@ -714,15 +728,16 @@ ${jsonEncode(detail)}
   }
 
   /// 探测 GitLab 项目访问。
-  Future<String> probeGitlabConnection() async {
-    final miss = config.validateGitlab();
+  Future<String> probeGitlabConnection([ToolConfig? draft]) async {
+    final cfg = draft ?? config;
+    final miss = cfg.validateGitlab();
     if (miss.isNotEmpty) return '未配置：${miss.join('、')}';
     final client = GitLabClient(
-      baseUrl: config.gitlabBaseUrl.trim(),
-      privateToken: config.gitlabToken.trim(),
+      baseUrl: cfg.gitlabBaseUrl.trim(),
+      privateToken: cfg.gitlabToken.trim(),
     );
     try {
-      final bindings = config.gitlabBindingsResolved;
+      final bindings = cfg.gitlabBindingsResolved;
       final firstId = bindings.first.projectId.trim();
       final label = await client.fetchProjectLabel(projectId: firstId);
       if (bindings.length > 1) {
@@ -737,14 +752,15 @@ ${jsonEncode(detail)}
   }
 
   /// 探测大模型 Chat 接口。
-  Future<String> probeLlmConnection() async {
-    final miss = config.validateLlm();
+  Future<String> probeLlmConnection([ToolConfig? draft]) async {
+    final cfg = draft ?? config;
+    final miss = cfg.validateLlm();
     if (miss.isNotEmpty) return '未配置：${miss.join('、')}';
     final client = LlmClient(
-      baseUrl: config.llmBaseUrl.trim(),
-      apiKey: config.llmApiKey.trim(),
-      model: config.llmModel.trim(),
-      chatCompletionsPath: config.effectiveLlmChatPath,
+      baseUrl: cfg.llmBaseUrl.trim(),
+      apiKey: cfg.llmApiKey.trim(),
+      model: cfg.llmModel.trim(),
+      chatCompletionsPath: cfg.effectiveLlmChatPath,
     );
     try {
       await client.chat(
@@ -753,7 +769,7 @@ ${jsonEncode(detail)}
         ],
         temperature: 0,
       );
-      return '正常 · 模型 ${config.llmModel.trim()} 可对话';
+      return '正常 · 模型 ${cfg.llmModel.trim()} 可对话';
     } catch (e) {
       return '异常：${userFacingNetworkError(e)}';
     } finally {

@@ -8,8 +8,9 @@ import 'package:path_provider/path_provider.dart';
 import '../models/projects_workspace.dart';
 import '../models/tool_config.dart';
 
-/// 本地测试配置：启动时若存在指定 JSON 则读入并覆盖内存中的工作区/当前项目配置，
-/// **不写回**加密工作区文件，便于每次新包/重装后仍用同一份文件调试。
+/// 本地测试配置：启动时若存在指定 JSON 则读入并覆盖内存中的工作区/当前项目配置。
+/// [AppController] 在成功启动后会对工作区做一次 [ConfigRepository.saveWorkspace]，
+/// 使加密落盘与当前内存一致（便于「一键检测」、各页读取的 [ToolConfig] 与测试文件对齐）。
 ///
 /// 查找顺序（找到第一个即使用）：
 /// 1. 环境变量 `CRASH_TOOLS_TEST_CONFIG` 指向的绝对路径

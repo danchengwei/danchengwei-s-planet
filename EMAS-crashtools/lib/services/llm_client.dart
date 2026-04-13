@@ -60,8 +60,12 @@ class LlmClient {
       final msg = choices.first;
       if (msg is! Map) throw LlmException(res.statusCode, '响应格式异常');
       final content = msg['message'];
-      if (content is Map && content['content'] != null) {
-        return content['content'].toString();
+      if (content is Map) {
+        final c = content['content'];
+        if (c != null) return c.toString();
+        // 智谱等 reasoning 模型可能仅填 reasoning_content
+        final r = content['reasoning_content'];
+        if (r != null) return r.toString();
       }
       return text;
     });

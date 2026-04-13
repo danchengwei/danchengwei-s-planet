@@ -1,6 +1,6 @@
 # EMAS小助手
 
-面向移动端研发与质量同学的 **桌面端辅助工具**（Flutter / macOS 为主）。在本机通过 **阿里云 EMAS AppMonitor OpenAPI**（`GetIssues` / `GetIssue`）拉取崩溃、ANR 等聚合数据，**无需自建后端**；并集成 **GitLab 堆栈检索**、**OpenAI 兼容大模型**（单条分析、Top 列表批量、勾选串联摘要）、**HTML / 完整报告导出**，以及 **`crash-tools://` 协议**唤起本机 Agent（剪贴板 / CLI）。
+面向移动端研发与质量的 **桌面端辅助工具**（Flutter / macOS 为主）。在本机通过 **阿里云 EMAS AppMonitor OpenAPI**（`GetIssues` / `GetIssue`）拉取崩溃、ANR 等聚合数据，**无需自建后端**；并集成 **GitLab 堆栈检索**、**OpenAI 兼容大模型**（单条分析、Top 列表批量、勾选串联摘要）、**HTML / 完整报告导出**，以及 **`crash-tools://` 协议**唤起本机 Agent（剪贴板 / CLI）。
 
 **多项目工作区**：每个项目独立保存 EMAS、GitLab、LLM、MCP、Agent 等配置，本地加密落盘；可选启动时进入项目选择页。适合日常对照控制台、快速筛问题、结合仓库与大模型做分析与留档。
 
