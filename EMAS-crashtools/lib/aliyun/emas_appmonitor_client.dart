@@ -11,6 +11,9 @@ const _apiVersion = '2019-06-11';
 
 /// EMAS AppMonitor **OpenAPI**（`GetIssues` / `GetIssue`）：HTTPS + form + ACS4 签名。
 ///
+/// [httpClient] 须由 `newOutboundHttpClient`（`outbound_http_client_for_config.dart`）创建，
+/// 与 `tool/emas_openapi_probe.dart` 行为一致。
+///
 /// 与 **Android 端 SDK 上报接口** 不同：App 内自定义异常、日志、自定义维度（如
 /// `ApmCrashAnalysis.recordException`、`setCustomKey` 等）见官方文档
 /// [崩溃分析相关接口（Android SDK）](https://help.aliyun.com/zh/document_detail/2880532.html)。
@@ -20,8 +23,8 @@ class EmasAppMonitorClient {
     required this.accessKeyId,
     required this.accessKeySecret,
     required this.regionId,
-    http.Client? httpClient,
-  }) : _http = httpClient ?? http.Client();
+    required http.Client httpClient,
+  }) : _http = httpClient;
 
   final String accessKeyId;
   final String accessKeySecret;

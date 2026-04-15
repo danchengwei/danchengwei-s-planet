@@ -7,6 +7,8 @@ import 'network_transport_policy.dart';
 
 /// GitLab REST API v4（与官方文档一致的路径与鉴权）。
 ///
+/// [httpClient] 须由 `newOutboundHttpClient` 创建，与 EMAS / 大模型共用出站策略。
+///
 /// **第一步 · 在仓库内搜类名/关键词（blobs）**  
 /// `GET /api/v4/projects/{项目ID}/search?scope=blobs&search=...`  
 /// 请求头：`PRIVATE-TOKEN: <token>`。本客户端额外传 `ref`、`per_page`（GitLab Search API 支持）。
@@ -19,8 +21,11 @@ import 'network_transport_policy.dart';
 /// **本应用实际用法**：[searchBlobs] 走第一步；分析流程用返回的片段 + [commitsForPath]
 ///（`GET .../repository/commits?path=...&ref_name=...`）取该路径最近提交，写入提示词。
 class GitLabClient {
-  GitLabClient({required this.baseUrl, required this.privateToken, http.Client? httpClient})
-      : _http = httpClient ?? http.Client();
+  GitLabClient({
+    required this.baseUrl,
+    required this.privateToken,
+    required http.Client httpClient,
+  }) : _http = httpClient;
 
   final String baseUrl;
   final String privateToken;

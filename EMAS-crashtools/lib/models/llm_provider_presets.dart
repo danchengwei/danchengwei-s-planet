@@ -46,8 +46,8 @@ class LlmProviderPreset {
       label: '智谱 GLM',
       baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
       chatPath: 'chat/completions',
-      defaultModel: 'glm-4-flash',
-      description: 'BigModel 开放平台，与 OpenAI 字段略有差异，已适配路径。',
+      defaultModel: 'glm-4.6v',
+      description: 'BigModel 兼容接口；Base 须为 …/api/paas/v4（勿只写到 /paas），路径为 chat/completions。',
     ),
     const LlmProviderPreset(
       id: 'dashscope',

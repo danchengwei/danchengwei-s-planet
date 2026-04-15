@@ -394,7 +394,20 @@ class _SettingsTabState extends State<SettingsTab> {
                       ],
                       onChanged: _onLlmPresetChanged,
                     ),
-                    _fieldOpt(_llmUrl, 'LLM Base URL'),
+                    _fieldOpt(
+                      _llmUrl,
+                      'LLM Base URL',
+                      hintText: () {
+                        final p = LlmProviderPreset.byId(_llmPresetId);
+                        if (p != null && p.baseUrl.trim().isNotEmpty) {
+                          return p.baseUrl.trim();
+                        }
+                        return '智谱：https://open.bigmodel.cn/api/paas/v4';
+                      }(),
+                      helperText: _llmPresetId == 'zhipu'
+                          ? '须含 /v4；勿只填到 …/api/paas（否则请求会落到错误路径）。'
+                          : null,
+                    ),
                     if (_llmPresetId == LlmProviderPreset.customId)
                       _fieldOpt(
                         _llmPathCtrl,
@@ -724,7 +737,7 @@ class _ConnectivityCardState extends State<_ConnectivityCard> {
             Text(
               widget.controller.testLocalConfigAppliedPath != null
                   ? '已加载测试配置 JSON，一键检测与当前工作区（含本机已持久化）一致。'
-                  : '按当前表单检测（可先改后测）；智谱等请选对应预设或路径填 chat/completions',
+                  : '按当前表单检测（可先改后测）',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: cs.onSurfaceVariant,
                 height: 1.35,

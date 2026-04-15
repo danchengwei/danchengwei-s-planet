@@ -50,7 +50,7 @@ String userFacingNetworkError(Object error) {
     return '请求超时，请检查网络或稍后再试';
   }
   if (error is http.ClientException) {
-    return '网络连接异常，请检查网络或代理设置';
+    return '网络连接异常，请检查网络、DNS 或本机防火墙；若需经系统代理访问公网，请确认进程环境变量 HTTPS_PROXY 等已生效。';
   }
   if (error is SocketException) {
     return '网络不可达或连接被中断，请检查网络';

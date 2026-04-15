@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app_controller.dart';
 import '../services/llm_client.dart';
+import '../services/outbound_http_client_for_config.dart';
 import '../services/security_redaction.dart';
 
 /// 使用当前项目「配置」中的 LLM（Base URL / Key / 模型 / 路径），多轮对话。
@@ -89,6 +90,7 @@ class _ChatTabState extends State<ChatTab> {
       apiKey: cfg.llmApiKey.trim(),
       model: cfg.llmModel.trim(),
       chatCompletionsPath: cfg.effectiveLlmChatPath,
+      httpClient: newOutboundHttpClient(),
     );
     try {
       final messages = <Map<String, String>>[

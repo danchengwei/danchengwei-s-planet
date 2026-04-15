@@ -22,6 +22,7 @@ import 'services/emas_crash_mock_data.dart';
 import 'services/test_local_config_loader.dart';
 import 'services/gitlab_client.dart';
 import 'services/llm_client.dart';
+import 'services/outbound_http_client_for_config.dart';
 import 'services/report_bundle.dart';
 import 'services/report_html.dart';
 import 'services/security_redaction.dart';
@@ -218,7 +219,12 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _persistWorkspace() async {
-    await _configRepo.saveWorkspace(_workspace);
+    try {
+      await _configRepo.saveWorkspace(_workspace);
+    } catch (e, st) {
+      debugPrint('_persistWorkspace failed: $e\n$st');
+      rethrow;
+    }
   }
 
   Future<void> saveConfig(ToolConfig next) async {
@@ -294,46 +300,61 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> createProject(String name) async {
-    _workspace.ensureValidActive();
-    final id = ProjectEntry.newId();
-    final n = name.trim().isEmpty ? '新项目 ${_workspace.projects.length + 1}' : name.trim();
-    _workspace.projects.add(ProjectEntry(id: id, name: n, config: ToolConfig()));
-    _hubSelectedProjectId = id;
-    await _persistWorkspace();
-    notifyListeners();
+    try {
+      _workspace.ensureValidActive();
+      final id = ProjectEntry.newId();
+      final n = name.trim().isEmpty ? '新项目 ${_workspace.projects.length + 1}' : name.trim();
+      _workspace.projects.add(ProjectEntry(id: id, name: n, config: ToolConfig()));
+      _hubSelectedProjectId = id;
+      await _persistWorkspace();
+      notifyListeners();
+    } catch (e, st) {
+      debugPrint('createProject failed: $e\n$st');
+      rethrow;
+    }
   }
 
   Future<void> renameProject(String id, String name) async {
-    _workspace.ensureValidActive();
-    final i = _workspace.projects.indexWhere((p) => p.id == id);
-    if (i < 0) return;
-    final t = name.trim();
-    if (t.isEmpty) return;
-    _workspace.projects[i].name = t;
-    await _persistWorkspace();
-    notifyListeners();
+    try {
+      _workspace.ensureValidActive();
+      final i = _workspace.projects.indexWhere((p) => p.id == id);
+      if (i < 0) return;
+      final t = name.trim();
+      if (t.isEmpty) return;
+      _workspace.projects[i].name = t;
+      await _persistWorkspace();
+      notifyListeners();
+    } catch (e, st) {
+      debugPrint('renameProject failed: $e\n$st');
+      rethrow;
+    }
   }
 
   Future<void> deleteProject(String id) async {
-    _workspace.ensureValidActive();
-    if (_workspace.projects.length <= 1) {
-      return;
+    try {
+      _workspace.ensureValidActive();
+      if (_workspace.projects.length <= 1) {
+        return;
+      }
+      final idx = _workspace.projects.indexWhere((p) => p.id == id);
+      if (idx < 0) {
+        return;
+      }
+      _workspace.projects.removeAt(idx);
+      if (_workspace.activeProjectId == id) {
+        _workspace.activeProjectId = _workspace.projects.first.id;
+        _resetWorkspaceSession();
+        await _syncWallpaperThemeSeed();
+      }
+      if (_hubSelectedProjectId == id) {
+        _hubSelectedProjectId = _workspace.activeProjectId!;
+      }
+      await _persistWorkspace();
+      notifyListeners();
+    } catch (e, st) {
+      debugPrint('deleteProject failed: $e\n$st');
+      rethrow;
     }
-    final idx = _workspace.projects.indexWhere((p) => p.id == id);
-    if (idx < 0) {
-      return;
-    }
-    _workspace.projects.removeAt(idx);
-    if (_workspace.activeProjectId == id) {
-      _workspace.activeProjectId = _workspace.projects.first.id;
-      _resetWorkspaceSession();
-      await _syncWallpaperThemeSeed();
-    }
-    if (_hubSelectedProjectId == id) {
-      _hubSelectedProjectId = _workspace.activeProjectId!;
-    }
-    await _persistWorkspace();
-    notifyListeners();
   }
 
   Future<void> _syncWallpaperThemeSeed() async {
@@ -398,6 +419,7 @@ class AppController extends ChangeNotifier {
       accessKeyId: config.accessKeyId.trim(),
       accessKeySecret: config.accessKeySecret.trim(),
       regionId: config.region.trim(),
+      httpClient: newOutboundHttpClient(),
     );
     try {
       lastIssues = await client.getIssues(
@@ -435,6 +457,7 @@ class AppController extends ChangeNotifier {
       accessKeyId: config.accessKeyId.trim(),
       accessKeySecret: config.accessKeySecret.trim(),
       regionId: config.region.trim(),
+      httpClient: newOutboundHttpClient(),
     );
     try {
       return await client.getIssue(
@@ -551,6 +574,7 @@ class AppController extends ChangeNotifier {
       apiKey: config.llmApiKey.trim(),
       model: config.llmModel.trim(),
       chatCompletionsPath: config.effectiveLlmChatPath,
+      httpClient: newOutboundHttpClient(),
     );
     final results = <IssueIndividualLlmResult>[];
     try {
@@ -635,6 +659,7 @@ class AppController extends ChangeNotifier {
       apiKey: config.llmApiKey.trim(),
       model: config.llmModel.trim(),
       chatCompletionsPath: config.effectiveLlmChatPath,
+      httpClient: newOutboundHttpClient(),
     );
     final summaries = <String>[];
     try {
@@ -702,6 +727,7 @@ ${jsonEncode(detail)}
       accessKeyId: cfg.accessKeyId.trim(),
       accessKeySecret: cfg.accessKeySecret.trim(),
       regionId: cfg.region.trim(),
+      httpClient: newOutboundHttpClient(),
     );
     final biz = draft != null ? cfg.bizModule.trim() : activeBizModule;
     final nameQ = draft != null
@@ -735,6 +761,7 @@ ${jsonEncode(detail)}
     final client = GitLabClient(
       baseUrl: cfg.gitlabBaseUrl.trim(),
       privateToken: cfg.gitlabToken.trim(),
+      httpClient: newOutboundHttpClient(),
     );
     try {
       final bindings = cfg.gitlabBindingsResolved;
@@ -761,6 +788,7 @@ ${jsonEncode(detail)}
       apiKey: cfg.llmApiKey.trim(),
       model: cfg.llmModel.trim(),
       chatCompletionsPath: cfg.effectiveLlmChatPath,
+      httpClient: newOutboundHttpClient(),
     );
     try {
       await client.chat(

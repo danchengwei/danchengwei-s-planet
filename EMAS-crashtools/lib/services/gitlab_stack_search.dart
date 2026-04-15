@@ -2,6 +2,7 @@ import 'dart:math';
 
 import '../models/tool_config.dart';
 import 'gitlab_client.dart';
+import 'outbound_http_client_for_config.dart';
 import 'stack_keywords.dart';
 
 /// 在配置的多个 GitLab 项目中搜索关键词，合并 Blob 命中；对**合并结果中首条**有路径的命中在其所属项目中拉取 commits。
@@ -19,6 +20,7 @@ Future<GitlabMergedSearchOutcome> searchGitlabMergedForKeyword({
   final client = GitLabClient(
     baseUrl: config.gitlabBaseUrl.trim(),
     privateToken: config.gitlabToken.trim(),
+    httpClient: newOutboundHttpClient(),
   );
   try {
     for (final b in bindings) {

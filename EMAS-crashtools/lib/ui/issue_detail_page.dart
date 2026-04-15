@@ -12,6 +12,7 @@ import '../services/console_links.dart';
 import '../services/gitlab_client.dart';
 import '../services/gitlab_stack_search.dart';
 import '../services/llm_client.dart';
+import '../services/outbound_http_client_for_config.dart';
 import '../services/security_redaction.dart';
 import '../services/stack_clarity.dart';
 import '../services/stack_keywords.dart';
@@ -208,6 +209,7 @@ class _IssueDetailPageState extends State<IssueDetailPage> {
       apiKey: _cfg.llmApiKey.trim(),
       model: _cfg.llmModel.trim(),
       chatCompletionsPath: _cfg.effectiveLlmChatPath,
+      httpClient: newOutboundHttpClient(),
     );
     try {
       final userMsg = buildAnalysisUserPrompt(

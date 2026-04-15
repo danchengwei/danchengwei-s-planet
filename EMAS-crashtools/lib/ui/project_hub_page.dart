@@ -17,28 +17,24 @@ class ProjectHubPage extends StatelessWidget {
     required ValueChanged<String> onSubmit,
   }) async {
     final textCtrl = TextEditingController();
-    try {
-      final ok = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text(title),
-          content: TextField(
-            controller: textCtrl,
-            autofocus: true,
-            decoration: InputDecoration(hintText: hint),
-            onSubmitted: (_) => Navigator.pop(ctx, true),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('确定')),
-          ],
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: textCtrl,
+          autofocus: true,
+          decoration: InputDecoration(hintText: hint),
+          onSubmitted: (_) => Navigator.pop(ctx, true),
         ),
-      );
-      if (ok == true && context.mounted) {
-        onSubmit(textCtrl.text);
-      }
-    } finally {
-      textCtrl.dispose();
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('确定')),
+        ],
+      ),
+    );
+    if (ok == true && context.mounted) {
+      onSubmit(textCtrl.text);
     }
   }
 

@@ -5,15 +5,35 @@ import 'package:http/http.dart' as http;
 import 'http_retry_policy.dart';
 import 'network_transport_policy.dart';
 
+/// 将 Base URL 与相对路径合成最终请求地址。
+///
+/// [Uri.resolve] 在 base 路径**无**尾部 `/` 时，会把相对路径接到**上一级**目录
+///（例如 `…/v4` + `chat/completions` 错成 `…/paas/chat/completions`），智谱等会 403/404。
+/// 此处在路径非空且未以 `/` 结尾时补一个 `/`，再 resolve。
+Uri buildLlmChatCompletionsUri(String baseUrl, String chatCompletionsPath) {
+  var root = baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+  var rel = chatCompletionsPath.trim();
+  if (rel.startsWith('/')) rel = rel.substring(1);
+  if (rel.isEmpty) rel = 'v1/chat/completions';
+  final base = Uri.parse(root);
+  final p = base.path;
+  final normalized = (p.isEmpty || p.endsWith('/'))
+      ? base
+      : base.replace(path: '$p/');
+  return normalized.resolve(rel);
+}
+
 /// OpenAI 兼容 Chat Completions（默认路径 `v1/chat/completions`，智谱等为 `chat/completions`）。
+///
+/// [httpClient] 须由 `newOutboundHttpClient` 创建，与 EMAS / GitLab 共用出站策略。
 class LlmClient {
   LlmClient({
     required this.baseUrl,
     required this.apiKey,
     required this.model,
     this.chatCompletionsPath = 'v1/chat/completions',
-    http.Client? httpClient,
-  }) : _http = httpClient ?? http.Client();
+    required http.Client httpClient,
+  }) : _http = httpClient;
 
   final String baseUrl;
   final String apiKey;
@@ -22,14 +42,7 @@ class LlmClient {
   final String chatCompletionsPath;
   final http.Client _http;
 
-  Uri get _chatUri {
-    final root = baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
-    var rel = chatCompletionsPath.trim();
-    if (rel.startsWith('/')) rel = rel.substring(1);
-    if (rel.isEmpty) rel = 'v1/chat/completions';
-    final base = Uri.parse(root);
-    return base.resolve(rel);
-  }
+  Uri get _chatUri => buildLlmChatCompletionsUri(baseUrl, chatCompletionsPath);
 
   Future<String> chat(List<Map<String, String>> messages, {double temperature = 0.3}) async {
     return HttpRetryPolicy.run(() async {
