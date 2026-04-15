@@ -34,6 +34,20 @@ class _MainShellState extends State<MainShell> {
   void initState() {
     super.initState();
     _primaryRailWidth = _railDefault;
+    widget.controller.addListener(_onControllerForChatTab);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onControllerForChatTab);
+    super.dispose();
+  }
+
+  void _onControllerForChatTab() {
+    if (!mounted) return;
+    if (widget.controller.consumeOpenChatTabRequest()) {
+      setState(() => _index = 1);
+    }
   }
 
   void _hydratePrimaryRailWidthOnce() {

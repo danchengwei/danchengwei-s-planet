@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -9,7 +10,7 @@ import '../aliyun/emas_appmonitor_client.dart';
 import '../app_controller.dart';
 import 'issue_detail_page.dart';
 import 'issue_quick_analysis_page.dart';
-import 'top_issues_llm_page.dart';
+
 
 String _launchTypeBannerSuffix(AppController c) {
   switch (c.perfStartupLaunchKind) {
@@ -22,9 +23,6 @@ String _launchTypeBannerSuffix(AppController c) {
   }
 }
 
-const String _kDefaultListIntroduction =
-    '列表为与控制台类似的纵向条目：每条含堆栈摘要；点「查看」将拉取详情并自动调用大模型，分块展示原因、分析、如何处理；底部「去处理」可按配置调用 Claude Code CLI 或仅复制到剪贴板（须填写本地工程目录）。「详情」进入完整堆栈、JSON、GitLab 与手动分析。';
-
 /// 列表工作台：一键拉取、HTML 导出/浏览器预览、列表卡片与详情入口（各功能模块复用）。
 class IssuesTab extends StatelessWidget {
   const IssuesTab({
@@ -32,10 +30,9 @@ class IssuesTab extends StatelessWidget {
     required this.controller,
     required this.onOpenSettings,
     this.moduleTitle = '数据列表',
-    this.moduleSubtitle = '从阿里云 EMAS 拉取当前时间范围内的聚合问题',
+    this.moduleSubtitle = '',
     this.hideHeroFetchCard = false,
     this.hideTimeRangeQuickChips = false,
-    this.hideDigestAndTop15Section = false,
     this.listIntroduction,
   });
 
@@ -45,11 +42,9 @@ class IssuesTab extends StatelessWidget {
   final String moduleSubtitle;
   /// 为 true 时不展示顶部大卡片「一键获取」（由外层工具条负责拉取）。
   final bool hideHeroFetchCard;
-  /// 为 true 时隐藏「24 小时 / 7 天 / 30 天」快捷时间片（时间仍显示，由外层控制范围）。
+  /// 为 true 时隐藏「最近 / 7 天 / 30 天」快捷时间片（时间仍显示，由外层控制范围）。
   final bool hideTimeRangeQuickChips;
-  /// 为 true 时隐藏按 Digest 直达与 Top15 说明块，减轻性能类列表干扰。
-  final bool hideDigestAndTop15Section;
-  /// 列表上方说明：`null` 用默认长文案；空字符串则不展示该段。
+  /// 列表上方可选说明；非空且 trim 后非空才展示。
   final String? listIntroduction;
 
   Future<void> _exportBundle(BuildContext context) async {
@@ -80,17 +75,6 @@ class IssuesTab extends StatelessWidget {
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
-  }
-
-  void _openTop15AnalysisList(BuildContext context) {
-    if (controller.config.validateLlm().isNotEmpty) {
-      return;
-    }
-    Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) => TopIssuesLlmPage(controller: controller, topN: TopIssuesLlmPage.kDefaultTopN),
-      ),
-    );
   }
 
   Future<void> _batchLlm(BuildContext context) async {
@@ -135,6 +119,7 @@ class IssuesTab extends StatelessWidget {
         final n = controller.selectedDigestHashes.length;
         final theme = Theme.of(context);
         final needConfig = controller.config.validateEmas().isNotEmpty;
+        final listIntro = listIntroduction?.trim();
 
         return Scaffold(
           backgroundColor: Colors.transparent,
@@ -150,6 +135,7 @@ class IssuesTab extends StatelessWidget {
                       onOpenSettings: onOpenSettings,
                       title: moduleTitle,
                       subtitle: moduleSubtitle,
+                      showQuickTimeChips: !hideTimeRangeQuickChips,
                     ),
                   ),
                 ),
@@ -172,17 +158,14 @@ class IssuesTab extends StatelessWidget {
                 sliver: SliverToBoxAdapter(
                   child: _TimeAndExportRow(
                     controller: controller,
-                    needConfig: needConfig,
-                    onOpenSettings: onOpenSettings,
                     onSaveHtml: () => _saveHtmlToDisk(context),
                     onOpenBrowser: () => _openHtmlInBrowser(context),
                     onExportBundle: () => _exportBundle(context),
                     selectedCount: n,
                     onBatchLlm: n > 0 ? () => _batchLlm(context) : null,
                     onClearSelection: n > 0 ? () => controller.clearDigestSelection() : null,
-                    onOpenTop15List: () => _openTop15AnalysisList(context),
                     hideTimeRangeQuickChips: hideTimeRangeQuickChips,
-                    hideDigestAndTop15Section: hideDigestAndTop15Section,
+                    timeRangeEmbeddedInHero: !hideHeroFetchCard && !hideTimeRangeQuickChips,
                   ),
                 ),
               ),
@@ -199,12 +182,12 @@ class IssuesTab extends StatelessWidget {
                   child: Center(child: CircularProgressIndicator()),
                 )
               else ...[
-                if ((listIntroduction ?? _kDefaultListIntroduction).isNotEmpty)
+                if (listIntro != null && listIntro.isNotEmpty)
                   SliverPadding(
                     padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
                     sliver: SliverToBoxAdapter(
                       child: Text(
-                        listIntroduction ?? _kDefaultListIntroduction,
+                        listIntro,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: Theme.of(context).colorScheme.onSurfaceVariant,
                               height: 1.35,
@@ -235,23 +218,26 @@ class _ApiContextBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: cs.primaryContainer.withValues(alpha: 0.38),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.4)),
+        color: cs.surfaceContainerHighest.withValues(alpha: 0.65),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.35)),
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Icon(Icons.alt_route, size: 18, color: cs.primary),
-          const SizedBox(width: 10),
+          Icon(Icons.tune_rounded, size: 16, color: cs.primary),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
-              '当前 OpenAPI：BizModule = ${controller.activeBizModule}'
-              '${controller.listNameQuery.isEmpty ? '' : ' · Name 含「${controller.listNameQuery}」'}'
+              'BizModule=${controller.activeBizModule}'
+              '${controller.listNameQuery.isEmpty ? ' · 应用版本(Name)：未设置' : ' · 应用版本(Name)：${controller.listNameQuery}'}'
               '${_launchTypeBannerSuffix(controller)}',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.35),
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    height: 1.3,
+                    fontWeight: FontWeight.w500,
+                  ),
             ),
           ),
         ],
@@ -267,6 +253,7 @@ class _HeroFetchCard extends StatelessWidget {
     required this.onOpenSettings,
     required this.title,
     required this.subtitle,
+    this.showQuickTimeChips = true,
   });
 
   final AppController controller;
@@ -274,96 +261,134 @@ class _HeroFetchCard extends StatelessWidget {
   final VoidCallback onOpenSettings;
   final String title;
   final String subtitle;
+  final bool showQuickTimeChips;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(28),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            cs.primaryContainer.withValues(alpha: 0.55),
-            cs.surfaceContainerHigh.withValues(alpha: 0.9),
-            cs.tertiaryContainer.withValues(alpha: 0.4),
-          ],
+    final showSubtitle = needConfig || subtitle.trim().isNotEmpty;
+    final fmt = DateFormat('MM-dd HH:mm');
+    final start = DateTime.fromMillisecondsSinceEpoch(controller.rangeStartMs);
+    final end = DateTime.fromMillisecondsSinceEpoch(controller.rangeEndMs);
+    return Material(
+      color: cs.surfaceContainerHighest.withValues(alpha: 0.45),
+      elevation: 0,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 18),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.4)),
         ),
-        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.35)),
-        boxShadow: [
-          BoxShadow(
-            color: cs.primary.withValues(alpha: 0.07),
-            blurRadius: 32,
-            offset: const Offset(0, 12),
-            spreadRadius: -4,
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 36),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Icon(Icons.analytics_outlined, size: 38, color: cs.primary),
-          const SizedBox(height: 14),
-          Text(
-            title,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.35,
-                  color: cs.onSurface,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.cloud_download_rounded, size: 22, color: cs.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: cs.onSurface,
+                        ),
+                  ),
                 ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            needConfig ? '请先在「配置」页填写 EMAS 密钥与 AppKey' : subtitle,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: cs.onSurfaceVariant,
-                  height: 1.45,
-                ),
-          ),
-          const SizedBox(height: 28),
-          SizedBox(
-            width: 280,
-            height: 52,
-            child: FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: cs.primary,
-                foregroundColor: cs.onPrimary,
-                elevation: 0,
-                shadowColor: Colors.transparent,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              ),
-              onPressed: needConfig || controller.loadingIssues
-                  ? null
-                  : () => controller.refreshIssues(),
-              icon: controller.loadingIssues
-                  ? SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: cs.onPrimary),
-                    )
-                  : const Icon(Icons.cloud_download_rounded, size: 24),
-              label: Text(
-                controller.loadingIssues ? '拉取中…' : '一键获取',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: cs.onPrimary,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.15,
+              ],
+            ),
+            if (showSubtitle) ...[
+              const SizedBox(height: 8),
+              Text(
+                needConfig ? '请先在「配置」填写 EMAS 与 AppKey' : subtitle.trim(),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: cs.onSurfaceVariant,
+                      height: 1.35,
                     ),
               ),
-            ),
-          ),
-          if (needConfig) ...[
-            const SizedBox(height: 16),
-            TextButton.icon(
-              onPressed: onOpenSettings,
-              icon: const Icon(Icons.settings_outlined),
-              label: const Text('去配置'),
-            ),
+            ],
+            if (showQuickTimeChips) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Icon(Icons.schedule, size: 20, color: cs.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '${fmt.format(start)}  —  ${fmt.format(end)}',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilterChip(
+                    label: const Text('最近'),
+                    selected: controller.matchesQuickCalendarDays(1),
+                    onSelected: (_) => controller.setTimeRangeLastCalendarDays(1),
+                  ),
+                  FilterChip(
+                    label: const Text('7 天'),
+                    selected: controller.matchesQuickCalendarDays(7),
+                    onSelected: (_) => controller.setTimeRangeLastCalendarDays(7),
+                  ),
+                  FilterChip(
+                    label: const Text('30 天'),
+                    selected: controller.matchesQuickCalendarDays(30),
+                    onSelected: (_) => controller.setTimeRangeLastCalendarDays(30),
+                  ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 14),
+            FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: cs.primary,
+                  foregroundColor: cs.onPrimary,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: needConfig || controller.loadingIssues
+                    ? null
+                    : () => controller.refreshIssues(),
+                icon: controller.loadingIssues
+                    ? SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: cs.onPrimary),
+                      )
+                    : const Icon(Icons.sync_rounded, size: 20),
+                label: Text(
+                  controller.loadingIssues ? '拉取中…' : '一键获取',
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: cs.onPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ),
+            if (needConfig) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.center,
+                child: TextButton.icon(
+                  onPressed: onOpenSettings,
+                  icon: const Icon(Icons.settings_outlined, size: 18),
+                  label: const Text('去配置'),
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    foregroundColor: cs.primary,
+                  ),
+                ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -372,33 +397,26 @@ class _HeroFetchCard extends StatelessWidget {
 class _TimeAndExportRow extends StatelessWidget {
   const _TimeAndExportRow({
     required this.controller,
-    required this.needConfig,
-    required this.onOpenSettings,
     required this.onSaveHtml,
     required this.onOpenBrowser,
     required this.onExportBundle,
     required this.selectedCount,
-    required this.onOpenTop15List,
     this.onBatchLlm,
     this.onClearSelection,
     this.hideTimeRangeQuickChips = false,
-    this.hideDigestAndTop15Section = false,
+    this.timeRangeEmbeddedInHero = false,
   });
 
   final AppController controller;
-  final bool needConfig;
-  final VoidCallback onOpenSettings;
   final VoidCallback onSaveHtml;
   final VoidCallback onOpenBrowser;
   final VoidCallback onExportBundle;
   final int selectedCount;
-  final VoidCallback onOpenTop15List;
   final VoidCallback? onBatchLlm;
   final VoidCallback? onClearSelection;
   final bool hideTimeRangeQuickChips;
-  final bool hideDigestAndTop15Section;
-
-  void _setRange(Duration d) => controller.setTimeRangeBack(d);
+  /// 为 true 时时间与「最近/7 天/30 天」已在顶部「一键获取」卡片中展示。
+  final bool timeRangeEmbeddedInHero;
 
   @override
   Widget build(BuildContext context) {
@@ -419,41 +437,55 @@ class _TimeAndExportRow extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Icon(Icons.schedule, size: 20, color: Theme.of(context).colorScheme.primary),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    '${fmt.format(start)}  —  ${fmt.format(end)}',
-                    style: Theme.of(context).textTheme.titleSmall,
+            if (!timeRangeEmbeddedInHero) ...[
+              Row(
+                children: [
+                  Icon(Icons.schedule, size: 20, color: Theme.of(context).colorScheme.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '${fmt.format(start)}  —  ${fmt.format(end)}',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
                   ),
-                ),
-                if (selectedCount > 0)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
+                  if (selectedCount > 0)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Text('已选 $selectedCount 条', style: Theme.of(context).textTheme.labelLarge),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+            ] else if (selectedCount > 0) ...[
+              Row(
+                children: [
+                  Expanded(
                     child: Text('已选 $selectedCount 条', style: Theme.of(context).textTheme.labelLarge),
                   ),
-              ],
-            ),
-            const SizedBox(height: 12),
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
             Wrap(
               spacing: 8,
               runSpacing: 8,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                if (!hideTimeRangeQuickChips) ...[
+                if (!hideTimeRangeQuickChips && !timeRangeEmbeddedInHero) ...[
                   FilterChip(
-                    label: const Text('24 小时'),
-                    onSelected: (_) => _setRange(const Duration(hours: 24)),
+                    label: const Text('最近'),
+                    selected: controller.matchesQuickCalendarDays(1),
+                    onSelected: (_) => controller.setTimeRangeLastCalendarDays(1),
                   ),
                   FilterChip(
                     label: const Text('7 天'),
-                    onSelected: (_) => _setRange(const Duration(days: 7)),
+                    selected: controller.matchesQuickCalendarDays(7),
+                    onSelected: (_) => controller.setTimeRangeLastCalendarDays(7),
                   ),
                   FilterChip(
                     label: const Text('30 天'),
-                    onSelected: (_) => _setRange(const Duration(days: 30)),
+                    selected: controller.matchesQuickCalendarDays(30),
+                    onSelected: (_) => controller.setTimeRangeLastCalendarDays(30),
                   ),
                 ],
                 TextButton.icon(
@@ -475,43 +507,6 @@ class _TimeAndExportRow extends StatelessWidget {
                   ),
               ],
             ),
-            if (!hideDigestAndTop15Section) ...[
-              const Divider(height: 28),
-              Text('按 Digest 打开单条', style: Theme.of(context).textTheme.labelLarge),
-              const SizedBox(height: 6),
-              Text(
-                '适用于崩溃、ANR（与配置中 BizModule 一致）。请保证上方时间范围覆盖该问题的上报时间，否则 GetIssue 可能无数据。',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      height: 1.35,
-                    ),
-              ),
-              const SizedBox(height: 10),
-              _DigestDirectOpenRow(
-                controller: controller,
-                needConfig: needConfig,
-                onOpenSettings: onOpenSettings,
-              ),
-              const SizedBox(height: 12),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: FilledButton.tonalIcon(
-                  onPressed: hasRows ? onOpenTop15List : null,
-                  icon: const Icon(Icons.view_list_outlined),
-                  label: const Text('Top15 逐条分析列表'),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text(
-                  '对当前已拉取列表按接口排序后的前 15 条（有 digest）分别独立请求 AI；与勾选后「批量 LLM」的串联摘要不同。',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        height: 1.35,
-                      ),
-                ),
-              ),
-            ],
             const Divider(height: 28),
             Text('简报与导出', style: Theme.of(context).textTheme.labelLarge),
             const SizedBox(height: 8),
@@ -539,82 +534,6 @@ class _TimeAndExportRow extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-/// 输入 DigestHash 直接进入详情页，走与列表相同的单条分析（AI / GitLab / 去修改）。
-class _DigestDirectOpenRow extends StatefulWidget {
-  const _DigestDirectOpenRow({
-    required this.controller,
-    required this.needConfig,
-    required this.onOpenSettings,
-  });
-
-  final AppController controller;
-  final bool needConfig;
-  final VoidCallback onOpenSettings;
-
-  @override
-  State<_DigestDirectOpenRow> createState() => _DigestDirectOpenRowState();
-}
-
-class _DigestDirectOpenRowState extends State<_DigestDirectOpenRow> {
-  final _digestCtrl = TextEditingController();
-
-  @override
-  void dispose() {
-    _digestCtrl.dispose();
-    super.dispose();
-  }
-
-  void _openDetail(BuildContext context) {
-    if (widget.needConfig) {
-      return;
-    }
-    final raw = _digestCtrl.text.trim();
-    if (raw.isEmpty) {
-      return;
-    }
-    final digest = raw.replaceAll(RegExp(r'\s+'), '');
-    Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) => IssueDetailPage(
-          controller: widget.controller,
-          digestHash: digest,
-          title: 'Digest $digest',
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: TextField(
-            controller: _digestCtrl,
-            decoration: InputDecoration(
-              hintText: '例如 27K6TFXQ64X90',
-              border: const OutlineInputBorder(),
-              isDense: true,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            ),
-            textInputAction: TextInputAction.go,
-            onSubmitted: (_) => _openDetail(context),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Padding(
-          padding: const EdgeInsets.only(top: 2),
-          child: FilledButton(
-            onPressed: () => _openDetail(context),
-            child: const Text('打开并分析'),
-          ),
-        ),
-      ],
     );
   }
 }
@@ -698,7 +617,29 @@ String _stackPreviewOneLine(String? stack) {
   return t;
 }
 
-/// 与 EMAS 控制台类似的单条列表卡片：摘要、指标、堆栈预览、「查看」触发模型分析。
+/// 与 EMAS 列表表头一致；崩溃 / ANR / 卡顿 / 异常共用同一套列语义。
+({String count, String rate, String device, String deviceRate}) _issueMetricColumnLabels(String bizModule) {
+  switch (bizModule.trim().toLowerCase()) {
+    case 'crash':
+      return (count: '崩溃数', rate: '崩溃率', device: '影响设备数', deviceRate: '影响设备率');
+    case 'anr':
+      return (count: 'ANR 数', rate: 'ANR 率', device: '影响设备数', deviceRate: '影响设备率');
+    case 'block':
+      return (count: '卡顿数', rate: '卡顿率', device: '影响设备数', deviceRate: '影响设备率');
+    case 'exception':
+      return (count: '异常数', rate: '异常率', device: '影响设备数', deviceRate: '影响设备率');
+    default:
+      return (count: '次数', rate: '比率', device: '影响设备数', deviceRate: '影响设备率');
+  }
+}
+
+String _formatIssuePercent(double? p) {
+  if (p == null || p.isNaN) return '—';
+  final t = p == p.roundToDouble() ? '${p.toInt()}' : p.toStringAsFixed(2);
+  return '$t%';
+}
+
+/// 与 EMAS 控制台列表行一致：Digest+复制、类型标题、摘要/堆栈、指标列、状态（ANR/卡顿/异常布局相同）。
 class _IssueEmasListCard extends StatelessWidget {
   const _IssueEmasListCard({required this.controller, required this.item});
 
@@ -710,6 +651,10 @@ class _IssueEmasListCard extends StatelessWidget {
     final digest = item.digestHash;
     final selected = digest != null && controller.selectedDigestHashes.contains(digest);
     final cs = Theme.of(context).colorScheme;
+    final labels = _issueMetricColumnLabels(controller.activeBizModule);
+    final titles = item.displayTitles();
+    final primaryTitle = titles.$1;
+    final secondaryLine = titles.$2;
 
     void openQuick() {
       if (digest == null) return;
@@ -718,7 +663,7 @@ class _IssueEmasListCard extends StatelessWidget {
           builder: (_) => IssueQuickAnalysisPage(
             controller: controller,
             digestHash: digest,
-            title: item.errorName ?? '问题',
+            title: primaryTitle,
             listStack: item.stack,
             errorCount: item.errorCount,
             errorDeviceCount: item.errorDeviceCount,
@@ -734,12 +679,20 @@ class _IssueEmasListCard extends StatelessWidget {
           builder: (_) => IssueDetailPage(
             controller: controller,
             digestHash: digest,
-            title: item.errorName ?? '详情',
+            title: primaryTitle,
             listStack: item.stack,
             errorCount: item.errorCount,
             errorDeviceCount: item.errorDeviceCount,
           ),
         ),
+      );
+    }
+
+    void copyDigest() {
+      if (digest == null) return;
+      Clipboard.setData(ClipboardData(text: digest));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('已复制 Digest'), behavior: SnackBarBehavior.floating),
       );
     }
 
@@ -752,134 +705,226 @@ class _IssueEmasListCard extends StatelessWidget {
       ),
       clipBehavior: Clip.antiAlias,
       child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(right: 4, top: 2),
-                    child: Checkbox(
-                      value: selected,
-                      onChanged: digest == null
-                          ? null
-                          : (_) {
-                              controller.toggleDigestSelection(digest);
-                            },
-                    ),
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(right: 2, top: 2),
+                  child: Checkbox(
+                    value: selected,
+                    onChanged: digest == null
+                        ? null
+                        : (_) {
+                            controller.toggleDigestSelection(digest);
+                          },
                   ),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          item.errorName ?? '(无标题)',
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-                        ),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 6,
-                          crossAxisAlignment: WrapCrossAlignment.center,
+                ),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (digest != null)
+                        Row(
                           children: [
-                            _ListMetricChip(icon: Icons.repeat, label: '次数', value: '${item.errorCount ?? '—'}'),
-                            _ListMetricChip(icon: Icons.devices, label: '设备', value: '${item.errorDeviceCount ?? '—'}'),
-                            if (digest != null)
-                              SelectableText(
+                            Expanded(
+                              child: SelectableText(
                                 digest,
-                                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                style: Theme.of(context).textTheme.labelMedium?.copyWith(
                                       fontFamily: 'monospace',
+                                      fontWeight: FontWeight.w600,
                                       color: cs.onSurfaceVariant,
                                     ),
                               ),
+                            ),
+                            IconButton(
+                              tooltip: '复制 Digest',
+                              visualDensity: VisualDensity.compact,
+                              onPressed: copyDigest,
+                              icon: Icon(Icons.copy_rounded, size: 18, color: cs.primary),
+                            ),
                           ],
                         ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text(
-                '堆栈',
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(color: cs.onSurfaceVariant),
-              ),
-              const SizedBox(height: 4),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: cs.surfaceContainerHighest.withValues(alpha: 0.55),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  _stackPreviewOneLine(item.stack),
-                  maxLines: 6,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontFamily: 'monospace',
-                        height: 1.35,
-                        color: cs.onSurface,
+                      Text(
+                        primaryTitle,
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              height: 1.25,
+                            ),
                       ),
+                      if (secondaryLine != null && secondaryLine.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          secondaryLine,
+                          maxLines: 4,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: cs.onSurfaceVariant,
+                                height: 1.35,
+                              ),
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                        decoration: BoxDecoration(
+                          color: cs.surfaceContainerHighest.withValues(alpha: 0.55),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          _stackPreviewOneLine(item.stack),
+                          maxLines: 5,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                fontFamily: 'monospace',
+                                height: 1.35,
+                                color: cs.onSurface.withValues(alpha: 0.88),
+                              ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              Row(
+              ],
+            ),
+            const SizedBox(height: 12),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  FilledButton(
-                    onPressed: digest == null ? null : openQuick,
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                    ),
-                    child: const Text('查看'),
-                  ),
-                  const SizedBox(width: 10),
-                  TextButton(
-                    onPressed: digest == null ? null : openDetail,
-                    child: const Text('详情'),
-                  ),
-                  const Spacer(),
-                  Text(
-                    '勾选参与批量 LLM',
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(color: cs.outline),
+                  _IssueTableMetric(label: labels.count, value: '${item.errorCount ?? '—'}'),
+                  _IssueTableMetric(label: labels.rate, value: _formatIssuePercent(item.errorRatePercent)),
+                  _IssueTableMetric(label: labels.device, value: '${item.errorDeviceCount ?? '—'}'),
+                  _IssueTableMetric(label: labels.deviceRate, value: _formatIssuePercent(item.deviceRatePercent)),
+                  _IssueTableMetric(label: '首现版本', value: item.firstVersion ?? '—'),
+                  _IssueTableMetric(
+                    label: '状态',
+                    value: '',
+                    minWidth: 120,
+                    child: _IssueStatusBadge(status: item.issueStatus),
                   ),
                 ],
               ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                FilledButton(
+                  onPressed: digest == null ? null : openQuick,
+                  style: FilledButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                  ),
+                    child: const Text('智能分析'),
+                ),
+                const SizedBox(width: 10),
+                TextButton(
+                  onPressed: digest == null ? null : openDetail,
+                  child: const Text('详情'),
+                ),
+                const Spacer(),
+                Text(
+                  '勾选参与批量 LLM',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(color: cs.outline),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _ListMetricChip extends StatelessWidget {
-  const _ListMetricChip({required this.icon, required this.label, required this.value});
+class _IssueTableMetric extends StatelessWidget {
+  const _IssueTableMetric({
+    required this.label,
+    required this.value,
+    this.child,
+    this.minWidth = 88,
+  });
 
-  final IconData icon;
   final String label;
   final String value;
+  final Widget? child;
+  final double minWidth;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(right: 20),
+      child: SizedBox(
+        width: minWidth,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: cs.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                    height: 1.2,
+                  ),
+            ),
+            const SizedBox(height: 6),
+            if (child != null)
+              child!
+            else
+              Text(
+                value,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: cs.primary,
+                    ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _IssueStatusBadge extends StatelessWidget {
+  const _IssueStatusBadge({this.status});
+
+  final String? status;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final t = status?.trim();
+    if (t == null || t.isEmpty) {
+      return Text('—', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700));
+    }
+    final pending = t.contains('未处理') || t.contains('待处理') || t.contains('待办');
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: cs.secondaryContainer.withValues(alpha: 0.65),
+        color: pending ? cs.errorContainer.withValues(alpha: 0.65) : cs.surfaceContainerHighest.withValues(alpha: 0.8),
         borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16, color: cs.onSecondaryContainer),
-          const SizedBox(width: 6),
+          if (pending) ...[
+            Icon(Icons.circle, size: 7, color: cs.error),
+            const SizedBox(width: 6),
+          ],
           Text(
-            '$label $value',
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: cs.onSecondaryContainer,
-                  fontWeight: FontWeight.w600,
+            t,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: pending ? cs.onErrorContainer : cs.onSurface,
                 ),
           ),
         ],

@@ -114,7 +114,7 @@ class EmasAppMonitorClient {
     }
   }
 
-  /// 聚合问题列表
+  /// 聚合问题列表（时间范围由调用方按「自然日」切片；列表侧仅提供最近/7/30 天三种口径）。
   Future<GetIssuesResult> getIssues({
     required int appKey,
     required String bizModule,
@@ -247,6 +247,10 @@ class IssueListItem {
     this.errorDeviceCount,
     this.eventTime,
     this.errorType,
+    this.errorRatePercent,
+    this.deviceRatePercent,
+    this.firstVersion,
+    this.issueStatus,
   });
 
   factory IssueListItem.fromJson(Map<String, dynamic> j) {
@@ -258,6 +262,21 @@ class IssueListItem {
       errorDeviceCount: (j['ErrorDeviceCount'] as num?)?.toInt(),
       eventTime: j['EventTime']?.toString(),
       errorType: j['ErrorType']?.toString(),
+      errorRatePercent: _parseOptionalPercent(j['ErrorRate'] ?? j['CrashRate'] ?? j['IssueCrashRate']),
+      deviceRatePercent: _parseOptionalPercent(
+        j['DeviceRate'] ?? j['ErrorDeviceRate'] ?? j['IssueDeviceRate'] ?? j['AffectedDeviceRate'],
+      ),
+      firstVersion: _firstNonEmptyString(
+        j['FirstVersion'],
+        j['FirstSeenVersion'],
+        j['FirstAppVersion'],
+        j['AppVersion'],
+      ),
+      issueStatus: _firstNonEmptyString(
+        j['Status'],
+        j['IssueStatus'],
+        j['HandleStatus'],
+      ),
     );
   }
 
@@ -268,4 +287,50 @@ class IssueListItem {
   final int? errorDeviceCount;
   final String? eventTime;
   final String? errorType;
+  /// 接口若返回：百分比数值（如 `0.39` 表示 0.39%）或带 `%` 的字符串。
+  final double? errorRatePercent;
+  final double? deviceRatePercent;
+  final String? firstVersion;
+  final String? issueStatus;
+
+  /// 与控制台一致：优先 [errorType] 作粗体标题，[errorName] 作补充说明。
+  (String primaryTitle, String? secondaryLine) displayTitles() {
+    final et = errorType?.trim();
+    if (et != null && et.isNotEmpty) {
+      return (et, _nonEmpty(errorName));
+    }
+    final n = errorName?.trim() ?? '';
+    if (n.isEmpty) return ('(无标题)', null);
+    final idx = n.indexOf('\n');
+    if (idx > 0) {
+      return (n.substring(0, idx).trim(), n.substring(idx + 1).trim());
+    }
+    return (n, null);
+  }
+
+  static String? _nonEmpty(String? s) {
+    final t = s?.trim();
+    if (t == null || t.isEmpty) return null;
+    return t;
+  }
+
+  static String? _firstNonEmptyString(dynamic a, [dynamic b, dynamic c, dynamic d]) {
+    for (final x in [a, b, c, d]) {
+      if (x == null) continue;
+      final s = x.toString().trim();
+      if (s.isNotEmpty) return s;
+    }
+    return null;
+  }
+
+  static double? _parseOptionalPercent(dynamic v) {
+    if (v == null) return null;
+    if (v is num) return v.toDouble();
+    final s = v.toString().trim();
+    if (s.isEmpty) return null;
+    if (s.endsWith('%')) {
+      return double.tryParse(s.replaceAll('%', '').trim());
+    }
+    return double.tryParse(s);
+  }
 }

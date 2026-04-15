@@ -37,12 +37,17 @@ java.lang.IllegalStateException: Fragment already added: UserCenterFragment{dead
       IssueListItem(
         digestHash: _digest(1),
         errorName:
-            "java.lang.NullPointerException: Attempt to invoke virtual method 'void android.widget.TextView.setText'",
+            'Not allowed to start service Intent { cmp=com.xiwang.youke.debug/com.xueersi.parentsmeeting.modules.livebusiness.plugin.videoplugin.precache.VideoPreCacheServi… } '
+            'at com.xueersi.parentsmeeting.modules.livebusiness.liveprocess.downloadblock.DownloadBlockManager.destroyMp4PreCacheService(DownloadBlockManager.java:466)',
         stack: stack1,
-        errorCount: 1284,
-        errorDeviceCount: 892,
+        errorCount: 2,
+        errorDeviceCount: 2,
         eventTime: '2026-04-08 10:23:00',
-        errorType: 'java',
+        errorType: 'android.app.BackgroundServiceStartNotAllowedException',
+        errorRatePercent: 0.39,
+        deviceRatePercent: 5,
+        firstVersion: '9.63.02',
+        issueStatus: '未处理',
       ),
       IssueListItem(
         digestHash: _digest(2),

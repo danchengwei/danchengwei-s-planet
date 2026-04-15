@@ -193,8 +193,6 @@ class _WorkbenchShellState extends State<WorkbenchShell> {
                 moduleSubtitle: '',
                 hideHeroFetchCard: true,
                 hideTimeRangeQuickChips: hideTimeRangeQuickChips,
-                hideDigestAndTop15Section: true,
-                listIntroduction: '',
               ),
             ),
           ],
@@ -337,29 +335,29 @@ class _WorkbenchShellState extends State<WorkbenchShell> {
         return IssuesTab(
           controller: widget.controller,
           onOpenSettings: widget.onOpenSettings,
-          moduleTitle: '崩溃分析 · 崩溃',
-          moduleSubtitle: 'BizModule=crash（与阿里云控制台「崩溃」一致；若你方取值不同请在配置中改默认或联系管理员）。',
+          moduleTitle: '崩溃',
+          moduleSubtitle: '',
         );
       case _Nav.anr:
         return IssuesTab(
           controller: widget.controller,
           onOpenSettings: widget.onOpenSettings,
-          moduleTitle: '崩溃分析 · ANR',
-          moduleSubtitle: 'BizModule=anr，列表与详情、AI、GitLab 与崩溃相同流程。',
+          moduleTitle: 'ANR',
+          moduleSubtitle: '',
         );
       case _Nav.block:
         return IssuesTab(
           controller: widget.controller,
           onOpenSettings: widget.onOpenSettings,
-          moduleTitle: '崩溃分析 · 卡顿',
-          moduleSubtitle: 'BizModule=block（若接口返回不支持，请改为控制台实际 BizModule 字符串）。',
+          moduleTitle: '卡顿',
+          moduleSubtitle: '',
         );
       case _Nav.exception:
         return IssuesTab(
           controller: widget.controller,
           onOpenSettings: widget.onOpenSettings,
-          moduleTitle: '崩溃分析 · 异常',
-          moduleSubtitle: 'BizModule=exception（自定义异常以控制台为准）。',
+          moduleTitle: '异常',
+          moduleSubtitle: '',
         );
     }
   }

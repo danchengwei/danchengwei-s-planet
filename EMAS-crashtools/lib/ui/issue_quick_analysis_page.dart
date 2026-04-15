@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../app_controller.dart';
+import '../models/analysis_report_record.dart';
 import '../models/agent_payload.dart';
 import '../models/tool_config.dart';
 import '../services/agent_launcher.dart';
@@ -310,6 +311,107 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
     );
   }
 
+  String _stackSnippet(int max) {
+    final s = _stackText().trim();
+    if (s.isEmpty) return '';
+    if (s.length <= max) return s;
+    return '${s.substring(0, max)}…';
+  }
+
+  String _gitlabContextSummary() {
+    if (_blobHits.isEmpty && _commits.isEmpty) return '';
+    final buf = StringBuffer();
+    if (_blobHits.isNotEmpty) {
+      buf.writeln('GitLab 检索命中（工具内 REST，可在 MCP 中继续查仓库）：');
+      for (final h in _blobHits.take(12)) {
+        final label = (h.configRepoLabel?.trim().isNotEmpty ?? false)
+            ? h.configRepoLabel!.trim()
+            : (h.searchProjectId ?? '${h.projectId ?? ''}');
+        buf.writeln('- [$label] ${h.path ?? h.basename ?? '?'}');
+      }
+    }
+    if (_commits.isNotEmpty) {
+      buf.writeln('相关提交摘录：');
+      for (final c in _commits.take(6)) {
+        buf.writeln('- ${c.title ?? c.id ?? ''}');
+      }
+    }
+    return buf.toString().trim();
+  }
+
+  AnalysisReportRecord _buildReportRecord() {
+    final git = _gitlabContextSummary();
+    return AnalysisReportRecord(
+      id: AnalysisReportRecord.newId(),
+      projectId: widget.controller.activeProject.id,
+      digestHash: widget.digestHash,
+      title: widget.title,
+      bizModule: widget.controller.activeBizModule,
+      createdAtMs: DateTime.now().millisecondsSinceEpoch,
+      reportBody: _llmOut.toString().trim(),
+      stackSnippet: _stackSnippet(800),
+      gitlabContext: git.isEmpty ? null : git,
+    );
+  }
+
+  Future<void> _saveAnalysisReport() async {
+    final body = _llmOut.toString().trim();
+    if (body.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('暂无分析内容可保存'), behavior: SnackBarBehavior.floating),
+        );
+      }
+      return;
+    }
+    await widget.controller.addAnalysisReport(_buildReportRecord());
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('已保存到报告库（对话页可继续挂载）'), behavior: SnackBarBehavior.floating),
+      );
+    }
+  }
+
+  void _attachReportToChat() {
+    final body = _llmOut.toString().trim();
+    if (body.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('请等待分析完成'), behavior: SnackBarBehavior.floating),
+        );
+      }
+      return;
+    }
+    final rec = _buildReportRecord();
+    widget.controller.attachReportToChat(rec);
+    widget.controller.requestOpenChatTab();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('已挂载到「对话」上下文，并切换到对话页；可直接让模型结合 Claude Code / MCP 改代码'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _saveAndOpenChat() async {
+    final body = _llmOut.toString().trim();
+    if (body.isEmpty) return;
+    final rec = _buildReportRecord();
+    await widget.controller.addAnalysisReport(rec);
+    widget.controller.attachReportToChat(rec);
+    widget.controller.requestOpenChatTab();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('已保存并挂载报告，已打开对话页'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -459,8 +561,70 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
                                 ),
                               ),
                             )
-                          else
+                          else ...[
                             buildLlmSectionCards(context, _llmOut.toString()),
+                            if (_llmErr == null && _llmOut.toString().trim().isNotEmpty) ...[
+                              const SizedBox(height: 16),
+                              Card(
+                                elevation: 0,
+                                color: cs.primaryContainer.withValues(alpha: 0.35),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                  side: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.4)),
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Icon(Icons.article_outlined, size: 20, color: cs.primary),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            '报告与后续开发',
+                                            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        '可保存到本地报告库、删除在「对话」页管理；挂载后对话中的模型会带上完整分析，便于你要求结合 Claude Code / GitLab MCP 改代码。',
+                                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                              color: cs.onSurfaceVariant,
+                                              height: 1.35,
+                                            ),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Wrap(
+                                        spacing: 8,
+                                        runSpacing: 8,
+                                        children: [
+                                          FilledButton.tonalIcon(
+                                            onPressed: _llmBusy ? null : _saveAnalysisReport,
+                                            icon: const Icon(Icons.save_outlined, size: 18),
+                                            label: const Text('保存到报告库'),
+                                          ),
+                                          FilledButton.icon(
+                                            onPressed: _llmBusy ? null : _attachReportToChat,
+                                            icon: const Icon(Icons.chat_bubble_outline, size: 18),
+                                            label: const Text('加入对话上下文'),
+                                          ),
+                                          OutlinedButton.icon(
+                                            onPressed: _llmBusy ? null : _saveAndOpenChat,
+                                            icon: const Icon(Icons.merge_type, size: 18),
+                                            label: const Text('保存并打开对话'),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                           const SizedBox(height: 80),
                         ],
                       ),

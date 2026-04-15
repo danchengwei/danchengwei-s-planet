@@ -1,11 +1,14 @@
 import 'dart:convert';
 
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../app_controller.dart';
 import '../models/llm_provider_presets.dart';
 import '../models/tool_config.dart';
+import '../services/test_local_config_loader.dart';
 
 /// 全量配置：EMAS、控制台链接模板、大模型、Agent（GitLab 见侧栏「GitLab」页）。
 class SettingsTab extends StatefulWidget {
@@ -18,6 +21,41 @@ class SettingsTab extends StatefulWidget {
 }
 
 class _SettingsTabState extends State<SettingsTab> {
+  /// 与资源加载失败时的兜底文案（与仓库 crash-tools-test-config.sample.json 保持一致）。
+  static const _kJsonSampleFallback = r'''{
+  "__comment": "复制为 crash-tools-test-config.json 后填写（该文件名已 gitignore）。支持扁平 ToolConfig 或含 projects 的工作区，见 lib/services/test_local_config_loader.dart。智谱：llmBaseUrl 须含 /v4，llmChatCompletionsPath 为 chat/completions。敏感字段勿提交 Git。",
+  "accessKeyId": "",
+  "accessKeySecret": "",
+  "region": "cn-shanghai",
+  "appKey": "",
+  "os": "android",
+  "bizModule": "crash",
+  "emasListNameQuery": "com.xiwang.youke.debug",
+  "consoleBaseUrl": "",
+  "consoleIssueUrlTemplate": "",
+  "gitlabBaseUrl": "https://git.100tal.com",
+  "gitlabToken": "",
+  "gitlabProjects": [
+    {"projectId": "", "repoName": "xw-youke"}
+  ],
+  "gitlabRef": "main",
+  "llmBaseUrl": "https://open.bigmodel.cn/api/paas/v4",
+  "llmChatCompletionsPath": "chat/completions",
+  "llmApiKey": "",
+  "llmModel": "glm-4.6v",
+  "llmProviderPresetId": "custom",
+  "llmSystemPrompt": "",
+  "agentWorkDir": "",
+  "agentExecutable": "claude",
+  "agentMode": "clipboard",
+  "agentFixedArgs": "[]",
+  "wallpaperId": "",
+  "mcpServers": {},
+  "mcpExportIncludeById": {},
+  "mcpGitlabInstallAck": true,
+  "emasUseMockCrashData": false
+}''';
+
   /// 为 false 时尚未创建输入控制器（避免对未初始化的 late 调用 dispose）。
   bool _fieldControllersReady = false;
 
@@ -304,6 +342,112 @@ class _SettingsTabState extends State<SettingsTab> {
     );
   }
 
+  Future<void> _showJsonImportDialog() async {
+    if (kIsWeb) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Web 端暂不支持从本地文件导入 JSON，请使用桌面版。'),
+        ),
+      );
+      return;
+    }
+    String sampleText;
+    try {
+      sampleText = await rootBundle.loadString(
+        'crash-tools-test-config.sample.json',
+      );
+    } catch (_) {
+      sampleText = _kJsonSampleFallback;
+    }
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        return AlertDialog(
+          title: const Text('从 JSON 导入配置'),
+          content: SizedBox(
+            width: 560,
+            height: 480,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  '格式须与工程根目录下 crash-tools-test-config.sample.json 一致：可为扁平单项目字段，或含 projects / activeProjectId 的完整工作区。导入成功后会写入本机工作区文件；敏感信息勿提交 Git。',
+                  style: theme.textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 12),
+                Text('样例文件内容', style: theme.textTheme.titleSmall),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Scrollbar(
+                      thumbVisibility: true,
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(12),
+                        child: SelectableText(
+                          sampleText,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _pickJsonAndImport();
+              },
+              child: const Text('选择 JSON 文件'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _pickJsonAndImport() async {
+    if (kIsWeb) return;
+    const xType = XTypeGroup(label: 'JSON', extensions: <String>['json']);
+    final f = await openFile(acceptedTypeGroups: <XTypeGroup>[xType]);
+    if (f == null || !mounted) return;
+    final (err, mode) =
+        await widget.controller.importConfigFromJsonPath(f.path);
+    if (!mounted) return;
+    if (err != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+      return;
+    }
+    setState(_bind);
+    final detail = mode == TestConfigApplyMode.workspace
+        ? '已导入完整工作区（多项目）。'
+        : '已合并到当前活动项目。';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('导入成功并已写入本机。$detail'),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -321,6 +465,11 @@ class _SettingsTabState extends State<SettingsTab> {
           appBar: AppBar(
             title: const Text('配置'),
             actions: [
+              TextButton.icon(
+                onPressed: _showJsonImportDialog,
+                icon: const Icon(Icons.upload_file_outlined, size: 20),
+                label: const Text('从 JSON 导入'),
+              ),
               Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: FilledButton.icon(
@@ -354,8 +503,8 @@ class _SettingsTabState extends State<SettingsTab> {
                     _fieldReq(_biz, 'BizModule'),
                     _fieldOpt(
                       _emasName,
-                      'GetIssues Name',
-                      hintText: '可选，如 Android 包名 com.example.app',
+                      '应用版本 / Name（GetIssues）',
+                      hintText: '建议填写版本号或包名等，对应控制台筛选；可选',
                     ),
                     _fieldOpt(_console, '控制台 URL'),
                     _fieldOpt(_consoleTpl, '单条问题 URL 模板'),

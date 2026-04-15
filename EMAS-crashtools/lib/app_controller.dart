@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
@@ -11,9 +12,12 @@ import 'package:path_provider/path_provider.dart';
 import 'aliyun/emas_appmonitor_client.dart';
 import 'models/agent_payload.dart';
 import 'models/issue_individual_llm_result.dart';
+import 'models/analysis_report_record.dart';
+import 'models/overview_metrics.dart';
 import 'models/projects_workspace.dart';
 import 'models/tool_config.dart';
 import 'models/wallpaper_catalog.dart';
+import 'services/analysis_report_storage.dart';
 import 'services/agent_launcher.dart';
 import 'services/analysis_prompt_builder.dart';
 import 'services/stack_clarity.dart';
@@ -31,7 +35,29 @@ import 'services/wallpaper_theme_seeder.dart';
 /// 全局状态：多项目工作区、当前项目配置、列表、多选、协议回调。
 class AppController extends ChangeNotifier {
   AppController() {
+    final bounds = calendarInclusiveRangeBounds(calendarDaysInclusive: 1);
+    rangeStartMs = bounds.$1;
+    rangeEndMs = bounds.$2;
     _bootstrap();
+  }
+
+  /// 自然日窗口（共 [calendarDaysInclusive] 天）：**最新一天为「昨天」**（本地时区）。
+  /// 起点为「昨天 0 点」往前 `n-1` 天的 0 点，终点为昨天 23:59:59.999（不含今天数据）。
+  static (int startMs, int endMs) calendarInclusiveRangeBounds({
+    required int calendarDaysInclusive,
+    DateTime? now,
+  }) {
+    final clock = now ?? DateTime.now();
+    final todayStart = DateTime(clock.year, clock.month, clock.day);
+    final yesterdayStart = todayStart.subtract(const Duration(days: 1));
+    if (calendarDaysInclusive < 1) {
+      final e = DateTime(yesterdayStart.year, yesterdayStart.month, yesterdayStart.day, 23, 59, 59, 999);
+      final t = e.millisecondsSinceEpoch;
+      return (t, t);
+    }
+    final rangeStart = yesterdayStart.subtract(Duration(days: calendarDaysInclusive - 1));
+    final rangeEnd = DateTime(yesterdayStart.year, yesterdayStart.month, yesterdayStart.day, 23, 59, 59, 999);
+    return (rangeStart.millisecondsSinceEpoch, rangeEnd.millisecondsSinceEpoch);
   }
 
   final ConfigRepository _configRepo = ConfigRepository();
@@ -71,13 +97,13 @@ class AppController extends ChangeNotifier {
 
   Color get wallpaperThemeSeed => _wallpaperThemeSeed;
 
-  int rangeStartMs = DateTime.now().subtract(const Duration(days: 7)).millisecondsSinceEpoch;
-  int rangeEndMs = DateTime.now().millisecondsSinceEpoch;
+  late int rangeStartMs;
+  late int rangeEndMs;
 
   /// 工作台子模块临时覆盖的 BizModule（如 anr、performance）；空则使用 [config.bizModule]。
   String _workspaceBizOverride = '';
 
-  /// GetIssues 可选的 Name 条件（如版本号、错误名关键字，依控制台/OpenAPI 而定）。
+  /// GetIssues 的 `Name` 条件；配置里为应用版本/包名等关键字，崩溃族 Biz 拉列表时会与配置同步。
   String listNameQuery = '';
 
   /// 性能 · 启动分析：冷/热启动筛选；`all` 表示不传附加参数。离开启动分析或非 GetIssues 场景时应置回 `all`。
@@ -139,11 +165,55 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 与「7 天 / 30 天」芯片一致：自然日，**最新一天为昨天**，终点为昨天末。
+  void setTimeRangeLastCalendarDays(int calendarDaysInclusive) {
+    final bounds = calendarInclusiveRangeBounds(calendarDaysInclusive: calendarDaysInclusive);
+    rangeStartMs = bounds.$1;
+    rangeEndMs = bounds.$2;
+    pageIndex = 1;
+    notifyListeners();
+  }
+
+  /// 与列表「最近 / 7 天 / 30 天」芯片一致（自然日、最新日为昨天；**最近 = 1 天**）。
+  bool matchesQuickCalendarDays(int calendarDaysInclusive) {
+    if (calendarDaysInclusive != 1 && calendarDaysInclusive != 7 && calendarDaysInclusive != 30) {
+      return false;
+    }
+    const tol = 120000;
+    return _matchesCalendarInclusiveStart(calendarDaysInclusive, tol);
+  }
+
+  static bool _isCrashFamilyBizModule(String biz) {
+    final b = biz.trim().toLowerCase();
+    return b == 'crash' || b == 'anr' || b == 'block' || b == 'exception';
+  }
+
+  bool _matchesCalendarInclusiveStart(int calendarDaysInclusive, int tol) {
+    final expected = calendarInclusiveRangeBounds(calendarDaysInclusive: calendarDaysInclusive);
+    return (rangeStartMs - expected.$1).abs() <= tol && (rangeEndMs - expected.$2).abs() <= tol;
+  }
+
   bool loadingIssues = false;
   String? issuesError;
   GetIssuesResult? lastIssues;
   int pageIndex = 1;
   final int pageSize = 20;
+
+  /// 实时概览：多 Biz GetIssues 汇总（不写入 [lastIssues]，避免干扰左侧子模块列表）。
+  OverviewMetricsSnapshot? overviewMetrics;
+  bool loadingOverviewMetrics = false;
+  String? overviewDashboardError;
+
+  static const List<String> _overviewBizOrder = ['crash', 'anr', 'startup', 'exception'];
+
+  /// 按项目 id 存本地分析报告（非 Web 落盘）。
+  Map<String, List<AnalysisReportRecord>> _analysisReportsByProject = {};
+
+  /// 对话页挂载：后续每条 Chat 请求会在 system 中附带该报告全文（有长度截断）。
+  AnalysisReportRecord? _chatAttachedReport;
+  AnalysisReportRecord? get chatAttachedReport => _chatAttachedReport;
+
+  bool _openChatTabPending = false;
 
   /// 批量大模型分析勾选
   final Set<String> selectedDigestHashes = <String>{};
@@ -178,6 +248,56 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 当前项目已保存的 AI 分析报告（新在前）。
+  List<AnalysisReportRecord> get analysisReportsForActiveProject {
+    final id = activeProject.id;
+    final raw = _analysisReportsByProject[id] ?? const <AnalysisReportRecord>[];
+    final copy = List<AnalysisReportRecord>.from(raw);
+    copy.sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
+    return List<AnalysisReportRecord>.unmodifiable(copy);
+  }
+
+  Future<void> addAnalysisReport(AnalysisReportRecord r) async {
+    final list = _analysisReportsByProject.putIfAbsent(r.projectId, () => []);
+    list.insert(0, r);
+    await AnalysisReportStorage.save(_analysisReportsByProject);
+    notifyListeners();
+  }
+
+  Future<void> deleteAnalysisReport(String reportId) async {
+    final pid = activeProject.id;
+    final list = _analysisReportsByProject[pid];
+    if (list == null) return;
+    list.removeWhere((e) => e.id == reportId);
+    if (_chatAttachedReport?.id == reportId) {
+      _chatAttachedReport = null;
+    }
+    await AnalysisReportStorage.save(_analysisReportsByProject);
+    notifyListeners();
+  }
+
+  void attachReportToChat(AnalysisReportRecord r) {
+    _chatAttachedReport = r;
+    notifyListeners();
+  }
+
+  void clearChatAttachedReport() {
+    _chatAttachedReport = null;
+    notifyListeners();
+  }
+
+  void requestOpenChatTab() {
+    _openChatTabPending = true;
+    notifyListeners();
+  }
+
+  /// 由 [MainShell] 消费：为 true 时切换到「对话」页。
+  bool consumeOpenChatTabRequest() {
+    if (!_openChatTabPending) return false;
+    _openChatTabPending = false;
+    return true;
+  }
+
   Future<void> _bootstrap() async {
     loadingConfig = true;
     bootstrapError = null;
@@ -198,6 +318,12 @@ class AppController extends ChangeNotifier {
       }
       showProjectHub = _workspace.openProjectHubOnLaunch;
       await _syncWallpaperThemeSeed();
+      try {
+        _analysisReportsByProject = await AnalysisReportStorage.load();
+      } catch (e, st) {
+        debugPrint('加载分析报告库失败: $e\n$st');
+        _analysisReportsByProject = {};
+      }
     } catch (e) {
       bootstrapError = e.toString();
       _workspace = ProjectsWorkspace.empty();
@@ -224,6 +350,36 @@ class AppController extends ChangeNotifier {
     } catch (e, st) {
       debugPrint('_persistWorkspace failed: $e\n$st');
       rethrow;
+    }
+  }
+
+  /// 从用户选择的 JSON 文件导入配置，规则与 [TestLocalConfigLoader] / `crash-tools-test-config.sample.json` 一致。
+  /// 返回 `(null, mode)` 表示成功；返回 `(错误文案, null)` 表示失败。Web 端不支持本地文件路径。
+  Future<(String?, TestConfigApplyMode?)> importConfigFromJsonPath(
+    String filePath,
+  ) async {
+    if (kIsWeb) {
+      return ('Web 端不支持从本地文件导入 JSON，请使用桌面版。', null);
+    }
+    try {
+      final r = await TestLocalConfigLoader.applyFromFile(
+        File(filePath),
+        _workspace,
+      );
+      if (r == null) {
+        return (
+          '无法解析该文件。请确认 JSON 为「扁平单项目」字段或含 projects 的完整工作区（与 crash-tools-test-config.sample.json 一致）。',
+          null,
+        );
+      }
+      _workspace.ensureValidActive();
+      _resetWorkspaceSession();
+      await _persistWorkspace();
+      await _syncWallpaperThemeSeed();
+      notifyListeners();
+      return (null, r.mode);
+    } catch (e) {
+      return ('导入失败：$e', null);
     }
   }
 
@@ -291,6 +447,10 @@ class AppController extends ChangeNotifier {
     _workspaceBizOverride = '';
     listNameQuery = activeProject.config.emasListNameQuery.trim();
     _perfStartupLaunchKind = 'all';
+    overviewMetrics = null;
+    overviewDashboardError = null;
+    loadingOverviewMetrics = false;
+    _chatAttachedReport = null;
   }
 
   Future<void> setOpenProjectHubOnLaunch(bool v) async {
@@ -341,6 +501,8 @@ class AppController extends ChangeNotifier {
         return;
       }
       _workspace.projects.removeAt(idx);
+      _analysisReportsByProject.remove(id);
+      unawaited(AnalysisReportStorage.save(_analysisReportsByProject));
       if (_workspace.activeProjectId == id) {
         _workspace.activeProjectId = _workspace.projects.first.id;
         _resetWorkspaceSession();
@@ -398,6 +560,13 @@ class AppController extends ChangeNotifier {
       return;
     }
 
+    if (_isCrashFamilyBizModule(activeBizModule)) {
+      final next = config.emasListNameQuery.trim();
+      if (listNameQuery != next) {
+        setListNameQuery(config.emasListNameQuery);
+      }
+    }
+
     final miss = config.validateEmas();
     if (miss.isNotEmpty) {
       issuesError = '请先完成配置：${miss.join('、')}';
@@ -439,6 +608,125 @@ class AppController extends ChangeNotifier {
     } finally {
       client.close();
       loadingIssues = false;
+      notifyListeners();
+    }
+  }
+
+  /// 拉取实时概览：对齐控制台「实时大盘」常见维度，数据均为各 Biz 下 GetIssues 的 Total（聚合 issue 数）。
+  Future<void> refreshOverviewDashboard() async {
+    clearWorkspaceBizOverride();
+    setListNameQuery(config.emasListNameQuery);
+
+    final miss = config.validateEmas();
+    if (miss.isNotEmpty) {
+      overviewDashboardError = '请先完成配置：${miss.join('、')}';
+      overviewMetrics = null;
+      notifyListeners();
+      return;
+    }
+    final ak = config.appKeyAsInt;
+    if (ak == null) {
+      overviewDashboardError = 'AppKey 必须是数字';
+      overviewMetrics = null;
+      notifyListeners();
+      return;
+    }
+
+    if (config.emasUseMockCrashData && config.bizModule.trim().toLowerCase() == 'crash') {
+      loadingOverviewMetrics = true;
+      overviewDashboardError = null;
+      notifyListeners();
+      await Future<void>.delayed(const Duration(milliseconds: 180));
+      final mock = EmasCrashMockData.mockGetIssues(pageIndex: 1, pageSize: 5);
+      overviewMetrics = OverviewMetricsSnapshot(
+        rangeStartMs: rangeStartMs,
+        rangeEndMs: rangeEndMs,
+        byBizTotal: {
+          'crash': mock.total,
+          'anr': 0,
+          'startup': 0,
+          'exception': 0,
+        },
+        crashPreviewItems: mock.items.take(5).toList(),
+        todayCrashTotal: mock.total,
+      );
+      loadingOverviewMetrics = false;
+      notifyListeners();
+      return;
+    }
+
+    loadingOverviewMetrics = true;
+    overviewDashboardError = null;
+    notifyListeners();
+
+    final nameParam = listNameQuery.isEmpty ? null : listNameQuery;
+    final client = EmasAppMonitorClient(
+      accessKeyId: config.accessKeyId.trim(),
+      accessKeySecret: config.accessKeySecret.trim(),
+      regionId: config.region.trim(),
+      httpClient: newOutboundHttpClient(),
+    );
+    final byBiz = <String, int>{};
+    final errs = <String, String>{};
+    var preview = <IssueListItem>[];
+    try {
+      for (final biz in _overviewBizOrder) {
+        final pageSz = biz == 'crash' ? 5 : 1;
+        try {
+          final r = await client.getIssues(
+            appKey: ak,
+            bizModule: biz,
+            os: config.os.trim(),
+            startTimeMs: rangeStartMs,
+            endTimeMs: rangeEndMs,
+            pageIndex: 1,
+            pageSize: pageSz,
+            name: nameParam,
+          );
+          byBiz[biz] = r.total;
+          if (biz == 'crash') {
+            preview = List<IssueListItem>.of(r.items);
+          }
+        } catch (e) {
+          errs[biz] = userFacingNetworkError(e);
+        }
+      }
+
+      int? todayTotal;
+      String? todayErr;
+      try {
+        final now = DateTime.now();
+        final t0 = DateTime(now.year, now.month, now.day);
+        final r = await client.getIssues(
+          appKey: ak,
+          bizModule: 'crash',
+          os: config.os.trim(),
+          startTimeMs: t0.millisecondsSinceEpoch,
+          endTimeMs: now.millisecondsSinceEpoch,
+          pageIndex: 1,
+          pageSize: 1,
+          name: nameParam,
+        );
+        todayTotal = r.total;
+      } catch (e) {
+        todayErr = userFacingNetworkError(e);
+      }
+
+      overviewMetrics = OverviewMetricsSnapshot(
+        rangeStartMs: rangeStartMs,
+        rangeEndMs: rangeEndMs,
+        byBizTotal: byBiz,
+        crashPreviewItems: preview.take(5).toList(),
+        todayCrashTotal: todayTotal,
+        perBizError: errs,
+        todayError: todayErr,
+      );
+    } catch (e) {
+      overviewDashboardError = userFacingNetworkError(e);
+      overviewMetrics = null;
+    } finally {
+      client.close();
+      loadingOverviewMetrics = false;
       notifyListeners();
     }
   }

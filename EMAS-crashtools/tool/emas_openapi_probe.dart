@@ -12,6 +12,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crash_emas_tool/aliyun/emas_appmonitor_client.dart';
+import 'package:crash_emas_tool/app_controller.dart';
 import 'package:crash_emas_tool/models/tool_config.dart';
 import 'package:crash_emas_tool/services/http_retry_policy.dart';
 import 'package:crash_emas_tool/services/outbound_http_client_for_config.dart';
@@ -58,9 +59,10 @@ Future<void> main(List<String> args) async {
     return;
   }
 
-  final now = DateTime.now();
-  final endMs = now.millisecondsSinceEpoch;
-  final startMs = now.subtract(const Duration(days: 7)).millisecondsSinceEpoch;
+  // 与 App 内「7 天」芯片一致：自然日、最新一天为昨天（见 AppController.calendarInclusiveRangeBounds）。
+  final bounds = AppController.calendarInclusiveRangeBounds(calendarDaysInclusive: 7);
+  final startMs = bounds.$1;
+  final endMs = bounds.$2;
   final nameQ = cfg.emasListNameQuery.trim().isEmpty ? null : cfg.emasListNameQuery.trim();
 
   stdout.writeln('目标主机：emas-appmonitor.${cfg.region.trim()}.aliyuncs.com');

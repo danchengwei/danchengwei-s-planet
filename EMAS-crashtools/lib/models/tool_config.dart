@@ -202,7 +202,7 @@ class ToolConfig {
   String appKey;
   String os;
   String bizModule;
-  /// 对应 GetIssues 请求体中的 `Name`（可选），常用于 Android 包名或版本关键字等。
+  /// 对应 GetIssues 请求体中的 `Name`（可选），**应用版本 / 包名** 等筛选与控制台一致。
   String emasListNameQuery;
   String consoleBaseUrl;
   /// 单条问题链接模板，可含 `{digest}`；空则仅用控制台总入口。
