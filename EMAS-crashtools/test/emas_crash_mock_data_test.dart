@@ -1,3 +1,4 @@
+import 'package:crash_emas_tool/aliyun/emas_appmonitor_client.dart';
 import 'package:crash_emas_tool/services/emas_crash_mock_data.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -19,5 +20,19 @@ void main() {
     final m = j['Model']! as Map;
     expect(m['DigestHash'], 'mock_digest_001');
     expect((m['Stack'] as String).contains('HomeFragment'), isTrue);
+  });
+
+  test('IssueListItem.fromGetIssueResponse 与 Mock GetIssue 对齐', () {
+    final j = EmasCrashMockData.mockGetIssue('mock_digest_001');
+    final row = IssueListItem.fromGetIssueResponse(j, digestHint: 'unused');
+    expect(row.digestHash, 'mock_digest_001');
+    expect(row.stack, isNotNull);
+
+    final j2 = Map<String, dynamic>.from(j);
+    final model = Map<String, dynamic>.from(j2['Model']! as Map);
+    model['DigestHash'] = '';
+    j2['Model'] = model;
+    final row2 = IssueListItem.fromGetIssueResponse(j2, digestHint: 'hint_digest');
+    expect(row2.digestHash, 'hint_digest');
   });
 }

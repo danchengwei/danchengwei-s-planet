@@ -89,6 +89,46 @@ class TestLocalConfigLoader {
     return _applyDecodedMap(m, workspace, '(memory)');
   }
 
+  /// 从导入 JSON 读取**应用版本**（写入会话，映射 GetIssues 的 `Name`；**不含**应用包名）。
+  static String? optionalLegacyAppVersionFromImportRoot(Map<String, dynamic> root) {
+    String? pickVersion(Map<String, dynamic> m) {
+      for (final k in const ['emasAppVersion', 'appVersion', 'applicationVersion', 'versionName']) {
+        final v = m[k]?.toString().trim();
+        if (v != null && v.isNotEmpty) return v;
+      }
+      return null;
+    }
+
+    final direct = pickVersion(root);
+    if (direct != null) return direct;
+
+    final projects = root['projects'];
+    if (projects is! List<dynamic>) return null;
+    final activeId = root['activeProjectId']?.toString();
+    Map<String, dynamic>? configActive;
+    Map<String, dynamic>? configFirst;
+    for (final e in projects) {
+      if (e is! Map) continue;
+      final em = Map<String, dynamic>.from(e);
+      final rawCfg = em['config'];
+      Map<String, dynamic>? cfg;
+      if (rawCfg is Map<String, dynamic>) {
+        cfg = rawCfg;
+      } else if (rawCfg is Map) {
+        cfg = Map<String, dynamic>.from(rawCfg);
+      }
+      if (cfg == null) continue;
+      configFirst ??= cfg;
+      if (activeId != null && em['id']?.toString() == activeId) {
+        configActive = cfg;
+        break;
+      }
+    }
+    final use = configActive ?? configFirst;
+    if (use == null) return null;
+    return pickVersion(use);
+  }
+
   static TestConfigApplyResult? _applyDecodedMap(
     Map<String, dynamic> m,
     ProjectsWorkspace workspace,

@@ -42,7 +42,6 @@ class OverviewWorkspacePage extends StatelessWidget {
 
   void _setCalendarDays(int days) {
     controller.clearWorkspaceBizOverride();
-    controller.setListNameQuery(controller.config.emasListNameQuery);
     controller.setTimeRangeLastCalendarDays(days);
   }
 
@@ -74,7 +73,7 @@ class OverviewWorkspacePage extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(
-                '筛选：配置中的「应用版本/Name」+ 时间范围仅「最近 / 7 天 / 30 天」（自然日，最新完整日为昨天）。指标为 GetIssues 的聚合条数，非控制台图表次数/率。',
+                '筛选：工作台「应用版本（可选，对应 GetIssues Name）」+ 时间范围「最近 / 7 天 / 30 天」（自然日，最新完整日为昨天）。指标为 GetIssues 聚合条数，非控制台图表次数/率。',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant, height: 1.35),
               ),
               const SizedBox(height: 20),

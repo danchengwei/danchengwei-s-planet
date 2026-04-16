@@ -1,10 +1,6 @@
-import 'dart:io';
-
-import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../aliyun/emas_appmonitor_client.dart';
 import '../app_controller.dart';
@@ -23,7 +19,7 @@ String _launchTypeBannerSuffix(AppController c) {
   }
 }
 
-/// 列表工作台：一键拉取、HTML 导出/浏览器预览、列表卡片与详情入口（各功能模块复用）。
+/// 列表工作台：一键拉取、TOP10 总览、列表卡片与详情入口（各功能模块复用）。
 class IssuesTab extends StatelessWidget {
   const IssuesTab({
     super.key,
@@ -47,42 +43,13 @@ class IssuesTab extends StatelessWidget {
   /// 列表上方可选说明；非空且 trim 后非空才展示。
   final String? listIntroduction;
 
-  Future<void> _exportBundle(BuildContext context) async {
-    final dirPath = await getDirectoryPath(confirmButtonText: '选择导出目录');
-    if (dirPath == null) return;
-    if (!context.mounted) return;
-    await controller.exportReportBundleTo(Directory(dirPath));
-  }
-
-  Future<void> _saveHtmlToDisk(BuildContext context) async {
-    final location = await getSaveLocation(
-      suggestedName: 'emas_report_${DateTime.now().millisecondsSinceEpoch}.html',
-      acceptedTypeGroups: [const XTypeGroup(label: 'HTML', extensions: ['html', 'htm'])],
-    );
-    if (location == null) return;
-    if (!context.mounted) return;
-    await controller.exportHtmlReportToFile(location.path);
-  }
-
-  Future<void> _openHtmlInBrowser(BuildContext context) async {
-    final r = await controller.writePreviewHtmlAndPath();
-    if (!context.mounted) return;
-    if (r.startsWith('err')) {
-      return;
-    }
-    final filePath = r.substring(3);
-    final uri = Uri.file(filePath);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
-  }
-
-  Future<void> _batchLlm(BuildContext context) async {
+  /// 先拉列表第 1 页 10 条，再大模型生成 TOP10 合并总览（无其它筛选）。
+  Future<void> _openPullTop10AggregateReport(BuildContext context, String moduleTitle) async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (ctx) => Scaffold(
           appBar: AppBar(
-            title: const Text('批量 LLM'),
+            title: Text('$moduleTitle · TOP10 总览'),
             leading: IconButton(
               icon: const Icon(Icons.close),
               onPressed: () => Navigator.pop(ctx),
@@ -91,7 +58,7 @@ class IssuesTab extends StatelessWidget {
           body: Padding(
             padding: const EdgeInsets.all(16),
             child: FutureBuilder<String>(
-              future: controller.batchAnalyzeSelected(),
+              future: controller.pullTop10AggregateReportMarkdown(),
               builder: (context, snap) {
                 if (snap.connectionState != ConnectionState.done) {
                   return const Center(child: CircularProgressIndicator());
@@ -116,7 +83,6 @@ class IssuesTab extends StatelessWidget {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        final n = controller.selectedDigestHashes.length;
         final theme = Theme.of(context);
         final needConfig = controller.config.validateEmas().isNotEmpty;
         final listIntro = listIntroduction?.trim();
@@ -158,14 +124,10 @@ class IssuesTab extends StatelessWidget {
                 sliver: SliverToBoxAdapter(
                   child: _TimeAndExportRow(
                     controller: controller,
-                    onSaveHtml: () => _saveHtmlToDisk(context),
-                    onOpenBrowser: () => _openHtmlInBrowser(context),
-                    onExportBundle: () => _exportBundle(context),
-                    selectedCount: n,
-                    onBatchLlm: n > 0 ? () => _batchLlm(context) : null,
-                    onClearSelection: n > 0 ? () => controller.clearDigestSelection() : null,
+                    onPullTop10Aggregate: () => _openPullTop10AggregateReport(context, moduleTitle),
                     hideTimeRangeQuickChips: hideTimeRangeQuickChips,
                     timeRangeEmbeddedInHero: !hideHeroFetchCard && !hideTimeRangeQuickChips,
+                    showSessionQueryFields: hideHeroFetchCard,
                   ),
                 ),
               ),
@@ -232,7 +194,8 @@ class _ApiContextBanner extends StatelessWidget {
           Expanded(
             child: Text(
               'BizModule=${controller.activeBizModule}'
-              '${controller.listNameQuery.isEmpty ? ' · 应用版本(Name)：未设置' : ' · 应用版本(Name)：${controller.listNameQuery}'}'
+              '${controller.listNameQuery.isEmpty ? ' · 应用版本：未传' : ' · 应用版本：${controller.listNameQuery}'}'
+              '${controller.effectiveEmasPackageNameForRequest == null ? ' · 包名：未传' : ' · 包名：${controller.effectiveEmasPackageNameForRequest}'}'
               '${_launchTypeBannerSuffix(controller)}',
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
                     height: 1.3,
@@ -345,6 +308,8 @@ class _HeroFetchCard extends StatelessWidget {
                 ],
               ),
             ],
+            SizedBox(height: showQuickTimeChips ? 14 : 12),
+            _WorkbenchQueryTwoFields(controller: controller),
             const SizedBox(height: 14),
             FilledButton.icon(
                 style: FilledButton.styleFrom(
@@ -356,7 +321,7 @@ class _HeroFetchCard extends StatelessWidget {
                 ),
                 onPressed: needConfig || controller.loadingIssues
                     ? null
-                    : () => controller.refreshIssues(),
+                    : () => controller.refreshIssues(resetPageSizeToDefault: true),
                 icon: controller.loadingIssues
                     ? SizedBox(
                         width: 20,
@@ -394,84 +359,166 @@ class _HeroFetchCard extends StatelessWidget {
   }
 }
 
-class _TimeAndExportRow extends StatelessWidget {
-  const _TimeAndExportRow({
-    required this.controller,
-    required this.onSaveHtml,
-    required this.onOpenBrowser,
-    required this.onExportBundle,
-    required this.selectedCount,
-    this.onBatchLlm,
-    this.onClearSelection,
-    this.hideTimeRangeQuickChips = false,
-    this.timeRangeEmbeddedInHero = false,
-  });
+/// 工作台：应用版本（Name）与应用包名（PackageName）两个会话字段，无长说明。
+class _WorkbenchQueryTwoFields extends StatefulWidget {
+  const _WorkbenchQueryTwoFields({required this.controller});
 
   final AppController controller;
-  final VoidCallback onSaveHtml;
-  final VoidCallback onOpenBrowser;
-  final VoidCallback onExportBundle;
-  final int selectedCount;
-  final VoidCallback? onBatchLlm;
-  final VoidCallback? onClearSelection;
-  final bool hideTimeRangeQuickChips;
-  /// 为 true 时时间与「最近/7 天/30 天」已在顶部「一键获取」卡片中展示。
-  final bool timeRangeEmbeddedInHero;
+
+  @override
+  State<_WorkbenchQueryTwoFields> createState() => _WorkbenchQueryTwoFieldsState();
+}
+
+class _WorkbenchQueryTwoFieldsState extends State<_WorkbenchQueryTwoFields> {
+  late final TextEditingController _verCtrl;
+  late final TextEditingController _pkgCtrl;
+  final FocusNode _verFocus = FocusNode();
+  final FocusNode _pkgFocus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _verCtrl = TextEditingController(text: widget.controller.listNameQuery);
+    _pkgCtrl = TextEditingController(text: widget.controller.listPackageNameQuery);
+  }
+
+  @override
+  void dispose() {
+    _verCtrl.dispose();
+    _pkgCtrl.dispose();
+    _verFocus.dispose();
+    _pkgFocus.dispose();
+    super.dispose();
+  }
+
+  void _apply() {
+    widget.controller.setListNameQuery(_verCtrl.text);
+    widget.controller.setListPackageNameQuery(_pkgCtrl.text);
+    FocusScope.of(context).unfocus();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final fmt = DateFormat('MM-dd HH:mm');
-    final start = DateTime.fromMillisecondsSinceEpoch(controller.rangeStartMs);
-    final end = DateTime.fromMillisecondsSinceEpoch(controller.rangeEndMs);
-    final hasRows = (controller.lastIssues?.items ?? const []).isNotEmpty;
+    return AnimatedBuilder(
+      animation: widget.controller,
+      builder: (context, _) {
+        if (!_verFocus.hasFocus) {
+          final want = widget.controller.listNameQuery;
+          if (_verCtrl.text != want) {
+            _verCtrl.value = TextEditingValue(
+              text: want,
+              selection: TextSelection.collapsed(offset: want.length),
+            );
+          }
+        }
+        if (!_pkgFocus.hasFocus) {
+          final want = widget.controller.listPackageNameQuery;
+          if (_pkgCtrl.text != want) {
+            _pkgCtrl.value = TextEditingValue(
+              text: want,
+              selection: TextSelection.collapsed(offset: want.length),
+            );
+          }
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _verCtrl,
+                    focusNode: _verFocus,
+                    decoration: const InputDecoration(
+                      labelText: '应用版本',
+                      hintText: '可空',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                    textInputAction: TextInputAction.next,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextField(
+                    controller: _pkgCtrl,
+                    focusNode: _pkgFocus,
+                    decoration: const InputDecoration(
+                      labelText: '应用包名',
+                      hintText: '可空',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: (_) => _apply(),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: FilledButton.tonal(
+                onPressed: _apply,
+                child: const Text('应用'),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _TimeAndExportRow extends StatelessWidget {
+  const _TimeAndExportRow({
+    required this.controller,
+    required this.onPullTop10Aggregate,
+    this.hideTimeRangeQuickChips = false,
+    this.timeRangeEmbeddedInHero = false,
+    this.showSessionQueryFields = false,
+  });
+
+  final AppController controller;
+  final VoidCallback onPullTop10Aggregate;
+  final bool hideTimeRangeQuickChips;
+  /// 为 true 时顶部大卡片已含时间快捷片；本卡片仅保留 TOP10 与（可选）查询输入。
+  final bool timeRangeEmbeddedInHero;
+  /// 性能分析等无大卡片时：展示应用版本 / 包名输入。
+  final bool showSessionQueryFields;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final emasMiss = controller.config.validateEmas();
+    final emasOk = emasMiss.isEmpty;
+    final llmMiss = controller.config.validateLlm();
+    final llmOk = llmMiss.isEmpty;
+    final canRun = emasOk && llmOk;
+    final tip = !emasOk
+        ? '请先完成 EMAS：${emasMiss.join('、')}'
+        : (!llmOk ? '请先完成大模型：${llmMiss.join('、')}' : '按当前时间范围与 Biz 拉第 1 页 10 条并生成合并总览（不依赖勾选）');
 
     return Card(
       elevation: 0,
-      color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+      color: cs.surfaceContainerHighest.withValues(alpha: 0.5),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.4)),
+        side: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.4)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (!timeRangeEmbeddedInHero) ...[
-              Row(
+            if (!hideTimeRangeQuickChips && !timeRangeEmbeddedInHero) ...[
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
                 children: [
-                  Icon(Icons.schedule, size: 20, color: Theme.of(context).colorScheme.primary),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      '${fmt.format(start)}  —  ${fmt.format(end)}',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                  ),
-                  if (selectedCount > 0)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: Text('已选 $selectedCount 条', style: Theme.of(context).textTheme.labelLarge),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 12),
-            ] else if (selectedCount > 0) ...[
-              Row(
-                children: [
-                  Expanded(
-                    child: Text('已选 $selectedCount 条', style: Theme.of(context).textTheme.labelLarge),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-            ],
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                if (!hideTimeRangeQuickChips && !timeRangeEmbeddedInHero) ...[
                   FilterChip(
                     label: const Text('最近'),
                     selected: controller.matchesQuickCalendarDays(1),
@@ -488,48 +535,25 @@ class _TimeAndExportRow extends StatelessWidget {
                     onSelected: (_) => controller.setTimeRangeLastCalendarDays(30),
                   ),
                 ],
-                TextButton.icon(
-                  onPressed: () => controller.selectAllOnPage(),
-                  icon: const Icon(Icons.select_all, size: 18),
-                  label: const Text('本页全选'),
+              ),
+              const SizedBox(height: 12),
+            ],
+            if (showSessionQueryFields) ...[
+              _WorkbenchQueryTwoFields(controller: controller),
+              const SizedBox(height: 12),
+            ],
+            Tooltip(
+              message: tip,
+              child: FilledButton.icon(
+                onPressed: canRun ? onPullTop10Aggregate : null,
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  backgroundColor: cs.primary,
+                  foregroundColor: cs.onPrimary,
                 ),
-                if (onBatchLlm != null)
-                  FilledButton.tonalIcon(
-                    onPressed: onBatchLlm,
-                    icon: const Icon(Icons.auto_awesome, size: 18),
-                    label: const Text('批量 LLM'),
-                  ),
-                if (onClearSelection != null)
-                  IconButton(
-                    tooltip: '清空选择',
-                    onPressed: onClearSelection,
-                    icon: const Icon(Icons.deselect),
-                  ),
-              ],
-            ),
-            const Divider(height: 28),
-            Text('简报与导出', style: Theme.of(context).textTheme.labelLarge),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                FilledButton.tonalIcon(
-                  onPressed: hasRows ? onSaveHtml : null,
-                  icon: const Icon(Icons.save_alt_outlined),
-                  label: const Text('下载 HTML'),
-                ),
-                FilledButton.tonalIcon(
-                  onPressed: hasRows ? onOpenBrowser : null,
-                  icon: const Icon(Icons.open_in_browser),
-                  label: const Text('浏览器中查看'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: hasRows ? onExportBundle : null,
-                  icon: const Icon(Icons.folder_zip_outlined),
-                  label: const Text('完整报告包'),
-                ),
-              ],
+                icon: const Icon(Icons.filter_9_plus, size: 22),
+                label: const Text('拉取 TOP10 总览'),
+              ),
             ),
           ],
         ),

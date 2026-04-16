@@ -23,14 +23,15 @@ class SettingsTab extends StatefulWidget {
 class _SettingsTabState extends State<SettingsTab> {
   /// 与资源加载失败时的兜底文案（与仓库 crash-tools-test-config.sample.json 保持一致）。
   static const _kJsonSampleFallback = r'''{
-  "__comment": "复制为 crash-tools-test-config.json 后填写（该文件名已 gitignore）。支持扁平 ToolConfig 或含 projects 的工作区，见 lib/services/test_local_config_loader.dart。智谱：llmBaseUrl 须含 /v4，llmChatCompletionsPath 为 chat/completions。敏感字段勿提交 Git。",
+  "__comment": "复制为 crash-tools-test-config.json 后填写（该文件名已 gitignore）。支持扁平 ToolConfig 或含 projects 的工作区。智谱：llmBaseUrl 须含 /v4，llmChatCompletionsPath 为 chat/completions。可选 emasAppVersion（或 appVersion / versionName）导入时填入工作台「应用版本」会话（GetIssues Name），非包名。包名仅配置项：appPackageName / packageName / androidPackageName / emasListNameQuery（后者为测试配置常用键，表示包名，非 Name 筛选）。敏感字段勿提交 Git。",
   "accessKeyId": "",
   "accessKeySecret": "",
   "region": "cn-shanghai",
   "appKey": "",
   "os": "android",
   "bizModule": "crash",
-  "emasListNameQuery": "com.xiwang.youke.debug",
+  "appPackageName": "",
+  "emasAppVersion": "",
   "consoleBaseUrl": "",
   "consoleIssueUrlTemplate": "",
   "gitlabBaseUrl": "https://git.100tal.com",
@@ -65,7 +66,7 @@ class _SettingsTabState extends State<SettingsTab> {
   late TextEditingController _appKey;
   late TextEditingController _os;
   late TextEditingController _biz;
-  late TextEditingController _emasName;
+  late TextEditingController _packageName;
   late TextEditingController _console;
   late TextEditingController _consoleTpl;
   late TextEditingController _llmUrl;
@@ -107,7 +108,7 @@ class _SettingsTabState extends State<SettingsTab> {
     _appKey.dispose();
     _os.dispose();
     _biz.dispose();
-    _emasName.dispose();
+    _packageName.dispose();
     _console.dispose();
     _consoleTpl.dispose();
     _llmUrl.dispose();
@@ -131,7 +132,7 @@ class _SettingsTabState extends State<SettingsTab> {
     _appKey = TextEditingController(text: c.appKey);
     _os = TextEditingController(text: c.os);
     _biz = TextEditingController(text: c.bizModule);
-    _emasName = TextEditingController(text: c.emasListNameQuery);
+    _packageName = TextEditingController(text: c.appPackageName);
     _console = TextEditingController(text: c.consoleBaseUrl);
     _consoleTpl = TextEditingController(text: c.consoleIssueUrlTemplate);
     _llmUrl = TextEditingController(text: c.llmBaseUrl);
@@ -259,7 +260,7 @@ class _SettingsTabState extends State<SettingsTab> {
       appKey: _appKey.text,
       os: _os.text,
       bizModule: _biz.text,
-      emasListNameQuery: _emasName.text,
+      appPackageName: _packageName.text,
       consoleBaseUrl: _console.text,
       consoleIssueUrlTemplate: _consoleTpl.text,
       gitlabBaseUrl: cur.gitlabBaseUrl,
@@ -374,7 +375,7 @@ class _SettingsTabState extends State<SettingsTab> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  '格式须与工程根目录下 crash-tools-test-config.sample.json 一致：可为扁平单项目字段，或含 projects / activeProjectId 的完整工作区。导入成功后会写入本机工作区文件；敏感信息勿提交 Git。',
+                  '格式须与工程根目录下 crash-tools-test-config.sample.json 一致：可为扁平单项目字段，或含 projects / activeProjectId 的完整工作区。若 JSON 含 emasAppVersion（或 appVersion、versionName），会填入工作台「应用版本」会话（对应 GetIssues 的 Name），非应用包名。导入成功后会写入本机工作区文件；敏感信息勿提交 Git。',
                   style: theme.textTheme.bodyMedium,
                 ),
                 const SizedBox(height: 12),
@@ -502,9 +503,10 @@ class _SettingsTabState extends State<SettingsTab> {
                     _fieldReq(_os, 'Os', hintText: 'android / ios'),
                     _fieldReq(_biz, 'BizModule'),
                     _fieldOpt(
-                      _emasName,
-                      '应用版本 / Name（GetIssues）',
-                      hintText: '建议填写版本号或包名等，对应控制台筛选；可选',
+                      _packageName,
+                      '应用包名',
+                      hintText: 'com.example.app',
+                      helperText: '随 GetIssues/GetIssue 传 PackageName；与工作台「应用版本」（Name）不同。测试 JSON 可用 emasListNameQuery 作为包名（与 Name 无关）。AppKey 已绑定时通常可留空。',
                     ),
                     _fieldOpt(_console, '控制台 URL'),
                     _fieldOpt(_consoleTpl, '单条问题 URL 模板'),

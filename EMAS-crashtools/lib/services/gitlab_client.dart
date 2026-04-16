@@ -166,7 +166,13 @@ class GitLabCommitInfo {
   GitLabCommitInfo({this.id, this.title, this.authorName, this.committedDate, this.webUrl});
 
   factory GitLabCommitInfo.fromJson(Map<String, dynamic> j) {
-    final author = j['author_name'] ?? j['commit_author_name'];
+    var author = j['author_name'] ?? j['commit_author_name'];
+    if (author == null || author.toString().trim().isEmpty) {
+      final a = j['author'];
+      if (a is Map) {
+        author = a['name'] ?? a['username'];
+      }
+    }
     return GitLabCommitInfo(
       id: j['id']?.toString(),
       title: j['title']?.toString() ?? j['message']?.toString(),
@@ -181,6 +187,22 @@ class GitLabCommitInfo {
   final String? authorName;
   final String? committedDate;
   final String? webUrl;
+}
+
+/// 根据 GitLab 返回的近期提交记录，按 `author_name`（及嵌套 `author`）去重，生成报告用一行文案。
+///
+/// 无有效作者时返回空串；否则形如 `开发者：张三、李四`。
+String gitCommitAuthorsSummaryLine(List<GitLabCommitInfo> commits) {
+  final seen = <String>{};
+  final names = <String>[];
+  for (final c in commits) {
+    final raw = c.authorName?.trim();
+    if (raw == null || raw.isEmpty) continue;
+    final key = raw.toLowerCase();
+    if (seen.add(key)) names.add(raw);
+  }
+  if (names.isEmpty) return '';
+  return '开发者：${names.join('、')}';
 }
 
 class GitLabException implements Exception {

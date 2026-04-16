@@ -12,11 +12,16 @@ String buildIssuesHtml({
   required int endMs,
   String? bizModuleShown,
   String? nameFilterShown,
+  String? packageNameShown,
 }) {
   const esc = HtmlEscape();
   final bizLabel = bizModuleShown ?? config.bizModule;
   final filterNote = (nameFilterShown != null && nameFilterShown.trim().isNotEmpty)
-      ? ' · Name筛选：${esc.convert(nameFilterShown.trim())}'
+      ? ' · 应用版本：${esc.convert(nameFilterShown.trim())}'
+      : '';
+  final pkgSrc = packageNameShown?.trim();
+  final pkgNote = (pkgSrc != null && pkgSrc.isNotEmpty)
+      ? ' · 包名：${esc.convert(pkgSrc)}'
       : '';
   final rows = StringBuffer();
   for (final it in items) {
@@ -50,7 +55,7 @@ code { font-size: 12px; word-break: break-all; }
 </head>
 <body>
 <h1>EMAS 聚合问题简报</h1>
-<p>时间范围(ms)：$startMs ~ $endMs | AppKey：${esc.convert(config.appKey)} | BizModule：${esc.convert(bizLabel)}$filterNote</p>
+<p>时间范围(ms)：$startMs ~ $endMs | AppKey：${esc.convert(config.appKey)} | BizModule：${esc.convert(bizLabel)}$filterNote$pkgNote</p>
 <p><a href="$consoleLink" target="_blank">打开控制台（需在配置中填写前缀）</a></p>
 <table>
 <thead><tr><th>错误名</th><th>DigestHash</th><th>次数</th><th>堆栈</th><th>控制台</th></tr></thead>

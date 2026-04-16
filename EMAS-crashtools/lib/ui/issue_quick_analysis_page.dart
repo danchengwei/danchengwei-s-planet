@@ -100,6 +100,9 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
 
   ToolConfig get _cfg => widget.controller.config;
 
+  /// 首条命中路径近期 Git 提交作者去重，供 UI 与保存报告复用。
+  String get _gitAuthorsSummaryLine => gitCommitAuthorsSummaryLine(_commits);
+
   String _stackText() {
     final j = _issueJson;
     if (j == null) return widget.listStack ?? '';
@@ -321,6 +324,11 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
   String _gitlabContextSummary() {
     if (_blobHits.isEmpty && _commits.isEmpty) return '';
     final buf = StringBuffer();
+    final devLine = _gitAuthorsSummaryLine;
+    if (devLine.isNotEmpty) {
+      buf.writeln(devLine);
+      buf.writeln();
+    }
     if (_blobHits.isNotEmpty) {
       buf.writeln('GitLab 检索命中（工具内 REST，可在 MCP 中继续查仓库）：');
       for (final h in _blobHits.take(12)) {
@@ -333,7 +341,9 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
     if (_commits.isNotEmpty) {
       buf.writeln('相关提交摘录：');
       for (final c in _commits.take(6)) {
-        buf.writeln('- ${c.title ?? c.id ?? ''}');
+        final who = c.authorName?.trim();
+        final bit = (who != null && who.isNotEmpty) ? ' · $who' : '';
+        buf.writeln('- ${c.title ?? c.id ?? ''}$bit');
       }
     }
     return buf.toString().trim();
@@ -341,6 +351,9 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
 
   AnalysisReportRecord _buildReportRecord() {
     final git = _gitlabContextSummary();
+    final devLine = _gitAuthorsSummaryLine;
+    final core = _llmOut.toString().trim();
+    final reportBody = devLine.isEmpty ? core : '$devLine\n\n$core';
     return AnalysisReportRecord(
       id: AnalysisReportRecord.newId(),
       projectId: widget.controller.activeProject.id,
@@ -348,7 +361,7 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
       title: widget.title,
       bizModule: widget.controller.activeBizModule,
       createdAtMs: DateTime.now().millisecondsSinceEpoch,
-      reportBody: _llmOut.toString().trim(),
+      reportBody: reportBody,
       stackSnippet: _stackSnippet(800),
       gitlabContext: git.isEmpty ? null : git,
     );
@@ -364,10 +377,17 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
       }
       return;
     }
-    await widget.controller.addAnalysisReport(_buildReportRecord());
+    final evicted = await widget.controller.addAnalysisReport(_buildReportRecord());
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('已保存到报告库（对话页可继续挂载）'), behavior: SnackBarBehavior.floating),
+        SnackBar(
+          content: Text(
+            evicted
+                ? '已保存。报告库最多 ${AppController.maxAnalysisReportsPerProject} 条，已按时间移除最旧条目'
+                : '已保存到报告库（对话页可继续挂载）',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ),
       );
     }
   }
@@ -399,13 +419,17 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
     final body = _llmOut.toString().trim();
     if (body.isEmpty) return;
     final rec = _buildReportRecord();
-    await widget.controller.addAnalysisReport(rec);
+    final evicted = await widget.controller.addAnalysisReport(rec);
     widget.controller.attachReportToChat(rec);
     widget.controller.requestOpenChatTab();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('已保存并挂载报告，已打开对话页'),
+        SnackBar(
+          content: Text(
+            evicted
+                ? '已保存并挂载；报告库已满（最多 ${AppController.maxAnalysisReportsPerProject} 条），已移除最旧一条'
+                : '已保存并挂载报告，已打开对话页',
+          ),
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -540,6 +564,53 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
                                 style: TextStyle(fontSize: 12, color: cs.outline),
                               ),
                             ),
+                          if (_gitAuthorsSummaryLine.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            Card(
+                              elevation: 0,
+                              color: cs.secondaryContainer.withValues(alpha: 0.45),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                side: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.4)),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Icon(Icons.person_outline, size: 20, color: cs.primary),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            '相关开发者（Git）',
+                                            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          SelectableText(
+                                            _gitAuthorsSummaryLine,
+                                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.35),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            '根据首条命中文件在 GitLab 的近期提交 author 去重汇总；保存报告时会写入报告正文开头。',
+                                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                                  color: cs.onSurfaceVariant,
+                                                  height: 1.3,
+                                                ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 12),
                           if (_llmBusy && _llmOut.isEmpty)
                             Padding(
@@ -591,7 +662,7 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
                                       ),
                                       const SizedBox(height: 6),
                                       Text(
-                                        '可保存到本地报告库、删除在「对话」页管理；挂载后对话中的模型会带上完整分析，便于你要求结合 Claude Code / GitLab MCP 改代码。',
+                                        '每个项目报告库最多 ${AppController.maxAnalysisReportsPerProject} 条，满后新保存会淘汰最旧条目。可在「对话」页报告库中删除或挂载；挂载后模型会带上完整分析，便于结合 Claude Code / GitLab MCP 改代码。',
                                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                               color: cs.onSurfaceVariant,
                                               height: 1.35,

@@ -6,10 +6,11 @@ import '../services/http_retry_policy.dart';
 import 'acs4_signer.dart';
 import 'form_flatten.dart';
 
+/// RPC 产品标识；与控制台 **应用监控**（移动监控 / AppMonitor）一致，**不是** EMAS 下其它子产品（如移动测试、热修复等）。
 const _productId = 'emas-appmonitor';
 const _apiVersion = '2019-06-11';
 
-/// EMAS AppMonitor **OpenAPI**（`GetIssues` / `GetIssue`）：HTTPS + form + ACS4 签名。
+/// 阿里云 **应用监控** OpenAPI（`GetIssues` / `GetIssue`）：HTTPS + form + ACS4 签名。
 ///
 /// [httpClient] 须由 `newOutboundHttpClient`（`outbound_http_client_for_config.dart`）创建，
 /// 与 `tool/emas_openapi_probe.dart` 行为一致。
@@ -114,8 +115,8 @@ class EmasAppMonitorClient {
     }
   }
 
-  /// 聚合问题列表（时间范围由调用方按「自然日」切片；列表侧仅提供最近/7/30 天三种口径）。
-  Future<GetIssuesResult> getIssues({
+  /// 构造 GetIssues 请求体（与 [getIssues] / [getIssuesRaw] 一致）。
+  static Map<String, dynamic> buildGetIssuesBody({
     required int appKey,
     required String bizModule,
     required String os,
@@ -126,8 +127,9 @@ class EmasAppMonitorClient {
     String orderBy = 'instances',
     String orderType = 'desc',
     String? name,
+    String? packageName,
     Map<String, dynamic>? extraBody,
-  }) async {
+  }) {
     final body = <String, dynamic>{
       'AppKey': appKey,
       'BizModule': bizModule,
@@ -144,10 +146,81 @@ class EmasAppMonitorClient {
     if (name != null && name.isNotEmpty) {
       body['Name'] = name;
     }
+    if (packageName != null && packageName.isNotEmpty) {
+      body['PackageName'] = packageName;
+    }
     if (extraBody != null && extraBody.isNotEmpty) {
       body.addAll(extraBody);
     }
-    final json = await _call('GetIssues', body);
+    return body;
+  }
+
+  /// GetIssues 原始 JSON（含 `Model`、`RequestId` 等），便于调试或未解析字段。
+  Future<Map<String, dynamic>> getIssuesRaw({
+    required int appKey,
+    required String bizModule,
+    required String os,
+    required int startTimeMs,
+    required int endTimeMs,
+    int pageIndex = 1,
+    int pageSize = 20,
+    String orderBy = 'instances',
+    String orderType = 'desc',
+    String? name,
+    String? packageName,
+    Map<String, dynamic>? extraBody,
+  }) {
+    return _call(
+      'GetIssues',
+      buildGetIssuesBody(
+        appKey: appKey,
+        bizModule: bizModule,
+        os: os,
+        startTimeMs: startTimeMs,
+        endTimeMs: endTimeMs,
+        pageIndex: pageIndex,
+        pageSize: pageSize,
+        orderBy: orderBy,
+        orderType: orderType,
+        name: name,
+        packageName: packageName,
+        extraBody: extraBody,
+      ),
+    );
+  }
+
+  /// 聚合问题列表（时间范围由调用方按「自然日」切片；列表侧仅提供最近/7/30 天三种口径）。
+  ///
+  /// [name] 一般对应控制台「应用版本」筛选（OpenAPI `Name`）。
+  /// [packageName] 对应应用包名（OpenAPI `PackageName`）；若服务端报错或无效，请以阿里云文档为准改键名。
+  Future<GetIssuesResult> getIssues({
+    required int appKey,
+    required String bizModule,
+    required String os,
+    required int startTimeMs,
+    required int endTimeMs,
+    int pageIndex = 1,
+    int pageSize = 20,
+    String orderBy = 'instances',
+    String orderType = 'desc',
+    String? name,
+    String? packageName,
+    Map<String, dynamic>? extraBody,
+  }) async {
+    final json = await getIssuesRaw(
+      appKey: appKey,
+      bizModule: bizModule,
+      os: os,
+      startTimeMs: startTimeMs,
+      endTimeMs: endTimeMs,
+      pageIndex: pageIndex,
+      pageSize: pageSize,
+      orderBy: orderBy,
+      orderType: orderType,
+      name: name,
+      packageName: packageName,
+      extraBody: extraBody,
+    );
     return GetIssuesResult.fromJson(json);
   }
 
@@ -159,6 +232,7 @@ class EmasAppMonitorClient {
     required String digestHash,
     required int startTimeMs,
     required int endTimeMs,
+    String? packageName,
     Map<String, dynamic>? extraBody,
   }) async {
     final body = <String, dynamic>{
@@ -171,6 +245,9 @@ class EmasAppMonitorClient {
         'EndTime': endTimeMs,
       },
     };
+    if (packageName != null && packageName.isNotEmpty) {
+      body['PackageName'] = packageName;
+    }
     if (extraBody != null && extraBody.isNotEmpty) {
       body.addAll(extraBody);
     }
@@ -207,11 +284,12 @@ class GetIssuesResult {
   GetIssuesResult({this.items = const [], this.total = 0, this.pageNum, this.pageSize, this.pages});
 
   factory GetIssuesResult.fromJson(Map<String, dynamic> json) {
-    final model = json['Model'];
-    if (model is! Map<String, dynamic>) {
+    final rawModel = json['Model'] ?? json['model'];
+    if (rawModel is! Map) {
       return GetIssuesResult();
     }
-    final rawItems = model['Items'];
+    final model = Map<String, dynamic>.from(rawModel);
+    final rawItems = model['Items'] ?? model['items'];
     final items = <IssueListItem>[];
     if (rawItems is List) {
       for (final e in rawItems) {
@@ -222,12 +300,29 @@ class GetIssuesResult {
         }
       }
     }
+    int pickInt(List<String> keys) {
+      for (final k in keys) {
+        final v = model[k];
+        if (v is num) return v.toInt();
+      }
+      return 0;
+    }
+
     return GetIssuesResult(
       items: items,
-      total: (model['Total'] as num?)?.toInt() ?? 0,
-      pageNum: (model['PageNum'] as num?)?.toInt(),
-      pageSize: (model['PageSize'] as num?)?.toInt(),
-      pages: (model['Pages'] as num?)?.toInt(),
+      total: pickInt(const ['Total', 'total']),
+      pageNum: () {
+        final v = model['PageNum'] ?? model['pageNum'];
+        return v is num ? v.toInt() : null;
+      }(),
+      pageSize: () {
+        final v = model['PageSize'] ?? model['pageSize'];
+        return v is num ? v.toInt() : null;
+      }(),
+      pages: () {
+        final v = model['Pages'] ?? model['pages'];
+        return v is num ? v.toInt() : null;
+      }(),
     );
   }
 
@@ -252,6 +347,22 @@ class IssueListItem {
     this.firstVersion,
     this.issueStatus,
   });
+
+  /// 将 GetIssue 顶层 JSON（含 `Model`）转为列表行；缺 `DigestHash` 时用 [digestHint]。
+  factory IssueListItem.fromGetIssueResponse(
+    Map<String, dynamic> json, {
+    required String digestHint,
+  }) {
+    final model = json['Model'];
+    if (model is! Map) {
+      return IssueListItem(digestHash: digestHint);
+    }
+    final m = Map<String, dynamic>.from(model);
+    if ((m['DigestHash']?.toString().trim() ?? '').isEmpty) {
+      m['DigestHash'] = digestHint;
+    }
+    return IssueListItem.fromJson(m);
+  }
 
   factory IssueListItem.fromJson(Map<String, dynamic> j) {
     return IssueListItem(

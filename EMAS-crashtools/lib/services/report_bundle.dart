@@ -17,6 +17,7 @@ Future<String> exportReportBundle({
   required Directory parentDir,
   String? bizModuleShown,
   String? nameFilterShown,
+  String? packageNameShown,
 }) async {
   final bizLabel = bizModuleShown ?? config.bizModule;
   if (items.isEmpty) return 'err:没有可导出的问题';
@@ -33,6 +34,8 @@ Future<String> exportReportBundle({
     'appKey': config.appKey,
     'bizModule': bizLabel,
     if (nameFilterShown != null && nameFilterShown.trim().isNotEmpty) 'nameFilter': nameFilterShown.trim(),
+    if (packageNameShown != null && packageNameShown.trim().isNotEmpty)
+      'packageName': packageNameShown.trim(),
     'issues': <Map<String, dynamic>>[],
   };
 
@@ -93,6 +96,7 @@ Future<String> exportReportBundle({
     tableRows: rows.toString(),
     bizModuleShown: bizLabel,
     nameFilterShown: nameFilterShown,
+    packageNameShown: packageNameShown,
   );
   await File(p.join(dir.path, 'index.html')).writeAsString(html, encoding: utf8);
 
@@ -106,13 +110,18 @@ String _htmlShell({
   required String tableRows,
   String? bizModuleShown,
   String? nameFilterShown,
+  String? packageNameShown,
 }) {
   const esc = HtmlEscape();
   final console = config.consoleBaseUrl.trim();
   final topLink = console.isEmpty ? '#' : esc.convert(console);
   final bizLabel = bizModuleShown ?? config.bizModule;
   final filterNote = (nameFilterShown != null && nameFilterShown.trim().isNotEmpty)
-      ? ' · Name筛选：${esc.convert(nameFilterShown.trim())}'
+      ? ' · 应用版本：${esc.convert(nameFilterShown.trim())}'
+      : '';
+  final pkgSrc = packageNameShown?.trim();
+  final pkgNote = (pkgSrc != null && pkgSrc.isNotEmpty)
+      ? ' · 包名：${esc.convert(pkgSrc)}'
       : '';
   return '''
 <!DOCTYPE html>
@@ -132,7 +141,7 @@ code { font-size: 11px; }
 </head>
 <body>
 <h1>EMAS 聚合问题报告</h1>
-<p class="note">时间(ms)：$startMs ~ $endMs · AppKey：${esc.convert(config.appKey)} · BizModule：${esc.convert(bizLabel)}$filterNote</p>
+<p class="note">时间(ms)：$startMs ~ $endMs · AppKey：${esc.convert(config.appKey)} · BizModule：${esc.convert(bizLabel)}$filterNote$pkgNote</p>
 <p><a href="$topLink" target="_blank">控制台总入口</a> · 同目录含 <code>manifest.json</code> 与 <code>payloads/*.json</code></p>
 <p class="note">「去处理」需本机已安装本应用并注册 <code>crash-tools://</code> 协议；点击后将打开对应 payload 并执行配置中的 Agent。</p>
 <table>

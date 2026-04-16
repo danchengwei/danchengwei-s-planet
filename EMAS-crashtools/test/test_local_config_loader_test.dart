@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crash_emas_tool/models/projects_workspace.dart';
-import 'package:crash_emas_tool/models/tool_config.dart';
 import 'package:crash_emas_tool/services/test_local_config_loader.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -51,9 +50,32 @@ void main() {
     expect(ws.projects.first.config.appKey, '999');
   });
 
-  test('ToolConfig.fromJson 兼容 packageName 作为 GetIssues Name', () {
-    final cfg = ToolConfig.fromJson({'packageName': 'com.xiwang.youke.debug'});
-    expect(cfg.emasListNameQuery, 'com.xiwang.youke.debug');
+  test('optionalLegacyAppVersionFromImportRoot 仅读应用版本相关键', () {
+    expect(
+      TestLocalConfigLoader.optionalLegacyAppVersionFromImportRoot({
+        'emasAppVersion': '  1.2.3  ',
+      }),
+      '1.2.3',
+    );
+    expect(
+      TestLocalConfigLoader.optionalLegacyAppVersionFromImportRoot({
+        'packageName': 'com.example.app',
+        'appVersion': '3.8.0',
+      }),
+      '3.8.0',
+    );
+    expect(
+      TestLocalConfigLoader.optionalLegacyAppVersionFromImportRoot({
+        'projects': [
+          {
+            'id': 'p1',
+            'config': {'versionName': 'from_project'},
+          },
+        ],
+        'activeProjectId': 'p1',
+      }),
+      'from_project',
+    );
   });
 
   test('applyFromFile 从临时文件读取扁平 JSON', () async {

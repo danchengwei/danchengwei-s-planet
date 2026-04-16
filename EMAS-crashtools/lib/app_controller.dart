@@ -103,8 +103,17 @@ class AppController extends ChangeNotifier {
   /// 工作台子模块临时覆盖的 BizModule（如 anr、performance）；空则使用 [config.bizModule]。
   String _workspaceBizOverride = '';
 
-  /// GetIssues 的 `Name` 条件；配置里为应用版本/包名等关键字，崩溃族 Biz 拉列表时会与配置同步。
+  /// GetIssues 的可选 `Name`：**仅表示应用版本**（versionName / 版本号等），由工作台填写，**不入配置**；与 Digest 拉单条同为会话参数。
   String listNameQuery = '';
+
+  /// GetIssues/GetIssue 可选 `PackageName`：工作台会话；**非空时优先于** [config.appPackageName]。
+  String listPackageNameQuery = '';
+
+  /// 实际传给 OpenAPI 的包名：会话非空用 [listPackageNameQuery]，否则 [ToolConfig.appPackageNameForOpenApi]。
+  String? get effectiveEmasPackageNameForRequest {
+    if (listPackageNameQuery.trim().isNotEmpty) return listPackageNameQuery.trim();
+    return config.appPackageNameForOpenApi;
+  }
 
   /// 性能 · 启动分析：冷/热启动筛选；`all` 表示不传附加参数。离开启动分析或非 GetIssues 场景时应置回 `all`。
   String _perfStartupLaunchKind = 'all';
@@ -157,11 +166,18 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setListPackageNameQuery(String q) {
+    listPackageNameQuery = q.trim();
+    pageIndex = 1;
+    notifyListeners();
+  }
+
   void setTimeRangeBack(Duration back) {
     final now = DateTime.now();
     rangeEndMs = now.millisecondsSinceEpoch;
     rangeStartMs = now.subtract(back).millisecondsSinceEpoch;
     pageIndex = 1;
+    _listPageSizeForApi = pageSize;
     notifyListeners();
   }
 
@@ -171,6 +187,7 @@ class AppController extends ChangeNotifier {
     rangeStartMs = bounds.$1;
     rangeEndMs = bounds.$2;
     pageIndex = 1;
+    _listPageSizeForApi = pageSize;
     notifyListeners();
   }
 
@@ -183,11 +200,6 @@ class AppController extends ChangeNotifier {
     return _matchesCalendarInclusiveStart(calendarDaysInclusive, tol);
   }
 
-  static bool _isCrashFamilyBizModule(String biz) {
-    final b = biz.trim().toLowerCase();
-    return b == 'crash' || b == 'anr' || b == 'block' || b == 'exception';
-  }
-
   bool _matchesCalendarInclusiveStart(int calendarDaysInclusive, int tol) {
     final expected = calendarInclusiveRangeBounds(calendarDaysInclusive: calendarDaysInclusive);
     return (rangeStartMs - expected.$1).abs() <= tol && (rangeEndMs - expected.$2).abs() <= tol;
@@ -198,6 +210,9 @@ class AppController extends ChangeNotifier {
   GetIssuesResult? lastIssues;
   int pageIndex = 1;
   final int pageSize = 20;
+
+  /// 列表 GetIssues 的 `PageSize`；「拉取 TOP10 总览」会暂改为 10，常规「一键获取」通过 [refreshIssues] 的 [resetPageSizeToDefault] 恢复为 [pageSize]。
+  int _listPageSizeForApi = 20;
 
   /// 实时概览：多 Biz GetIssues 汇总（不写入 [lastIssues]，避免干扰左侧子模块列表）。
   OverviewMetricsSnapshot? overviewMetrics;
@@ -248,6 +263,9 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 每个项目本地报告库最大条数（超出时保留最新，最旧被移除）。
+  static const int maxAnalysisReportsPerProject = 3;
+
   /// 当前项目已保存的 AI 分析报告（新在前）。
   List<AnalysisReportRecord> get analysisReportsForActiveProject {
     final id = activeProject.id;
@@ -257,11 +275,37 @@ class AppController extends ChangeNotifier {
     return List<AnalysisReportRecord>.unmodifiable(copy);
   }
 
-  Future<void> addAnalysisReport(AnalysisReportRecord r) async {
+  /// 按创建时间仅保留最新的 [maxAnalysisReportsPerProject] 条；若移除了当前挂载的报告会清除挂载。
+  bool _capAnalysisReportsListInPlace(List<AnalysisReportRecord> list) {
+    if (list.length <= maxAnalysisReportsPerProject) return false;
+    list.sort((a, b) => b.createdAtMs.compareTo(a.createdAtMs));
+    while (list.length > maxAnalysisReportsPerProject) {
+      final removed = list.removeLast();
+      if (_chatAttachedReport?.id == removed.id) {
+        _chatAttachedReport = null;
+      }
+    }
+    return true;
+  }
+
+  /// 启动或导入后：各项目列表对齐条数上限。
+  bool _enforceAnalysisReportsPerProjectCap() {
+    var changed = false;
+    for (final list in _analysisReportsByProject.values) {
+      if (_capAnalysisReportsListInPlace(list)) changed = true;
+    }
+    return changed;
+  }
+
+  /// 返回 `true` 表示保存前已达上限，本次写入后已按时间淘汰最旧的一条（或若干条）。
+  Future<bool> addAnalysisReport(AnalysisReportRecord r) async {
     final list = _analysisReportsByProject.putIfAbsent(r.projectId, () => []);
+    final evicting = list.length >= maxAnalysisReportsPerProject;
     list.insert(0, r);
+    _capAnalysisReportsListInPlace(list);
     await AnalysisReportStorage.save(_analysisReportsByProject);
     notifyListeners();
+    return evicting;
   }
 
   Future<void> deleteAnalysisReport(String reportId) async {
@@ -315,11 +359,24 @@ class AppController extends ChangeNotifier {
         debugPrint(
           '已加载本地测试配置: ${testHit.path}（模式: ${testHit.mode.name}，未写回工作区文件）',
         );
+        try {
+          final raw = await File(testHit.path).readAsString();
+          final d = jsonDecode(raw);
+          if (d is Map<String, dynamic>) {
+            final n = TestLocalConfigLoader.optionalLegacyAppVersionFromImportRoot(
+              Map<String, dynamic>.from(d),
+            );
+            if (n != null && n.isNotEmpty) listNameQuery = n;
+          }
+        } catch (_) {}
       }
       showProjectHub = _workspace.openProjectHubOnLaunch;
       await _syncWallpaperThemeSeed();
       try {
         _analysisReportsByProject = await AnalysisReportStorage.load();
+        if (_enforceAnalysisReportsPerProjectCap()) {
+          await AnalysisReportStorage.save(_analysisReportsByProject);
+        }
       } catch (e, st) {
         debugPrint('加载分析报告库失败: $e\n$st');
         _analysisReportsByProject = {};
@@ -331,7 +388,6 @@ class AppController extends ChangeNotifier {
       showProjectHub = true;
     }
     _workspace.ensureValidActive();
-    listNameQuery = config.emasListNameQuery.trim();
     // 首次落盘失败（如 Keychain 权限）不应阻断进入项目页；保存时会再尝试或回退明文。
     if (bootstrapError == null) {
       try {
@@ -362,6 +418,16 @@ class AppController extends ChangeNotifier {
       return ('Web 端不支持从本地文件导入 JSON，请使用桌面版。', null);
     }
     try {
+      String? legacyName;
+      try {
+        final preview = await File(filePath).readAsString();
+        final dec = jsonDecode(preview);
+        if (dec is Map<String, dynamic>) {
+          legacyName = TestLocalConfigLoader.optionalLegacyAppVersionFromImportRoot(
+            Map<String, dynamic>.from(dec),
+          );
+        }
+      } catch (_) {}
       final r = await TestLocalConfigLoader.applyFromFile(
         File(filePath),
         _workspace,
@@ -374,6 +440,9 @@ class AppController extends ChangeNotifier {
       }
       _workspace.ensureValidActive();
       _resetWorkspaceSession();
+      if (legacyName != null && legacyName.isNotEmpty) {
+        listNameQuery = legacyName;
+      }
       await _persistWorkspace();
       await _syncWallpaperThemeSeed();
       notifyListeners();
@@ -385,7 +454,6 @@ class AppController extends ChangeNotifier {
 
   Future<void> saveConfig(ToolConfig next) async {
     activeProject.config = next;
-    listNameQuery = next.emasListNameQuery.trim();
     notifyListeners();
     await _persistWorkspace();
   }
@@ -445,7 +513,9 @@ class AppController extends ChangeNotifier {
     pageIndex = 1;
     selectedDigestHashes.clear();
     _workspaceBizOverride = '';
-    listNameQuery = activeProject.config.emasListNameQuery.trim();
+    listNameQuery = '';
+    listPackageNameQuery = '';
+    _listPageSizeForApi = pageSize;
     _perfStartupLaunchKind = 'all';
     overviewMetrics = null;
     overviewDashboardError = null;
@@ -545,7 +615,11 @@ class AppController extends ChangeNotifier {
     await _syncWallpaperThemeSeed();
   }
 
-  Future<void> refreshIssues() async {
+  /// [resetPageSizeToDefault] 为 true 时恢复每页 [pageSize]（常规「一键获取」、切换子模块等应传 true）。
+  Future<void> refreshIssues({bool resetPageSizeToDefault = false}) async {
+    if (resetPageSizeToDefault) {
+      _listPageSizeForApi = pageSize;
+    }
     if (_useEmasCrashMock) {
       loadingIssues = true;
       issuesError = null;
@@ -553,18 +627,11 @@ class AppController extends ChangeNotifier {
       await Future<void>.delayed(const Duration(milliseconds: 220));
       lastIssues = EmasCrashMockData.mockGetIssues(
         pageIndex: pageIndex,
-        pageSize: pageSize,
+        pageSize: _listPageSizeForApi,
       );
       loadingIssues = false;
       notifyListeners();
       return;
-    }
-
-    if (_isCrashFamilyBizModule(activeBizModule)) {
-      final next = config.emasListNameQuery.trim();
-      if (listNameQuery != next) {
-        setListNameQuery(config.emasListNameQuery);
-      }
     }
 
     final miss = config.validateEmas();
@@ -598,8 +665,9 @@ class AppController extends ChangeNotifier {
         startTimeMs: rangeStartMs,
         endTimeMs: rangeEndMs,
         pageIndex: pageIndex,
-        pageSize: pageSize,
+        pageSize: _listPageSizeForApi,
         name: listNameQuery.isEmpty ? null : listNameQuery,
+        packageName: effectiveEmasPackageNameForRequest,
         extraBody: _emasStartupLaunchExtra,
       );
     } catch (e) {
@@ -612,11 +680,24 @@ class AppController extends ChangeNotifier {
     }
   }
 
+  /// 先拉取列表第 1 页 10 条，再生成 TOP10 合并大模型总览（`ok:` / `err:`）。不依赖勾选与其它筛选。
+  Future<String> pullTop10AggregateReportMarkdown() async {
+    final missL = config.validateLlm();
+    if (missL.isNotEmpty) return 'err:请先配置大模型：${missL.join('、')}';
+    pageIndex = 1;
+    _listPageSizeForApi = 10;
+    await refreshIssues();
+    final items = lastIssues?.items ?? const [];
+    if (lastIssues == null || items.isEmpty) {
+      final hint = (issuesError ?? '').trim();
+      return 'err:${hint.isNotEmpty ? hint : '列表为空或拉取失败'}';
+    }
+    return generateTopAggregateReport(topN: 10);
+  }
+
   /// 拉取实时概览：对齐控制台「实时大盘」常见维度，数据均为各 Biz 下 GetIssues 的 Total（聚合 issue 数）。
   Future<void> refreshOverviewDashboard() async {
     clearWorkspaceBizOverride();
-    setListNameQuery(config.emasListNameQuery);
-
     final miss = config.validateEmas();
     if (miss.isNotEmpty) {
       overviewDashboardError = '请先完成配置：${miss.join('、')}';
@@ -660,6 +741,7 @@ class AppController extends ChangeNotifier {
     notifyListeners();
 
     final nameParam = listNameQuery.isEmpty ? null : listNameQuery;
+    final pkgParam = effectiveEmasPackageNameForRequest;
     final client = EmasAppMonitorClient(
       accessKeyId: config.accessKeyId.trim(),
       accessKeySecret: config.accessKeySecret.trim(),
@@ -682,6 +764,7 @@ class AppController extends ChangeNotifier {
             pageIndex: 1,
             pageSize: pageSz,
             name: nameParam,
+            packageName: pkgParam,
           );
           byBiz[biz] = r.total;
           if (biz == 'crash') {
@@ -706,6 +789,7 @@ class AppController extends ChangeNotifier {
           pageIndex: 1,
           pageSize: 1,
           name: nameParam,
+          packageName: pkgParam,
         );
         todayTotal = r.total;
       } catch (e) {
@@ -731,7 +815,11 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  Future<Map<String, dynamic>?> fetchIssueDetail(String digestHash) async {
+  Future<Map<String, dynamic>?> fetchIssueDetail(
+    String digestHash, {
+    int? startTimeMs,
+    int? endTimeMs,
+  }) async {
     if (config.emasUseMockCrashData && EmasCrashMockData.isMockDigest(digestHash)) {
       return EmasCrashMockData.mockGetIssue(digestHash);
     }
@@ -740,6 +828,9 @@ class AppController extends ChangeNotifier {
     if (miss.isNotEmpty) return null;
     final ak = config.appKeyAsInt;
     if (ak == null) return null;
+
+    final t0 = startTimeMs ?? rangeStartMs;
+    final t1 = endTimeMs ?? rangeEndMs;
 
     final client = EmasAppMonitorClient(
       accessKeyId: config.accessKeyId.trim(),
@@ -753,13 +844,101 @@ class AppController extends ChangeNotifier {
         bizModule: activeBizModule,
         os: config.os.trim(),
         digestHash: digestHash,
-        startTimeMs: rangeStartMs,
-        endTimeMs: rangeEndMs,
+        startTimeMs: t0,
+        endTimeMs: t1,
+        packageName: effectiveEmasPackageNameForRequest,
         extraBody: _emasStartupLaunchExtra,
       );
     } finally {
       client.close();
     }
+  }
+
+  /// 按 DigestHash 调用 GetIssue，成功则将 [lastIssues] 更新为**仅含该条**（与「一键获取」分页列表并存为两种入口）。
+  /// 会依次尝试：当前时间范围 → 最近 90 个自然日（至昨天）→ 近 90 天滚动窗口（含今天），以减轻时间口径不一致导致的空结果。
+  /// 成功返回 `null`，失败返回说明文案（不改变原有 [lastIssues]）。
+  Future<String?> fetchIssueByDigestIntoList(String digestRaw) async {
+    final digest = digestRaw.replaceAll(RegExp(r'\s+'), '');
+    if (digest.isEmpty) {
+      return '请输入问题 ID（DigestHash，如列表中的蓝色编号）';
+    }
+
+    if (_useEmasCrashMock && !EmasCrashMockData.isMockDigest(digest)) {
+      return '已开启「崩溃列表 Mock」，请关闭后再拉控制台真实 ID，或使用 mock_digest_* 测试';
+    }
+
+    final miss = config.validateEmas();
+    if (miss.isNotEmpty) return '请先完成配置：${miss.join('、')}';
+    if (config.appKeyAsInt == null) return 'AppKey 须为数字';
+
+    final previous = lastIssues;
+    loadingIssues = true;
+    issuesError = null;
+    notifyListeners();
+
+    IssueListItem? item;
+    String? lastErr;
+
+    Future<void> tryWindow(int t0, int t1) async {
+      if (item != null) return;
+      try {
+        final j = await fetchIssueDetail(digest, startTimeMs: t0, endTimeMs: t1);
+        final parsed = j != null ? IssueListItem.fromGetIssueResponse(j, digestHint: digest) : null;
+        if (_issueListItemHasPayload(parsed)) {
+          item = parsed;
+          lastErr = null;
+        } else if (j == null) {
+          lastErr ??= '无法请求 GetIssue（请检查 AccessKey 与网络）';
+        } else {
+          lastErr ??= 'GetIssue 未返回有效内容（可尝试扩大上方「时间范围」后再拉）';
+        }
+      } catch (e) {
+        lastErr = userFacingNetworkError(e);
+      }
+    }
+
+    try {
+      await tryWindow(rangeStartMs, rangeEndMs);
+      if (item == null) {
+        final w = calendarInclusiveRangeBounds(calendarDaysInclusive: 90);
+        await tryWindow(w.$1, w.$2);
+      }
+      if (item == null) {
+        final now = DateTime.now().millisecondsSinceEpoch;
+        await tryWindow(now - const Duration(days: 90).inMilliseconds, now);
+      }
+
+      if (item == null) {
+        lastIssues = previous;
+        return lastErr ??
+            '未查到该问题：请核对 ID、侧栏当前 Biz（崩溃/ANR/卡顿/异常）与控制台是否一致';
+      }
+
+      lastIssues = GetIssuesResult(
+        items: <IssueListItem>[item!],
+        total: 1,
+        pageNum: 1,
+        pageSize: 1,
+        pages: 1,
+      );
+      pageIndex = 1;
+      selectedDigestHashes.clear();
+      return null;
+    } finally {
+      loadingIssues = false;
+      notifyListeners();
+    }
+  }
+
+  static bool _issueListItemHasPayload(IssueListItem? it) {
+    if (it == null) return false;
+    bool nn(String? s) => s != null && s.trim().isNotEmpty;
+    if (!nn(it.digestHash)) return false;
+    return nn(it.errorName) ||
+        nn(it.stack) ||
+        nn(it.errorType) ||
+        it.errorCount != null ||
+        it.errorDeviceCount != null;
   }
 
   /// 将当前列表导出为 HTML 到用户选择的绝对路径（需已有列表数据）。
@@ -773,6 +952,7 @@ class AppController extends ChangeNotifier {
       endMs: rangeEndMs,
       bizModuleShown: activeBizModule,
       nameFilterShown: listNameQuery.isEmpty ? null : listNameQuery,
+      packageNameShown: effectiveEmasPackageNameForRequest,
     );
     await File(absolutePath).writeAsString(html, encoding: utf8);
     return 'ok';
@@ -789,6 +969,7 @@ class AppController extends ChangeNotifier {
       endMs: rangeEndMs,
       bizModuleShown: activeBizModule,
       nameFilterShown: listNameQuery.isEmpty ? null : listNameQuery,
+      packageNameShown: effectiveEmasPackageNameForRequest,
     );
     final dir = await getApplicationSupportDirectory();
     final sub = Directory(p.join(dir.path, 'reports'));
@@ -809,6 +990,7 @@ class AppController extends ChangeNotifier {
       endMs: rangeEndMs,
       bizModuleShown: activeBizModule,
       nameFilterShown: listNameQuery.isEmpty ? null : listNameQuery,
+      packageNameShown: effectiveEmasPackageNameForRequest,
     );
     final dir = await getApplicationSupportDirectory();
     final sub = Directory(p.join(dir.path, 'reports'));
@@ -830,6 +1012,7 @@ class AppController extends ChangeNotifier {
       parentDir: parentDir,
       bizModuleShown: activeBizModule,
       nameFilterShown: listNameQuery.isEmpty ? null : listNameQuery,
+      packageNameShown: effectiveEmasPackageNameForRequest,
     );
   }
 
@@ -989,6 +1172,50 @@ ${jsonEncode(detail)}
     }
   }
 
+  /// 对当前 [lastIssues] 列表前 [topN] 条（有 Digest）**单次**大模型调用，生成合并总览报告（崩溃 / ANR 等随当前 [activeBizModule]）。
+  ///
+  /// 输入为列表接口中的堆栈摘录（不逐条拉 GetIssue，避免耗时与 token 过大）。返回 `ok:` + Markdown 或 `err:` + 说明。
+  Future<String> generateTopAggregateReport({int topN = 10}) async {
+    final missL = config.validateLlm();
+    if (missL.isNotEmpty) return 'err:请先配置大模型：${missL.join('、')}';
+    final n = topN < 1 ? 1 : (topN > 30 ? 30 : topN);
+    final items = lastIssues?.items ?? const [];
+    final picked = <IssueListItem>[];
+    for (final it in items) {
+      final d = it.digestHash?.trim();
+      if (d == null || d.isEmpty) continue;
+      picked.add(it);
+      if (picked.length >= n) break;
+    }
+    if (picked.isEmpty) {
+      return 'err:当前列表没有带 Digest 的数据，请先「一键获取」';
+    }
+    final userMsg = buildTopNAggregateUserMessage(
+      issues: picked,
+      bizModule: activeBizModule,
+      rangeStartMs: rangeStartMs,
+      rangeEndMs: rangeEndMs,
+    );
+    final client = LlmClient(
+      baseUrl: config.llmBaseUrl.trim(),
+      apiKey: config.llmApiKey.trim(),
+      model: config.llmModel.trim(),
+      chatCompletionsPath: config.effectiveLlmChatPath,
+      httpClient: newOutboundHttpClient(),
+    );
+    try {
+      final reply = await client.chat([
+        {'role': 'system', 'content': config.effectiveLlmSystemPrompt},
+        {'role': 'user', 'content': userMsg},
+      ]);
+      return 'ok:$reply';
+    } catch (e) {
+      return 'err:${userFacingNetworkError(e)}';
+    } finally {
+      client.close();
+    }
+  }
+
   /// `crash-tools://open?path=...` 打开 payload 并执行 Agent。
   /// 探测 EMAS 列表接口（不覆盖当前 [lastIssues]）。
   ///
@@ -1018,9 +1245,8 @@ ${jsonEncode(detail)}
       httpClient: newOutboundHttpClient(),
     );
     final biz = draft != null ? cfg.bizModule.trim() : activeBizModule;
-    final nameQ = draft != null
-        ? (cfg.emasListNameQuery.trim().isEmpty ? null : cfg.emasListNameQuery.trim())
-        : (listNameQuery.isEmpty ? null : listNameQuery);
+    final nameQ = listNameQuery.trim().isEmpty ? null : listNameQuery.trim();
+    final pkgQ = draft != null ? cfg.appPackageNameForOpenApi : effectiveEmasPackageNameForRequest;
     try {
       final r = await client.getIssues(
         appKey: ak,
@@ -1031,6 +1257,7 @@ ${jsonEncode(detail)}
         pageIndex: 1,
         pageSize: 1,
         name: nameQ,
+        packageName: pkgQ,
         extraBody: _emasStartupLaunchExtra,
       );
       return '正常 · 时间范围内共 ${r.total} 条聚合';

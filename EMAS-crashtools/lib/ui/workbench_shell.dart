@@ -86,7 +86,6 @@ class _WorkbenchShellState extends State<WorkbenchShell> {
     setState(() => _nav = n);
     final c = widget.controller;
     c.setPerfStartupLaunchKind('all');
-    c.setListNameQuery(c.config.emasListNameQuery);
     switch (n) {
       case _Nav.crash:
         c.setWorkspaceBizOverride('crash');
@@ -104,14 +103,13 @@ class _WorkbenchShellState extends State<WorkbenchShell> {
         break;
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) c.refreshIssues();
+      if (mounted) c.refreshIssues(resetPageSizeToDefault: true);
     });
   }
 
   void _selectOverview() {
     setState(() => _nav = _Nav.overview);
     widget.controller.clearWorkspaceBizOverride();
-    widget.controller.setListNameQuery(widget.controller.config.emasListNameQuery);
   }
 
   /// 将当前性能子项的 BizModule、Name、时间写入控制器（不自动请求列表）。
@@ -151,13 +149,13 @@ class _WorkbenchShellState extends State<WorkbenchShell> {
     setState(() => _nav = _Nav.perfStartup);
     _syncPerfContextToController();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) widget.controller.refreshIssues();
+      if (mounted) widget.controller.refreshIssues(resetPageSizeToDefault: true);
     });
   }
 
   void _applyPerformanceFetch() {
     _syncPerfContextToController();
-    widget.controller.refreshIssues();
+    widget.controller.refreshIssues(resetPageSizeToDefault: true);
   }
 
   Widget _perfWorkspace({
@@ -472,7 +470,7 @@ class _PerfToolBar extends StatelessWidget {
                 controller: startupVersionCtrl,
                 decoration: const InputDecoration(
                   labelText: '版本 / 名称关键字',
-                  hintText: '对应 GetIssues 的 Name，可选',
+                  hintText: '应用版本等关键字（GetIssues Name），可选',
                   border: OutlineInputBorder(),
                   isDense: true,
                   filled: true,

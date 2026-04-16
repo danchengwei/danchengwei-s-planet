@@ -112,109 +112,114 @@ class _ChatTabState extends State<ChatTab> {
   }
 
   Future<void> _showReportLibrarySheet(BuildContext context) async {
-    final list = widget.controller.analysisReportsForActiveProject;
     final t = Theme.of(context);
     final cs = t.colorScheme;
+    final maxN = AppController.maxAnalysisReportsPerProject;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (ctx) {
+      builder: (sheetCtx) {
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text('报告库', style: t.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-                const SizedBox(height: 4),
-                Text(
-                  '挂载后，每次发送消息都会在 system 中附带该报告（有长度上限）。删除仅从库中移除，不影响已发送的历史气泡。',
-                  style: t.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant, height: 1.35),
-                ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  height: MediaQuery.sizeOf(context).height * 0.46,
-                  child: list.isEmpty
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(24),
-                            child: Text(
-                              '暂无已保存报告。在列表中点「智能分析」生成后，使用「保存到报告库」。',
-                              textAlign: TextAlign.center,
-                              style: t.textTheme.bodyMedium?.copyWith(color: cs.outline),
+            child: StatefulBuilder(
+              builder: (ctx, setModalState) {
+                final list = widget.controller.analysisReportsForActiveProject;
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text('报告库', style: t.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 4),
+                    Text(
+                      '每个项目最多保留 $maxN 条；新保存会按时间淘汰最旧条目。可删除任意一条；挂载后发送消息会在 system 中附带报告（有长度上限）。删除不影响已发送的历史气泡。',
+                      style: t.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant, height: 1.35),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: MediaQuery.sizeOf(context).height * 0.46,
+                      child: list.isEmpty
+                          ? Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Text(
+                                  '暂无已保存报告。在列表中点「智能分析」生成后，使用「保存到报告库」。',
+                                  textAlign: TextAlign.center,
+                                  style: t.textTheme.bodyMedium?.copyWith(color: cs.outline),
+                                ),
+                              ),
+                            )
+                          : ListView.separated(
+                              itemCount: list.length,
+                              separatorBuilder: (context, i) => const Divider(height: 1),
+                              itemBuilder: (ctx, i) {
+                                final r = list[i];
+                                final dt = DateFormat('MM-dd HH:mm').format(
+                                  DateTime.fromMillisecondsSinceEpoch(r.createdAtMs),
+                                );
+                                return ListTile(
+                                  contentPadding: const EdgeInsets.symmetric(vertical: 4),
+                                  title: Text(r.shortTitle, maxLines: 2, overflow: TextOverflow.ellipsis),
+                                  subtitle: Text(
+                                    '$dt · ${r.bizModule} · ${r.digestHash}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+                                  ),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        tooltip: '挂载到上下文',
+                                        icon: const Icon(Icons.chat_bubble_outline),
+                                        onPressed: () {
+                                          widget.controller.attachReportToChat(r);
+                                          Navigator.pop(sheetCtx);
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(
+                                              content: Text('已挂载该报告到对话上下文'),
+                                              behavior: SnackBarBehavior.floating,
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                      IconButton(
+                                        tooltip: '从报告库删除',
+                                        icon: Icon(Icons.delete_outline, color: cs.error),
+                                        onPressed: () async {
+                                          final ok = await showDialog<bool>(
+                                            context: ctx,
+                                            builder: (dCtx) => AlertDialog(
+                                              title: const Text('删除报告'),
+                                              content: const Text('确定从报告库中删除该条？此操作不可恢复。'),
+                                              actions: [
+                                                TextButton(
+                                                  onPressed: () => Navigator.pop(dCtx, false),
+                                                  child: const Text('取消'),
+                                                ),
+                                                FilledButton(
+                                                  onPressed: () => Navigator.pop(dCtx, true),
+                                                  child: const Text('删除'),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                          if (ok == true && context.mounted) {
+                                            await widget.controller.deleteAnalysisReport(r.id);
+                                            if (ctx.mounted) setModalState(() {});
+                                          }
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
                             ),
-                          ),
-                        )
-                      : ListView.separated(
-                          itemCount: list.length,
-                          separatorBuilder: (context, i) => const Divider(height: 1),
-                          itemBuilder: (ctx, i) {
-                            final r = list[i];
-                            final dt = DateFormat('MM-dd HH:mm').format(
-                              DateTime.fromMillisecondsSinceEpoch(r.createdAtMs),
-                            );
-                            return ListTile(
-                              contentPadding: const EdgeInsets.symmetric(vertical: 4),
-                              title: Text(r.shortTitle, maxLines: 2, overflow: TextOverflow.ellipsis),
-                              subtitle: Text(
-                                '$dt · ${r.bizModule} · ${r.digestHash}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
-                              ),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    tooltip: '挂载到上下文',
-                                    icon: const Icon(Icons.chat_bubble_outline),
-                                    onPressed: () {
-                                      widget.controller.attachReportToChat(r);
-                                      Navigator.pop(ctx);
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(
-                                          content: Text('已挂载该报告到对话上下文'),
-                                          behavior: SnackBarBehavior.floating,
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                  IconButton(
-                                    tooltip: '删除报告',
-                                    icon: Icon(Icons.delete_outline, color: cs.error),
-                                    onPressed: () async {
-                                      final ok = await showDialog<bool>(
-                                        context: ctx,
-                                        builder: (dCtx) => AlertDialog(
-                                          title: const Text('删除报告'),
-                                          content: const Text('确定从报告库中删除该条？此操作不可恢复。'),
-                                          actions: [
-                                            TextButton(
-                                              onPressed: () => Navigator.pop(dCtx, false),
-                                              child: const Text('取消'),
-                                            ),
-                                            FilledButton(
-                                              onPressed: () => Navigator.pop(dCtx, true),
-                                              child: const Text('删除'),
-                                            ),
-                                          ],
-                                        ),
-                                      );
-                                      if (ok == true && context.mounted) {
-                                        await widget.controller.deleteAnalysisReport(r.id);
-                                        if (ctx.mounted) Navigator.pop(ctx);
-                                      }
-                                    },
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-                ),
-              ],
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         );

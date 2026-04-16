@@ -14,7 +14,7 @@ class ToolConfig {
     this.appKey = '',
     this.os = 'android',
     this.bizModule = 'crash',
-    this.emasListNameQuery = '',
+    this.appPackageName = '',
     this.consoleBaseUrl = '',
     this.consoleIssueUrlTemplate = '',
     this.gitlabBaseUrl = '',
@@ -72,7 +72,7 @@ class ToolConfig {
       appKey: j['appKey']?.toString() ?? '',
       os: j['os']?.toString() ?? 'android',
       bizModule: j['bizModule']?.toString() ?? 'crash',
-      emasListNameQuery: _emasListNameQueryFromJson(j),
+      appPackageName: _appPackageNameFromJson(j),
       consoleBaseUrl: j['consoleBaseUrl']?.toString() ?? '',
       consoleIssueUrlTemplate: j['consoleIssueUrlTemplate']?.toString() ?? '',
       gitlabBaseUrl: j['gitlabBaseUrl']?.toString() ?? '',
@@ -150,14 +150,19 @@ class ToolConfig {
     return double.tryParse(v.toString());
   }
 
-  /// GetIssues 的 `Name` 筛选；JSON 可用 [emasListNameQuery]，或兼容 `packageName` / `androidPackageName`。
-  static String _emasListNameQueryFromJson(Map<String, dynamic> j) {
-    String pick(String key) => j[key]?.toString().trim() ?? '';
-    final primary = pick('emasListNameQuery');
-    if (primary.isNotEmpty) return primary;
-    final pkg = pick('packageName');
-    if (pkg.isNotEmpty) return pkg;
-    return pick('androidPackageName');
+  /// 应用包名（Android `applicationId` 等）。
+  ///
+  /// JSON 读取顺序：`appPackageName` → `packageName` → `androidPackageName` → `emasListNameQuery`。
+  /// 其中 `emasListNameQuery` 为部分测试/扁平配置沿用键名（**表示包名**，与 GetIssues 的 `Name`、工作台「应用版本」无关）。
+  static String _appPackageNameFromJson(Map<String, dynamic> j) {
+    String pick(String k) => j[k]?.toString().trim() ?? '';
+    final a = pick('appPackageName');
+    if (a.isNotEmpty) return a;
+    final b = pick('packageName');
+    if (b.isNotEmpty) return b;
+    final c = pick('androidPackageName');
+    if (c.isNotEmpty) return c;
+    return pick('emasListNameQuery');
   }
 
   static List<GitlabProjectBinding> _gitlabProjectsFromJson(Map<String, dynamic> j) {
@@ -202,8 +207,8 @@ class ToolConfig {
   String appKey;
   String os;
   String bizModule;
-  /// 对应 GetIssues 请求体中的 `Name`（可选），**应用版本 / 包名** 等筛选与控制台一致。
-  String emasListNameQuery;
+  /// 应用包名（如 `com.xxx.app`）。**可选**：`AppKey` 已绑定应用时多数场景可不填；若需随 OpenAPI 传 `PackageName` 再填写。
+  String appPackageName;
   String consoleBaseUrl;
   /// 单条问题链接模板，可含 `{digest}`；空则仅用控制台总入口。
   String consoleIssueUrlTemplate;
@@ -255,6 +260,12 @@ class ToolConfig {
   List<GitlabProjectBinding> get gitlabBindingsResolved =>
       gitlabProjects.where((e) => e.projectId.trim().isNotEmpty).toList();
 
+  /// 非空时写入 GetIssues/GetIssue 请求体的 `PackageName`（与控制台「应用版本」筛选 `Name` 无关）。
+  String? get appPackageNameForOpenApi {
+    final t = appPackageName.trim();
+    return t.isEmpty ? null : t;
+  }
+
   List<String> get agentFixedArgsList {
     try {
       final v = jsonDecode(agentFixedArgs);
@@ -270,7 +281,7 @@ class ToolConfig {
         'appKey': appKey,
         'os': os,
         'bizModule': bizModule,
-        'emasListNameQuery': emasListNameQuery,
+        'appPackageName': appPackageName,
         'consoleBaseUrl': consoleBaseUrl,
         'consoleIssueUrlTemplate': consoleIssueUrlTemplate,
         'gitlabBaseUrl': gitlabBaseUrl,

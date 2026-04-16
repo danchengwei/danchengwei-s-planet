@@ -1,3 +1,4 @@
+import '../aliyun/emas_appmonitor_client.dart';
 import 'agent_launcher.dart';
 import 'gitlab_client.dart';
 import 'stack_clarity.dart';
@@ -31,11 +32,75 @@ String formatGitlabContextForPrompt(List<GitLabBlobHit> hits, List<GitLabCommitI
     }
   }
   if (commits.isNotEmpty) {
+    final devLine = gitCommitAuthorsSummaryLine(commits);
+    if (devLine.isNotEmpty) {
+      buf.writeln('\n$devLine（以下提交摘自 GitLab 该路径近期历史）');
+    }
     buf.writeln('\n首命中文件近期提交（供判断变更背景）：');
     for (final c in commits.take(4)) {
       buf.writeln('- ${c.title ?? '-'} · ${c.authorName ?? ''} ${c.committedDate ?? ''}');
     }
   }
+  return buf.toString();
+}
+
+String _trimForAggregatePrompt(String? s, int max) {
+  final t = (s ?? '').trim();
+  if (t.isEmpty) return '';
+  if (t.length <= max) return t;
+  return '${t.substring(0, max)}…';
+}
+
+/// 当前列表前 N 条合并为**单次**大模型请求的 user 消息（堆栈取自列表接口摘录）。
+String buildTopNAggregateUserMessage({
+  required List<IssueListItem> issues,
+  required String bizModule,
+  required int rangeStartMs,
+  required int rangeEndMs,
+  int maxStackCharsPerItem = 720,
+}) {
+  if (issues.isEmpty) return '';
+  final buf = StringBuffer();
+  buf.writeln(
+    '【输入说明】以下为 EMAS 聚合列表中按**当前列表顺序**取出的前 ${issues.length} 条（通常为次数/影响降序；以接口返回为准）。'
+    '堆栈文本来自列表侧摘录，可能短于单条 GetIssue。BizModule=$bizModule，时间范围(ms)：$rangeStartMs ~ $rangeEndMs。\n',
+  );
+  for (var i = 0; i < issues.length; i++) {
+    final it = issues[i];
+    final d = it.digestHash?.trim() ?? '';
+    buf.writeln('======== 第 ${i + 1} / ${issues.length} 条 ========');
+    buf.writeln('Digest: $d');
+    buf.writeln('ErrorName: ${it.errorName ?? ''}');
+    final et = it.errorType?.trim();
+    if (et != null && et.isNotEmpty) buf.writeln('ErrorType: $et');
+    if (it.errorCount != null) buf.writeln('ErrorCount: ${it.errorCount}');
+    if (it.errorDeviceCount != null) buf.writeln('ErrorDeviceCount: ${it.errorDeviceCount}');
+    final fv = it.firstVersion?.trim();
+    if (fv != null && fv.isNotEmpty) buf.writeln('FirstVersion: $fv');
+    final st = _trimForAggregatePrompt(it.stack, maxStackCharsPerItem);
+    buf.writeln('Stack（摘录）:\n${st.isEmpty ? '（无）' : st}');
+    buf.writeln();
+  }
+  buf.writeln('''
+----------
+【总览分析任务】
+请基于以上 ${issues.length} 条聚合问题输出**一份合并总览报告**（简体中文）。严格使用下列二级标题（字面一致），小节内可用列表与短代码；**不要编造**未出现在摘录中的类路径或文件名。
+
+## 概览
+（本批条数、时间口径、Biz 含义；若堆栈偏少请说明）
+
+## 共性与聚类
+（异常类型、可疑公共根因、模块/包层面线索）
+
+## 单条要点速览
+（每条 1–3 行，**必须带 Digest**，突出差异点）
+
+## 优先级与行动建议
+（排查/修复优先级、建议补充的信息、验证与回归要点）
+
+## 局限与待补充
+（若需单条 GetIssue 深度与代码仓对照，请列出建议动作）
+''');
   return buf.toString();
 }
 
