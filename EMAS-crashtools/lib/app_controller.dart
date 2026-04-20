@@ -140,6 +140,9 @@ class AppController extends ChangeNotifier {
       activeBizModule.trim().toLowerCase() == 'crash';
 
   /// 实际调用 EMAS 时使用的 BizModule。
+  /// 
+  /// 优先使用工作台覆盖值，否则使用配置中的默认值。
+  /// 支持的业务模块：crash, anr, startup, exception, h5WhiteScreen, lag, h5JsError, custom
   String get activeBizModule {
     final o = _workspaceBizOverride.trim();
     if (o.isNotEmpty) return o;
@@ -219,7 +222,27 @@ class AppController extends ChangeNotifier {
   bool loadingOverviewMetrics = false;
   String? overviewDashboardError;
 
-  static const List<String> _overviewBizOrder = ['crash', 'anr', 'startup', 'exception'];
+  /// 概览面板显示的业务模块顺序
+  /// 
+  /// 包含所有支持的 EMAS 业务模块类型：
+  /// - crash: 崩溃分析
+  /// - anr: ANR
+  /// - startup: 启动性能
+  /// - exception: 自定义异常
+  /// - h5whitescreen: H5 白屏
+  /// - lag: 卡顿
+  /// - h5jserror: H5 JS 错误
+  /// - custom: 自定义监控
+  static const List<String> _overviewBizOrder = [
+    'crash',
+    'anr',
+    'startup',
+    'exception',
+    'h5whitescreen',
+    'lag',
+    'h5jserror',
+    'custom',
+  ];
 
   /// 按项目 id 存本地分析报告（非 Web 落盘）。
   Map<String, List<AnalysisReportRecord>> _analysisReportsByProject = {};

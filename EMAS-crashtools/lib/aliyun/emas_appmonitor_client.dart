@@ -10,6 +10,52 @@ import 'form_flatten.dart';
 const _productId = 'emas-appmonitor';
 const _apiVersion = '2019-06-11';
 
+/// EMAS AppMonitor 支持的业务模块类型
+/// 
+/// 根据官方文档：https://api.aliyun.com/api/emas-appmonitor/2019-06-11/GetIssues
+abstract class EmasBizModule {
+  /// 崩溃分析（Crash）
+  static const String crash = 'crash';
+  
+  /// ANR（Application Not Responding）
+  static const String anr = 'anr';
+  
+  /// 启动性能（Startup）
+  static const String startup = 'startup';
+  
+  /// 自定义异常（Exception）
+  static const String exception = 'exception';
+  
+  /// H5 白屏（H5 White Screen）
+  static const String h5WhiteScreen = 'h5WhiteScreen';
+  
+  /// 卡顿（Lag）
+  static const String lag = 'lag';
+  
+  /// H5 JS 错误
+  static const String h5JsError = 'h5JsError';
+  
+  /// 自定义监控（Custom）
+  static const String custom = 'custom';
+}
+
+/// OS 平台类型
+/// 
+/// 当前项目固定使用 Android，但 API 支持多种平台
+abstract class EmasOsType {
+  /// Android 平台（当前项目默认）
+  static const String android = 'android';
+  
+  /// iOS 平台
+  static const String iphoneos = 'iphoneos';
+  
+  /// HarmonyOS 平台
+  static const String harmony = 'harmony';
+  
+  /// H5/Web 平台
+  static const String h5 = 'h5';
+}
+
 /// 阿里云 **应用监控** OpenAPI（`GetIssues` / `GetIssue`）：HTTPS + form + ACS4 签名。
 ///
 /// [httpClient] 须由 `newOutboundHttpClient`（`outbound_http_client_for_config.dart`）创建，
@@ -62,7 +108,13 @@ class EmasAppMonitorClient {
     );
   }
 
+  /// 测试 API 调用（用于调试）
+  Future<Map<String, dynamic>> testCall(String action, Map<String, dynamic> bodyMap) {
+    return _call(action, bodyMap);
+  }
+
   Future<Map<String, dynamic>> _callOnce(String action, Map<String, dynamic> bodyMap) async {
+    // 始终使用扁平化 form 格式（与控制台实际请求一致）
     final flat = <String, String>{};
     flattenToStringMap(flat, bodyMap);
     final form = toFormString(flat);
@@ -115,36 +167,182 @@ class EmasAppMonitorClient {
     }
   }
 
-  /// 构造 GetIssues 请求体（与 [getIssues] / [getIssuesRaw] 一致）。
-  static Map<String, dynamic> buildGetIssuesBody({
+  /// 构造 GetErrors 请求体（OpenAPI 标准参数格式）
+  /// 
+  /// 根据官方文档：https://api.aliyun.com/api/emas-appmonitor/2019-06-11/GetErrors
+  /// 
+  /// **必填参数：**
+  /// - AppKey: 项目 AppKey（整数类型）
+  /// - BizModule: 业务模块类型（同 GetIssues，如 crash/anr/startup 等）
+  /// - Os: OS 平台类型（android/iphoneos/harmony/h5），**当前项目固定使用 android**
+  /// - TimeRange.StartTime: 开始时间（毫秒时间戳）
+  /// - TimeRange.EndTime: 结束时间（毫秒时间戳）
+  ///   - 注意：GetErrors 的 TimeRange **只包含 StartTime 和 EndTime 两个字段**，不包含 Granularity
+  /// - PageIndex: 页号（从 1 开始，**必填**）
+  /// - PageSize: 每页数量（建议 1-100，**必填**）
+  /// 
+  /// **可选参数：**
+  /// - Utdid: 设备唯一标识符
+  /// - DigestHash: 聚合错误的摘要哈希（从 GetIssues 或 GetIssue 获取）
+  ///   - 用于指定查询哪个聚合错误下的实例列表
+  /// - ExtraBody: 额外的自定义参数
+  static Map<String, dynamic> buildGetErrorsBody({
     required int appKey,
     required String bizModule,
     required String os,
     required int startTimeMs,
     required int endTimeMs,
-    int pageIndex = 1,
-    int pageSize = 20,
-    String orderBy = 'instances',
-    String orderType = 'desc',
-    String? name,
+    required int pageIndex,
+    required int pageSize,
+    String? utdid,
+    String? digestHash,
+    Map<String, dynamic>? extraBody,
+  }) {
+    final body = <String, dynamic>{
+      'AppKey': appKey,
+      'BizModule': bizModule,
+      'Os': os.toLowerCase(),
+      'PageIndex': pageIndex,
+      'PageSize': pageSize,
+      'TimeRange': {
+        'StartTime': startTimeMs,
+        'EndTime': endTimeMs,
+      },
+    };
+    
+    if (utdid != null && utdid.isNotEmpty) {
+      body['Utdid'] = utdid;
+    }
+    
+    if (digestHash != null && digestHash.isNotEmpty) {
+      body['DigestHash'] = digestHash;
+    }
+    
+    if (extraBody != null && extraBody.isNotEmpty) {
+      body.addAll(extraBody);
+    }
+    return body;
+  }
+
+  /// GetErrors 原始 JSON（错误列表）
+  Future<Map<String, dynamic>> getErrorsRaw({
+    required int appKey,
+    required String bizModule,
+    required String os,
+    required int startTimeMs,
+    required int endTimeMs,
+    required int pageIndex,
+    required int pageSize,
+    String? utdid,
+    String? digestHash,
+    Map<String, dynamic>? extraBody,
+  }) {
+    return _call(
+      'GetErrors',
+      buildGetErrorsBody(
+        appKey: appKey,
+        bizModule: bizModule,
+        startTimeMs: startTimeMs,
+        endTimeMs: endTimeMs,
+        pageIndex: pageIndex,
+        pageSize: pageSize,
+        os: os,
+        utdid: utdid,
+        digestHash: digestHash,
+        extraBody: extraBody,
+      ),
+    );
+  }
+
+  /// 构造 GetIssues 请求体（OpenAPI 标准参数格式）
+  /// 
+  /// 根据官方文档：https://api.aliyun.com/api/emas-appmonitor/2019-06-11/GetIssues
+  /// 
+  /// **必填参数：**
+  /// - AppKey: 项目 AppKey（整数类型）
+  /// - BizModule: 业务模块类型
+  ///   - crash: 崩溃分析
+  ///   - anr: ANR（Application Not Responding）
+  ///   - startup: 启动性能
+  ///   - exception: 自定义异常
+  ///   - h5WhiteScreen: H5 白屏
+  ///   - lag: 卡顿
+  ///   - h5JsError: H5 JS 错误
+  ///   - custom: 自定义监控
+  /// - TimeRange.StartTime: 开始时间（毫秒时间戳）
+  /// - TimeRange.EndTime: 结束时间（毫秒时间戳）
+  /// 
+  /// **可选参数：**
+  /// - Os: OS 平台类型（android/iphoneos/harmony/h5），**当前项目固定使用 android**
+  /// - PageIndex: 页号（从 1 开始）
+  /// - PageSize: 每页数量（建议 1-100）
+  /// - OrderBy: 排序字段
+  ///   - ErrorCount: 按错误次数排序
+  ///   - ErrorDeviceCount: 按影响设备数排序
+  ///   - ErrorRate: 按错误率排序
+  ///   - ErrorDeviceRate: 按影响设备率排序
+  /// - OrderType: 排序方式（asc/desc/1）
+  /// - Name: 应用版本筛选（模糊搜索，对应控制台「应用版本」）
+  /// - Status: 错误状态（1/2/3/4）
+  /// - Granularity: 时间粒度值
+  /// - GranularityUnit: 时间粒度单位（hour/day/minute）
+  /// - PackageName: 应用包名（如 com.example.app）
+  /// - ExtraBody: 额外的自定义参数
+  static Map<String, dynamic> buildGetIssuesBody({
+    required int appKey,
+    required String bizModule,
+    required int startTimeMs,
+    required int endTimeMs,
+    String? os,  // 可选：harmony/iphoneos/android/h5
+    int? pageIndex,
+    int? pageSize,
+    String? orderBy,  // 可选：ErrorDeviceRate/ErrorDeviceCount/ErrorCount/ErrorRate
+    String? orderType,  // 可选：1/asc/desc
+    String? name,  // 可选：错误名（模糊搜索）
+    int? status,  // 可选：错误状态 1/2/3/4
+    int? granularity,  // 可选：粒度
+    String? granularityUnit,  // 可选：hour/day/minute
     String? packageName,
     Map<String, dynamic>? extraBody,
   }) {
     final body = <String, dynamic>{
       'AppKey': appKey,
       'BizModule': bizModule,
-      'Os': os,
-      'PageIndex': pageIndex,
-      'PageSize': pageSize,
-      'OrderBy': orderBy,
-      'OrderType': orderType,
       'TimeRange': {
         'StartTime': startTimeMs,
         'EndTime': endTimeMs,
       },
     };
+    
+    // TimeRange 可选参数
+    if (granularity != null) {
+      body['TimeRange']['Granularity'] = granularity;
+    }
+    if (granularityUnit != null && granularityUnit.isNotEmpty) {
+      body['TimeRange']['GranularityUnit'] = granularityUnit;
+    }
+    
+    // 可选参数
+    if (os != null && os.isNotEmpty) {
+      body['Os'] = os;
+    }
+    if (pageIndex != null) {
+      body['PageIndex'] = pageIndex;
+    }
+    if (pageSize != null) {
+      body['PageSize'] = pageSize;
+    }
+    if (orderBy != null && orderBy.isNotEmpty) {
+      body['OrderBy'] = orderBy;
+    }
+    if (orderType != null && orderType.isNotEmpty) {
+      body['OrderType'] = orderType;
+    }
     if (name != null && name.isNotEmpty) {
       body['Name'] = name;
+    }
+    if (status != null) {
+      body['Status'] = status;
     }
     if (packageName != null && packageName.isNotEmpty) {
       body['PackageName'] = packageName;
@@ -159,14 +357,17 @@ class EmasAppMonitorClient {
   Future<Map<String, dynamic>> getIssuesRaw({
     required int appKey,
     required String bizModule,
-    required String os,
     required int startTimeMs,
     required int endTimeMs,
-    int pageIndex = 1,
-    int pageSize = 20,
-    String orderBy = 'instances',
-    String orderType = 'desc',
+    String? os,
+    int? pageIndex,
+    int? pageSize,
+    String? orderBy,
+    String? orderType,
     String? name,
+    int? status,
+    int? granularity,
+    String? granularityUnit,
     String? packageName,
     Map<String, dynamic>? extraBody,
   }) {
@@ -175,14 +376,17 @@ class EmasAppMonitorClient {
       buildGetIssuesBody(
         appKey: appKey,
         bizModule: bizModule,
-        os: os,
         startTimeMs: startTimeMs,
         endTimeMs: endTimeMs,
+        os: os,
         pageIndex: pageIndex,
         pageSize: pageSize,
         orderBy: orderBy,
         orderType: orderType,
         name: name,
+        status: status,
+        granularity: granularity,
+        granularityUnit: granularityUnit,
         packageName: packageName,
         extraBody: extraBody,
       ),
@@ -193,31 +397,38 @@ class EmasAppMonitorClient {
   ///
   /// [name] 一般对应控制台「应用版本」筛选（OpenAPI `Name`）。
   /// [packageName] 对应应用包名（OpenAPI `PackageName`）；若服务端报错或无效，请以阿里云文档为准改键名。
+  /// [os] 可选：OS 类型（harmony/iphoneos/android/h5）
   Future<GetIssuesResult> getIssues({
     required int appKey,
     required String bizModule,
-    required String os,
     required int startTimeMs,
     required int endTimeMs,
-    int pageIndex = 1,
-    int pageSize = 20,
-    String orderBy = 'instances',
-    String orderType = 'desc',
+    String? os,
+    int? pageIndex,
+    int? pageSize,
+    String? orderBy,
+    String? orderType,
     String? name,
+    int? status,
+    int? granularity,
+    String? granularityUnit,
     String? packageName,
     Map<String, dynamic>? extraBody,
   }) async {
     final json = await getIssuesRaw(
       appKey: appKey,
       bizModule: bizModule,
-      os: os,
       startTimeMs: startTimeMs,
       endTimeMs: endTimeMs,
+      os: os,
       pageIndex: pageIndex,
       pageSize: pageSize,
       orderBy: orderBy,
       orderType: orderType,
       name: name,
+      status: status,
+      granularity: granularity,
+      granularityUnit: granularityUnit,
       packageName: packageName,
       extraBody: extraBody,
     );
@@ -225,6 +436,21 @@ class EmasAppMonitorClient {
   }
 
   /// 单条聚合详情（需列表项中的 DigestHash）
+  /// 
+  /// 根据官方文档：https://api.aliyun.com/api/emas-appmonitor/2019-06-11/GetIssue
+  /// 
+  /// **必填参数：**
+  /// - AppKey: 项目 AppKey（整数类型）
+  /// - BizModule: 业务模块类型（同 GetIssues，如 crash/anr/startup 等）
+  /// - Os: OS 平台类型（android/iphoneos/harmony/h5），**当前项目固定使用 android**
+  /// - DigestHash: 聚合错误的摘要哈希（从 GetIssues 获取）
+  /// - TimeRange.StartTime: 开始时间（毫秒时间戳）
+  /// - TimeRange.EndTime: 结束时间（毫秒时间戳）
+  ///   - 注意：GetIssue 的 TimeRange **包含 4 个字段**：StartTime、EndTime、Granularity、GranularityUnit
+  /// 
+  /// **可选参数：**
+  /// - PackageName: 应用包名（如 com.example.app）
+  /// - ExtraBody: 额外的自定义参数
   Future<Map<String, dynamic>> getIssue({
     required int appKey,
     required String bizModule,
@@ -252,6 +478,114 @@ class EmasAppMonitorClient {
       body.addAll(extraBody);
     }
     return _call('GetIssue', body);
+  }
+
+  /// 构造 GetError 请求体（OpenAPI 标准参数格式）
+  /// 
+  /// 根据官方文档：https://api.aliyun.com/api/emas-appmonitor/2019-06-11/GetError
+  /// 
+  /// **必填参数：**
+  /// - AppKey: 项目 AppKey（整数类型）
+  /// - ClientTime: 客户端时间戳（毫秒），从 GetErrors 返回的实例列表中获取
+  /// 
+  /// **可选参数：**
+  /// - Did: 设备 ID
+  /// - Force: 是否强制刷新
+  /// - Os: OS 平台类型（android/iphoneos/harmony/h5），**当前项目固定使用 android**
+  /// - Uuid: 错误实例的唯一标识符（从 GetErrors 返回的实例列表中获取）
+  /// - BizModule: 业务模块类型（同 GetIssues，如 crash/anr/startup 等）
+  /// - DigestHash: 聚合错误的摘要哈希（从 GetIssues 或 GetIssue 获取）
+  /// - ExtraBody: 额外的自定义参数
+  static Map<String, dynamic> buildGetErrorBody({
+    required int appKey,
+    required int clientTime,
+    String? did,
+    bool? force,
+    String? os,
+    String? uuid,
+    String? bizModule,
+    String? digestHash,
+    Map<String, dynamic>? extraBody,
+  }) {
+    final body = <String, dynamic>{
+      'AppKey': appKey,
+      'ClientTime': clientTime,
+    };
+    
+    if (did != null && did.isNotEmpty) {
+      body['Did'] = did;
+    }
+    
+    if (force != null) {
+      body['Force'] = force;
+    }
+    
+    if (os != null && os.isNotEmpty) {
+      body['Os'] = os;
+    }
+    
+    if (uuid != null && uuid.isNotEmpty) {
+      body['Uuid'] = uuid;
+    }
+    
+    if (bizModule != null && bizModule.isNotEmpty) {
+      body['BizModule'] = bizModule;
+    }
+    
+    if (digestHash != null && digestHash.isNotEmpty) {
+      body['DigestHash'] = digestHash;
+    }
+    
+    if (extraBody != null && extraBody.isNotEmpty) {
+      body.addAll(extraBody);
+    }
+    return body;
+  }
+
+  /// GetError 原始 JSON（崩溃详情）
+  /// 
+  /// 获取单个错误实例的完整详情，包括堆栈信息、线程信息、设备信息等
+  /// 
+  /// **典型调用流程：**
+  /// 1. 调用 GetIssues 获取聚合错误列表，提取 DigestHash
+  /// 2. 调用 GetErrors 获取错误实例列表，提取 ClientTime 和 Uuid
+  /// 3. 调用 GetError 获取单个错误实例的完整详情
+  /// 
+  /// **参数说明：**
+  /// - appKey: 项目 AppKey（必填）
+  /// - clientTime: 客户端时间戳（必填），从 GetErrors 返回的实例列表中获取
+  /// - did: 设备 ID（可选）
+  /// - force: 是否强制刷新（可选）
+  /// - os: OS 平台类型（可选），**当前项目固定使用 android**
+  /// - uuid: 错误实例的唯一标识符（可选），从 GetErrors 返回的实例列表中获取
+  /// - bizModule: 业务模块类型（可选），同 GetIssues
+  /// - digestHash: 聚合错误的摘要哈希（可选），从 GetIssues 或 GetIssue 获取
+  /// - extraBody: 额外的自定义参数（可选）
+  Future<Map<String, dynamic>> getErrorRaw({
+    required int appKey,
+    required int clientTime,
+    String? did,
+    bool? force,
+    String? os,
+    String? uuid,
+    String? bizModule,
+    String? digestHash,
+    Map<String, dynamic>? extraBody,
+  }) {
+    return _call(
+      'GetError',
+      buildGetErrorBody(
+        appKey: appKey,
+        clientTime: clientTime,
+        did: did,
+        force: force,
+        os: os,
+        uuid: uuid,
+        bizModule: bizModule,
+        digestHash: digestHash,
+        extraBody: extraBody,
+      ),
+    );
   }
 
   void close() => _http.close();
@@ -304,6 +638,10 @@ class GetIssuesResult {
       for (final k in keys) {
         final v = model[k];
         if (v is num) return v.toInt();
+        if (v is String) {
+          final parsed = int.tryParse(v);
+          if (parsed != null) return parsed;
+        }
       }
       return 0;
     }
@@ -313,15 +651,30 @@ class GetIssuesResult {
       total: pickInt(const ['Total', 'total']),
       pageNum: () {
         final v = model['PageNum'] ?? model['pageNum'];
-        return v is num ? v.toInt() : null;
+        if (v is num) return v.toInt();
+        if (v is String) {
+          final parsed = int.tryParse(v);
+          if (parsed != null) return parsed;
+        }
+        return null;
       }(),
       pageSize: () {
         final v = model['PageSize'] ?? model['pageSize'];
-        return v is num ? v.toInt() : null;
+        if (v is num) return v.toInt();
+        if (v is String) {
+          final parsed = int.tryParse(v);
+          if (parsed != null) return parsed;
+        }
+        return null;
       }(),
       pages: () {
         final v = model['Pages'] ?? model['pages'];
-        return v is num ? v.toInt() : null;
+        if (v is num) return v.toInt();
+        if (v is String) {
+          final parsed = int.tryParse(v);
+          if (parsed != null) return parsed;
+        }
+        return null;
       }(),
     );
   }
@@ -367,12 +720,21 @@ class IssueListItem {
   factory IssueListItem.fromJson(Map<String, dynamic> j) {
     return IssueListItem(
       digestHash: j['DigestHash']?.toString(),
-      errorName: j['ErrorName']?.toString(),
+      // GetIssues API 返回的是 Name 和 Type 字段
+      errorName: _firstNonEmptyString(
+        j['ErrorName'],
+        j['Name'],  // GetIssues API 实际字段
+        j['Title'],
+      ),
       stack: j['Stack']?.toString(),
-      errorCount: (j['ErrorCount'] as num?)?.toInt(),
-      errorDeviceCount: (j['ErrorDeviceCount'] as num?)?.toInt(),
+      errorCount: _parseOptionalInt(j['ErrorCount']),
+      errorDeviceCount: _parseOptionalInt(j['ErrorDeviceCount']),
       eventTime: j['EventTime']?.toString(),
-      errorType: j['ErrorType']?.toString(),
+      // GetIssues API 返回的是 Type 字段
+      errorType: _firstNonEmptyString(
+        j['ErrorType'],
+        j['Type'],  // GetIssues API 实际字段
+      ),
       errorRatePercent: _parseOptionalPercent(j['ErrorRate'] ?? j['CrashRate'] ?? j['IssueCrashRate']),
       deviceRatePercent: _parseOptionalPercent(
         j['DeviceRate'] ?? j['ErrorDeviceRate'] ?? j['IssueDeviceRate'] ?? j['AffectedDeviceRate'],
@@ -389,6 +751,15 @@ class IssueListItem {
         j['HandleStatus'],
       ),
     );
+  }
+
+  static int? _parseOptionalInt(dynamic v) {
+    if (v is num) return v.toInt();
+    if (v is String) {
+      final parsed = int.tryParse(v);
+      if (parsed != null) return parsed;
+    }
+    return null;
   }
 
   final String? digestHash;

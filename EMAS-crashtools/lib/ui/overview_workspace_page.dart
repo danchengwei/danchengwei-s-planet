@@ -14,7 +14,9 @@ class OverviewWorkspacePage extends StatelessWidget {
   final AppController controller;
   final VoidCallback onOpenSettings;
 
+  /// 获取 BizModule 的简短标题（用于概览卡片）
   static String _bizTitle(String k) {
+    // 使用 issues_tab 中的友好名称，但取更简短的版本
     switch (k) {
       case 'crash':
         return '崩溃';
@@ -24,17 +26,32 @@ class OverviewWorkspacePage extends StatelessWidget {
         return '启动';
       case 'exception':
         return '异常';
+      case 'h5whitescreen':
+        return 'H5白屏';
+      case 'lag':
+        return '卡顿';
+      case 'h5jserror':
+        return 'H5JS';
+      case 'custom':
+        return '自定义';
       default:
         return k;
     }
   }
 
+  /// 获取 BizModule 的提示说明
   static String? _bizHint(String k) {
     switch (k) {
       case 'startup':
         return '聚合条数，非耗时';
       case 'exception':
         return '含 OOM 等';
+      case 'h5whitescreen':
+        return 'H5 页面白屏';
+      case 'h5jserror':
+        return 'H5 JS 错误';
+      case 'custom':
+        return '自定义监控项';
       default:
         return null;
     }
@@ -170,7 +187,8 @@ class OverviewWorkspacePage extends StatelessWidget {
                   final w = c.maxWidth;
                   final cols = w >= 900 ? 4 : (w >= 520 ? 2 : 1);
                   final tileW = cols == 1 ? w : (w - 12 * (cols - 1)) / cols;
-                  const keys = ['crash', 'anr', 'startup', 'exception'];
+                  // 支持所有业务模块类型
+                  const keys = ['crash', 'anr', 'startup', 'exception', 'h5whitescreen', 'lag', 'h5jserror', 'custom'];
                   return Wrap(
                     spacing: 12,
                     runSpacing: 12,

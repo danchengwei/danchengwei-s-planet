@@ -500,8 +500,18 @@ class _SettingsTabState extends State<SettingsTab> {
                     _fieldReq(_sk, 'AccessKey Secret', obscure: true),
                     _fieldReq(_region, 'Region', hintText: 'cn-shanghai'),
                     _fieldReq(_appKey, 'AppKey', hintText: '数字'),
-                    _fieldReq(_os, 'Os', hintText: 'android / ios'),
-                    _fieldReq(_biz, 'BizModule'),
+                    _fieldReq(
+                      _os,
+                      'Os',
+                      hintText: 'android（当前项目固定使用）',
+                      helperText: '支持：android, iphoneos, harmony, h5。当前项目固定使用 android。',
+                    ),
+                    _fieldReq(
+                      _biz,
+                      'BizModule',
+                      hintText: 'crash',
+                      helperText: '支持：crash(崩溃), anr(ANR), startup(启动), exception(异常), h5WhiteScreen(H5白屏), lag(卡顿), h5JsError(H5 JS错误), custom(自定义)',
+                    ),
                     _fieldOpt(
                       _packageName,
                       '应用包名',

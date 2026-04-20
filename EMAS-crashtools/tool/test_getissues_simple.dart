@@ -1,9 +1,8 @@
-// 测试 GetIssues API（只使用必填参数）
+// 测试 GetIssues API（简化版本，只使用基本参数）
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:crash_emas_tool/aliyun/emas_appmonitor_client.dart';
-import 'package:crash_emas_tool/aliyun/form_flatten.dart';
 import 'package:crash_emas_tool/models/tool_config.dart';
 import 'package:crash_emas_tool/services/outbound_http_client_for_config.dart';
 
@@ -26,12 +25,13 @@ Future<void> main() async {
 
   final now = DateTime.now();
   final todayStart = DateTime(now.year, now.month, now.day);
-  final startMs = todayStart.subtract(const Duration(days: 30)).millisecondsSinceEpoch;
+  final startMs = todayStart.subtract(const Duration(days: 7)).millisecondsSinceEpoch;
   final endMs = todayStart.millisecondsSinceEpoch - 1;
 
-  stdout.writeln('=== 测试 GetIssues API ===\n');
+  stdout.writeln('=== 测试 GetIssues API（简化版）===\n');
   stdout.writeln('Region: ${cfg.region.trim()}');
   stdout.writeln('AppKey: $ak');
+  stdout.writeln('OS: android');
   stdout.writeln('时间范围: ${_ymdLocal(startMs)} ~ ${_ymdLocal(endMs)}');
   stdout.writeln('');
 
@@ -44,37 +44,63 @@ Future<void> main() async {
   );
 
   try {
-    // 只使用必填参数
-    final body = <String, dynamic>{
-      'AppKey': ak,
-      'BizModule': 'crash',
-      'Os': 'android',
-      'TimeRange': {
-        'StartTime': startMs,
-        'EndTime': endMs,
-      },
-    };
-
+    // 先打印请求体，看看参数格式
+    final reqBody = EmasAppMonitorClient.buildGetIssuesBody(
+      appKey: ak,
+      bizModule: 'crash',
+      os: 'android',
+      startTimeMs: startMs,
+      endTimeMs: endMs,
+      pageIndex: 1,
+      pageSize: 10,
+      orderBy: 'ErrorCount',
+      orderType: 'desc',
+    );
+    
+    stdout.writeln('📤 请求体参数：');
+    const jsonEnc = JsonEncoder.withIndent('  ');
+    stdout.writeln(jsonEnc.convert(reqBody));
+    stdout.writeln('');
+    
+    // 调用 API（使用必填参数 + 常用可选参数）
     stdout.writeln('🔄 调用 GetIssues API...');
-    final result = await client.testCall('GetIssues', body);
+    final result = await client.getIssuesRaw(
+      appKey: ak,
+      bizModule: 'crash',
+      os: 'android',
+      startTimeMs: startMs,
+      endTimeMs: endMs,
+      pageIndex: 1,
+      pageSize: 10,
+      orderBy: 'ErrorCount',
+      orderType: 'desc',
+    );
 
     stdout.writeln('✅ 成功！\n');
     stdout.writeln('完整响应：');
-    const jsonEnc = JsonEncoder.withIndent('  ');
     stdout.writeln(jsonEnc.convert(result));
 
-    if (result.containsKey('Model')) {
-      final model = result['Model'];
-      if (model is Map) {
-        stdout.writeln('\n=== 解析结果 ===');
-        stdout.writeln('Total: ${model['Total'] ?? 0}');
-        stdout.writeln('Items 数量: ${(model['Items'] as List?)?.length ?? 0}');
+    // 尝试解析结果
+    stdout.writeln('\n========================================');
+    stdout.writeln('解析后的结果：');
+    final parsed = GetIssuesResult.fromJson(result);
+    stdout.writeln('Total: ${parsed.total}');
+    stdout.writeln('Items 数量: ${parsed.items.length}');
+    if (parsed.items.isNotEmpty) {
+      stdout.writeln('\n前3个错误项：');
+      for (var i = 0; i < parsed.items.length && i < 3; i++) {
+        final item = parsed.items[i];
+        stdout.writeln('  ${i + 1}. ${item.errorName ?? '无名称'}');
+        stdout.writeln('     DigestHash: ${item.digestHash ?? '无'}');
+        stdout.writeln('     ErrorCount: ${item.errorCount}');
       }
     }
 
     exitCode = 0;
-  } catch (e) {
+  } catch (e, stackTrace) {
     stderr.writeln('❌ 失败: $e');
+    stderr.writeln('堆栈跟踪:');
+    stderr.writeln(stackTrace);
     exitCode = 1;
   } finally {
     client.close();

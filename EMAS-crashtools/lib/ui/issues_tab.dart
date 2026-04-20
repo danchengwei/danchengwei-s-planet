@@ -193,7 +193,7 @@ class _ApiContextBanner extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'BizModule=${controller.activeBizModule}'
+              'BizModule=${getBizModuleDisplayName(controller.activeBizModule)}'
               '${controller.listNameQuery.isEmpty ? ' · 应用版本：未传' : ' · 应用版本：${controller.listNameQuery}'}'
               '${controller.effectiveEmasPackageNameForRequest == null ? ' · 包名：未传' : ' · 包名：${controller.effectiveEmasPackageNameForRequest}'}'
               '${_launchTypeBannerSuffix(controller)}',
@@ -642,18 +642,64 @@ String _stackPreviewOneLine(String? stack) {
 }
 
 /// 与 EMAS 列表表头一致；崩溃 / ANR / 卡顿 / 异常共用同一套列语义。
+/// 
+/// 支持的业务模块：
+/// - crash: 崩溃分析
+/// - anr: ANR（Application Not Responding）
+/// - startup: 启动性能
+/// - exception: 自定义异常
+/// - h5WhiteScreen: H5 白屏
+/// - lag: 卡顿
+/// - h5JsError: H5 JS 错误
+/// - custom: 自定义监控
 ({String count, String rate, String device, String deviceRate}) _issueMetricColumnLabels(String bizModule) {
   switch (bizModule.trim().toLowerCase()) {
     case 'crash':
       return (count: '崩溃数', rate: '崩溃率', device: '影响设备数', deviceRate: '影响设备率');
     case 'anr':
       return (count: 'ANR 数', rate: 'ANR 率', device: '影响设备数', deviceRate: '影响设备率');
+    case 'startup':
+      return (count: '启动次数', rate: '启动率', device: '影响设备数', deviceRate: '影响设备率');
     case 'block':
+    case 'lag':
       return (count: '卡顿数', rate: '卡顿率', device: '影响设备数', deviceRate: '影响设备率');
     case 'exception':
       return (count: '异常数', rate: '异常率', device: '影响设备数', deviceRate: '影响设备率');
+    case 'h5whitescreen':
+      return (count: '白屏数', rate: '白屏率', device: '影响设备数', deviceRate: '影响设备率');
+    case 'h5jserror':
+      return (count: 'JS错误数', rate: 'JS错误率', device: '影响设备数', deviceRate: '影响设备率');
+    case 'custom':
+      return (count: '自定义数', rate: '自定义率', device: '影响设备数', deviceRate: '影响设备率');
     default:
       return (count: '次数', rate: '比率', device: '影响设备数', deviceRate: '影响设备率');
+  }
+}
+
+/// 获取 BizModule 的友好中文名称
+/// 
+/// 用于 UI 展示，将技术性的 BizModule 转换为易读的中文名称
+String getBizModuleDisplayName(String bizModule) {
+  switch (bizModule.trim().toLowerCase()) {
+    case 'crash':
+      return '崩溃分析';
+    case 'anr':
+      return 'ANR';
+    case 'startup':
+      return '启动性能';
+    case 'exception':
+      return '自定义异常';
+    case 'h5whitescreen':
+      return 'H5 白屏';
+    case 'lag':
+    case 'block':
+      return '卡顿';
+    case 'h5jserror':
+      return 'H5 JS 错误';
+    case 'custom':
+      return '自定义监控';
+    default:
+      return bizModule;
   }
 }
 
