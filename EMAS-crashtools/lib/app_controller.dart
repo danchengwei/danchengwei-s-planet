@@ -515,9 +515,11 @@ class AppController extends ChangeNotifier {
   Future<void> commitHubSelectionAndEnterWithId(String projectId) async {
     _workspace.ensureValidActive();
     if (!_workspace.projects.any((p) => p.id == projectId)) {
+      debugPrint('⚠️ 项目不存在: $projectId');
       return;
     }
     final changed = _workspace.activeProjectId != projectId;
+    debugPrint('🔄 切换项目: ${_workspace.activeProjectId} -> $projectId (changed=$changed)');
     _workspace.activeProjectId = projectId;
     _hubSelectedProjectId = projectId;
     if (changed) {
@@ -525,6 +527,7 @@ class AppController extends ChangeNotifier {
       await _syncWallpaperThemeSeed();
     }
     showProjectHub = false;
+    debugPrint('✅ 进入工作台, showProjectHub=$showProjectHub');
     await _persistWorkspace();
     notifyListeners();
   }
