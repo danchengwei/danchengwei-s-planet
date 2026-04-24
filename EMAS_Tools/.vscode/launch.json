@@ -1,0 +1,29 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "EMAS工具 (macOS Debug)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "deviceId": "macos",
+      "flutterMode": "debug"
+    },
+    {
+      "name": "EMAS工具 (macOS Profile)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "deviceId": "macos",
+      "flutterMode": "profile"
+    },
+    {
+      "name": "EMAS工具 (macOS Release)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "deviceId": "macos",
+      "flutterMode": "release"
+    }
+  ]
+}

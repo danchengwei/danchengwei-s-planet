@@ -1,0 +1,1056 @@
+
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Baymax Crash分析报告</title>
+                <meta charset="UTF-8">
+                <style>
+                    body { 
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+                        margin: 0; 
+                        padding: 20px; 
+                        background: #F8F9FA; 
+                        line-height: 1.6;
+                    }
+                    .container { max-width: 1200px; margin: 0 auto; }
+                    .header { 
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                        color: white; 
+                        padding: 30px; 
+                        border-radius: 12px; 
+                        margin-bottom: 30px; 
+                        text-align: center;
+                    }
+                    .header h1 { margin: 0; font-size: 2.5em; font-weight: 300; }
+                    .header p { margin: 10px 0 0 0; opacity: 0.9; font-size: 1.1em; }
+                    
+                    .summary-grid { 
+                        display: grid; 
+                        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); 
+                        gap: 20px; 
+                        margin-bottom: 30px; 
+                    }
+                    .overview-row {
+                        display: grid;
+                        grid-template-columns: 1fr;
+                        gap: 20px;
+                        margin-bottom: 30px;
+                    }
+                    .overview-left {
+                        display: grid;
+                        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                        gap: 20px;
+                    }
+                    .summary-card { 
+                        background: white; 
+                        padding: 25px; 
+                        border-radius: 12px; 
+                        box-shadow: 0 4px 6px rgba(0,0,0,0.07); 
+                        border-left: 5px solid #0D6EFD;
+                    }
+                    .summary-card.java { border-left-color: #28A745; }
+                    .summary-card.native { border-left-color: #DC3545; }
+                    .summary-card h3 { 
+                        margin: 0 0 15px 0; 
+                        color: #212529; 
+                        font-size: 1.3em; 
+                        display: flex; 
+                        align-items: center; 
+                    }
+                    .summary-card .icon { margin-right: 10px; font-size: 1.5em; }
+                    
+                    .stat-grid { 
+                        display: grid; 
+                        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); 
+                        gap: 15px; 
+                    }
+                    .stat-item { text-align: center; }
+                    .stat-value { 
+                        font-size: 2em; 
+                        font-weight: 700; 
+                        color: #0D6EFD; 
+                        display: block; 
+                    }
+                    .stat-label { 
+                        font-size: 0.9em; 
+                        color: #6C757D; 
+                        margin-top: 5px; 
+                    }
+                    
+                    .section { 
+                        background: white; 
+                        padding: 30px; 
+                        border-radius: 12px; 
+                        margin-bottom: 30px; 
+                        box-shadow: 0 4px 6px rgba(0,0,0,0.07); 
+                    }
+                    .section h2 { 
+                        margin: 0 0 20px 0; 
+                        color: #212529; 
+                        font-size: 1.8em; 
+                        border-bottom: 2px solid #E9ECEF; 
+                        padding-bottom: 10px; 
+                    }
+                    
+                    .crash-list { margin-top: 20px; }
+                    .crash-item { 
+                        background: #F8F9FA; 
+                        padding: 20px; 
+                        margin-bottom: 15px; 
+                        border-radius: 8px; 
+                        border-left: 4px solid #DC3545; 
+                    }
+                    .crash-item h4 { 
+                        margin: 0 0 10px 0; 
+                        color: #DC3545; 
+                        font-size: 1.1em; 
+                    }
+                    .crash-title-link {
+                        color: #DC3545;
+                        text-decoration: none;
+                        transition: color 0.2s ease;
+                    }
+                    .crash-title-link:hover {
+                        color: #B02A37;
+                        text-decoration: underline;
+                    }
+                    .crash-item .meta { 
+                        display: grid; 
+                        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); 
+                        gap: 10px; 
+                        margin-bottom: 10px; 
+                    }
+                    .crash-item .meta span { 
+                        font-size: 0.9em; 
+                        color: #495057; 
+                    }
+                    /* 堆栈显示容器 - 简洁滚动方案 */
+                    .stack-container { 
+                        margin-top: 12px; 
+                        background: #F1F3F4; 
+                        border-radius: 6px; 
+                        overflow: hidden; 
+                    }
+                    .stack-trace { 
+                        padding: 12px; 
+                        font-family: 'Consolas', 'Monaco', monospace; 
+                        font-size: 0.8em; 
+                        line-height: 1.4; 
+                        color: #212529; 
+                        white-space: pre-wrap; 
+                        word-break: break-all; 
+                        background: #FFF3E0;
+                        border-radius: 4px;
+                        max-height: 120px;
+                        overflow-y: auto;
+                        border: 1px solid #E9ECEF;
+                    }
+                    .stack-trace::-webkit-scrollbar {
+                        width: 8px;
+                    }
+                    .stack-trace::-webkit-scrollbar-track {
+                        background: #F1F3F4;
+                        border-radius: 4px;
+                    }
+                    .stack-trace::-webkit-scrollbar-thumb {
+                        background: #CED4DA;
+                        border-radius: 4px;
+                    }
+                    .stack-trace::-webkit-scrollbar-thumb:hover {
+                        background: #ADB5BD;
+                    }
+                    
+
+                    
+                    .footer { 
+                        text-align: center; 
+                        padding: 20px; 
+                        color: #6C757D; 
+                        font-size: 0.9em; 
+                    }
+                    
+                    @media (max-width: 768px) {
+                        .overview-left {
+                            grid-template-columns: 1fr;
+                        }
+                    }
+                    
+                    @media print {
+                        body { background: white; }
+                        .section, .summary-card { box-shadow: none; border: 1px solid #DEE2E6; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h1>🚨 Baymax Crash分析报告</h1>
+                        <p>分析周期: 1周前 (03月26日 - 04月02日) | 生成时间: 2026/4/2 15:07:14</p>
+                        <p>版本范围: 10.17.13, 10.17.15</p>
+                        <p>数据量: Java Top 10 + Native Top 10</p>
+                    </div>
+                    
+                    <div class="overview-row">
+                        <div class="overview-left">
+                            <div class="summary-card">
+                                <h3><span class="icon">📊</span>总体概览</h3>
+                                <div class="stat-grid">
+                                    <div class="stat-item">
+                                        <span class="stat-value">114</span>
+                                        <div class="stat-label">总崩溃数</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-value">46</span>
+                                        <div class="stat-label">影响设备</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-value">0.0001%</span>
+                                        <div class="stat-label">平均崩溃率</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="summary-card java">
+                                <h3><span class="icon">☕</span>Java Crash (86.0%)</h3>
+                                <div class="stat-grid">
+                                    <div class="stat-item">
+                                        <span class="stat-value" style="color: #28A745;">98</span>
+                                        <div class="stat-label">崩溃数</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-value" style="color: #28A745;">31</span>
+                                        <div class="stat-label">影响设备</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-value" style="color: #28A745;">0.0001%</span>
+                                        <div class="stat-label">崩溃率</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="summary-card native">
+                                <h3><span class="icon">⚙️</span>Native Crash (14.0%)</h3>
+                                <div class="stat-grid">
+                                    <div class="stat-item">
+                                        <span class="stat-value" style="color: #DC3545;">16</span>
+                                        <div class="stat-label">崩溃数</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-value" style="color: #DC3545;">15</span>
+                                        <div class="stat-label">影响设备</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-value" style="color: #DC3545;">0.0000%</span>
+                                        <div class="stat-label">崩溃率</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    
+                    <div class="section">
+                        <h2>☕ Java Crash详情</h2>
+                        <div class="crash-list">
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=2YEV02YZNNBWW&digestName=at+com.tal.publish.video.exo.core.BKVpExoPlayerManager.initializePlayer%28BKVpExoPlayerManager.java%3A64%29%0Aat+com.tal.publish.video.exo.core.BKVpExoPlayerManager.%3Cinit%3E%28BKVpExoPlayerManager.java%3A53%29%0Aat+com.tal.publish.video.exo.audio.BKExoAudioPlayer.init%28BKExoAudioPlayer.java%3A65%29" target="_blank" class="crash-title-link">1. at com.tal.publish.video.exo.core.BKVpExoPlayerManager.initializePlayer(BKVpExoPlayerManager.java</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 2</span>
+                                        <span><strong>错误次数:</strong> 32</span>
+                                        <span><strong>崩溃率:</strong> 0.000413%</span>
+                                        <span><strong>版本:</strong> 10.17.15</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">java.lang.NoClassDefFoundError: Failed resolution of: Lcom/google/android/exoplayer2/ExoPlayer$Builder$$ExternalSyntheticLambda23;
+    at com.google.android.exoplayer2.ExoPlayer$Builder.<init>(ExoPlayer.java:439)
+    at com.tal.publish.video.exo.core.BKVpExoPlayerManager.initializePlayer(BKVpExoPlayerManager.java:64)
+    at com.tal.publish.video.exo.core.BKVpExoPlayerManager.<init>(BKVpExoPlayerManager.java:53)
+    at com.tal.publish.video.exo.audio.BKExoAudioPlayer.init(BKExoAudioPlayer.java:65)
+    at com.tal.publish.video.exo.audio.BKExoAudioPlayer.<init>(BKExoAudioPlayer.java:60)
+    at com.tal.publish.video.exo.audio.BkExoAuNetWorkManager.<init>(BkExoAuNetWorkManager.java:33)
+    at com.tal.publish.video.exo.audio.BkExoAuManager.<init>(BkExoAuManager.java:47)
+    at com.tal.publish.course.scanResult.BookScanResultAudioListFragment.initAudioManager(BookScanResultAudioListFragment.java:194)
+    at com.tal.publish.course.scanResult.BookScanResultAudioListFragment.createView(BookScanResultAudioListFragment.java:111)
+    at com.tal.publish.common.base.BaseFragment.onCreateView(BaseFragment.java:63)
+    at androidx.fragment.app.Fragment.performCreateView(Fragment.java:2600)
+    at androidx.fragment.app.FragmentManagerImpl.moveToState(FragmentManagerImpl.java:881)
+    at androidx.fragment.app.FragmentManagerImpl.moveFragmentToExpectedState(FragmentManagerImpl.java:1238)
+    at androidx.fragment.app.FragmentManagerImpl.moveToState(FragmentManagerImpl.java:1303)
+    at androidx.fragment.app.BackStackRecord.executeOps(BackStackRecord.java:439)
+    at androidx.fragment.app.FragmentManagerImpl.executeOps(FragmentManagerImpl.java:2079)
+    at androidx.fragment.app.FragmentManagerImpl.executeOpsTogether(FragmentManagerImpl.java:1869)
+    at androidx.fragment.app.FragmentManagerImpl.removeRedundantOperationsAndExecute(FragmentManagerImpl.java:1824)
+    at androidx.fragment.app.FragmentManagerImpl.execPendingActions(FragmentManagerImpl.java:1727)
+    at androidx.fragment.app.FragmentManagerImpl$2.run(FragmentManagerImpl.java:150)
+    at android.os.Handler.handleCallback(Handler.java:743)
+    at android.os.Handler.dispatchMessage(Handler.java:95)
+    at android.os.Looper.loop(Looper.java:150)
+    at android.app.ActivityThread.main(ActivityThread.java:5621)
+    at java.lang.reflect.Method.invoke(Method.java)
+    at com.android.internal.os.ZygoteInit$MethodAndArgsCaller.run(ZygoteInit.java:794)
+    at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:684)
+Caused by: java.lang.ClassNotFoundException: Didn't find class "com.google.android.exoplayer2.ExoPlayer$Builder$$ExternalSyntheticLambda23" on path: DexPathList[[zip file "/data/app/com.xueersi.parentsmeeting-1/base.apk", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null", dex file "null"],nativeLibraryDirectories=[/data/app/com.xueersi.parentsmeeting-1/lib/arm64, /data/app/com.xueersi.parentsmeeting-1/base.apk!/lib/arm64-v8a, /vendor/lib64, /system/lib64]]
+    at dalvik.system.BaseDexClassLoader.findClass(BaseDexClassLoader.java:56)
+    at java.lang.ClassLoader.loadClass(ClassLoader.java:511)
+    at java.lang.ClassLoader.loadClass(ClassLoader.java:469)
+    at com.google.android.exoplayer2.ExoPlayer$Builder.<init>(ExoPlayer.java:439)
+    at com.tal.publish.video.exo.core.BKVpExoPlayerManager.initializePlayer(BKVpExoPlayerManager.java:64)
+    at com.tal.publish.video.exo.core.BKVpExoPlayerManager.<init>(BKVpExoPlayerManager.java:53)
+    at com.tal.publish.video.exo.audio.BKExoAudioPlayer.init(BKExoAudioPlayer.java:65)
+    at com.tal.publish.video.exo.audio.BKExoAudioPlayer.<init>(BKExoAudioPlayer.java:60)
+    at com.tal.publish.video.exo.audio.BkExoAuNetWorkManager.<init>(BkExoAuNetWorkManager.java:33)
+    at com.tal.publish.video.exo.audio.BkExoAuManager.<init>(BkExoAuManager.java:47)
+    at com.tal.publish.course.scanResult.BookScanResultAudioListFragment.initAudioManager(BookScanResultAudioListFragment.java:194)
+    at com.tal.publish.course.scanResult.BookScanResultAudioListFragment.createView(BookScanResultAudioListFragment.java:111)
+    at com.tal.publish.common.base.BaseFragment.onCreateView(BaseFragment.java:63)
+    at androidx.fragment.app.Fragment.performCreateView(Fragment.java:2600)
+    at androidx.fragment.app.FragmentManagerImpl.moveToState(FragmentManagerImpl.java:881)
+    at androidx.fragment.app.FragmentManagerImpl.moveFragmentToExpectedState(FragmentManagerImpl.java:1238)
+    at androidx.fragment.app.FragmentManagerImpl.moveToState(FragmentManagerImpl.java:1303)
+    at androidx.fragment.app.BackStackRecord.executeOps(BackStackRecord.java:439)
+    at androidx.fragment.app.FragmentManagerImpl.executeOps(FragmentManagerImpl.java:2079)
+    at androidx.fragment.app.FragmentManagerImpl.executeOpsTogether(FragmentManagerImpl.java:1869)
+    at androidx.fragment.app.FragmentManagerImpl.removeRedundantOperationsAndExecute(FragmentManagerImpl.java:1824)
+    at androidx.fragment.app.FragmentManagerImpl.execPendingActions(FragmentManagerImpl.java:1727)
+    at androidx.fragment.app.FragmentManagerImpl$2.run(FragmentManagerImpl.java:150)
+    at android.os.Handler.handleCallback(Handler.java:743)
+    at android.os.Handler.dispatchMessage(Handler.java:95)
+    at android.os.Looper.loop(Looper.java:150)
+    at android.app.ActivityThread.main(ActivityThread.java:5621)
+    at java.lang.reflect.Method.invoke(Method.java)
+    at com.android.internal.os.ZygoteInit$MethodAndArgsCaller.run(ZygoteInit.java:794)
+    at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:684)</div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=0QL2DQC73AHMJ&digestName=at+com.xueersi.lib.framework.utils.LocationUtils.isGpsEnabled%28LocationUtils.java%3A47%29%0Aat+com.xueersi.parentsmeeting.module.home.HomeV2Activity.getLocation%28HomeV2Activity.java%3A660%29%0Aat+com.xueersi.parentsmeeting.module.home.HomeV2Activity.onCreate%28HomeV2Activity.java%3A646%29" target="_blank" class="crash-title-link">2. at com.xueersi.lib.framework.utils.LocationUtils.isGpsEnabled(LocationUtils.java</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 3</span>
+                                        <span><strong>错误次数:</strong> 15</span>
+                                        <span><strong>崩溃率:</strong> 0.000194%</span>
+                                        <span><strong>版本:</strong> 10.17.15</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">java.lang.RuntimeException: Unable to start activity ComponentInfo{com.xueersi.parentsmeeting/com.xueersi.parentsmeeting.module.home.HomeV2Activity}: java.lang.NullPointerException: Attempt to invoke virtual method 'boolean android.location.LocationManager.isProviderEnabled(java.lang.String)' on a null object reference
+    at android.app.ActivityThread.performLaunchActivity(ActivityThread.java:4152)
+    at android.app.ActivityThread.handleLaunchActivity(ActivityThread.java:4339)
+    at android.app.servertransaction.LaunchActivityItem.execute(LaunchActivityItem.java:91)
+    at android.app.servertransaction.TransactionExecutor.executeCallbacks(TransactionExecutor.java:149)
+    at android.app.servertransaction.TransactionExecutor.execute(TransactionExecutor.java:103)
+    at android.app.ActivityThread$H.handleMessage(ActivityThread.java:2681)
+    at com.xueersi.lib.framework.utils.LooperHook$XesHandlerCallback2.handleMessage(LooperHook.java:102)
+    at android.os.Handler.dispatchMessage(Handler.java:106)
+    at android.os.Looper.loop(Looper.java:219)
+    at android.app.ActivityThread.main(ActivityThread.java:8805)
+    at java.lang.reflect.Method.invoke(Method.java)
+    at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:513)
+    at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:1116)
+Caused by: java.lang.NullPointerException: Attempt to invoke virtual method 'boolean android.location.LocationManager.isProviderEnabled(java.lang.String)' on a null object reference
+    at com.xueersi.lib.framework.utils.LocationUtils.isGpsEnabled(LocationUtils.java:47)
+    at com.xueersi.parentsmeeting.module.home.HomeV2Activity.getLocation(HomeV2Activity.java:660)
+    at com.xueersi.parentsmeeting.module.home.HomeV2Activity.onCreate(HomeV2Activity.java:646)
+    at android.app.Activity.performCreate(Activity.java:8218)
+    at android.app.Activity.performCreate(Activity.java:8206)
+    at android.app.Instrumentation.callActivityOnCreate(Instrumentation.java:1320)
+    at android.app.ActivityThread.performLaunchActivity(ActivityThread.java:4125)
+    at android.app.ActivityThread.handleLaunchActivity(ActivityThread.java:4339)
+    at android.app.servertransaction.LaunchActivityItem.execute(LaunchActivityItem.java:91)
+    at android.app.servertransaction.TransactionExecutor.executeCallbacks(TransactionExecutor.java:149)
+    at android.app.servertransaction.TransactionExecutor.execute(TransactionExecutor.java:103)
+    at android.app.ActivityThread$H.handleMessage(ActivityThread.java:2681)
+    at com.xueersi.lib.framework.utils.LooperHook$XesHandlerCallback2.handleMessage(LooperHook.java:102)
+    at android.os.Handler.dispatchMessage(Handler.java:106)
+    at android.os.Looper.loop(Looper.java:219)
+    at android.app.ActivityThread.main(ActivityThread.java:8805)
+    at java.lang.reflect.Method.invoke(Method.java)
+    at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:513)
+    at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:1116)</div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=11YU6T52WHEJD&digestName=at+com.tal100.chatsdk.TMSdkManager.%3Cclinit%3E%28TMSdkManager.java%3A32%29%0Aat+com.xueersi.common.irc.XesPassWay.initPassWay%28XesPassWay.java%3A118%29%0Aat+com.xueersi.common.tasks.InitPushTask.run%28InitPushTask.java%3A50%29" target="_blank" class="crash-title-link">3. at com.tal100.chatsdk.TMSdkManager.<clinit>(TMSdkManager.java</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 1</span>
+                                        <span><strong>错误次数:</strong> 12</span>
+                                        <span><strong>崩溃率:</strong> 0.000155%</span>
+                                        <span><strong>版本:</strong> 10.17.15</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">java.lang.UnsatisfiedLinkError: dlopen failed: library "libtalmsgsdk.so" not found
+    at java.lang.Runtime.loadLibrary0(Runtime.java:1082)
+    at java.lang.Runtime.loadLibrary0(Runtime.java:1003)
+    at java.lang.System.loadLibrary(System.java:1662)
+    at com.tal100.chatsdk.TMSdkManager.<clinit>(TMSdkManager.java:32)
+    at com.xueersi.common.irc.XesPassWay.initPassWay(XesPassWay.java:118)
+    at com.xueersi.common.tasks.InitPushTask.run(InitPushTask.java:50)
+    at com.xueersi.lib.framework.launchTask.task.DispatchRunnable.run(DispatchRunnable.java:49)
+    at com.xueersi.lib.framework.launchTask.TaskDispatcher.executeTaskMain(TaskDispatcher.java:137)
+    at com.xueersi.lib.framework.launchTask.TaskDispatcher.start(TaskDispatcher.java:122)
+    at com.xueersi.parentsmeeting.XesApplicationLike.onCreate(XesApplicationLike.java:223)
+    at com.taobao.sophix.y.k(Sophix:9)
+    at com.taobao.sophix.i0.a(Sophix:154)
+    at com.taobao.sophix.SophixApplication.onCreate(Sophix:2)
+    at android.app.Instrumentation.callApplicationOnCreate(Instrumentation.java:1329)
+    at android.app.ActivityThread.handleBindApplication(ActivityThread.java:8334)
+    at android.app.ActivityThread.-$$Nest$mhandleBindApplication
+    at android.app.ActivityThread$H.handleMessage(ActivityThread.java:2869)
+    at android.os.Handler.dispatchMessage(Handler.java:117)
+    at android.os.Looper.loopOnce(Looper.java:210)
+    at android.os.Looper.loop(Looper.java:302)
+    at android.app.ActivityThread.main(ActivityThread.java:9675)
+    at java.lang.reflect.Method.invoke(Method.java)
+    at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:601)
+    at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:1062)</div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=2WN6P3NYUGWBB&digestName=at+com.xueersi.common.business.grade.XesGradeUtils.getSelectGradeId%28XesGradeUtils.java%3A55%29%0Aat+com.xueersi.common.base.BaseHttpBusiness.setRegionAndGrade%28BaseHttpBusiness.java%3A702%29%0Aat+com.xueersi.common.base.BaseHttpBusiness.setDefaultParameter%28BaseHttpBusiness.java%3A533%29" target="_blank" class="crash-title-link">4. at com.xueersi.common.business.grade.XesGradeUtils.getSelectGradeId(XesGradeUtils.java</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 7</span>
+                                        <span><strong>错误次数:</strong> 8</span>
+                                        <span><strong>崩溃率:</strong> 0.000103%</span>
+                                        <span><strong>版本:</strong> 10.17.15</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">java.lang.NullPointerException: Attempt to invoke virtual method 'java.lang.String com.xueersi.common.entity.MyUserInfoEntity.getGradeCode()' on a null object reference
+    at com.xueersi.common.business.grade.XesGradeUtils.getSelectGradeId(XesGradeUtils.java:55)
+    at com.xueersi.common.base.BaseHttpBusiness.setRegionAndGrade(BaseHttpBusiness.java:702)
+    at com.xueersi.common.base.BaseHttpBusiness.setDefaultParameter(BaseHttpBusiness.java:533)
+    at com.xueersi.common.base.BaseHttpBusiness.sendPost(BaseHttpBusiness.java:196)
+    at com.xueersi.common.http.AlHttpDnsHttp.requestConfigure(AlHttpDnsHttp.java:19)
+    at com.xueersi.common.http.AlHttpDns.preResolveThread(AlHttpDns.java:251)
+    at com.xueersi.common.http.AlHttpDns.-$$Nest$mpreResolveThread
+    at com.xueersi.common.http.AlHttpDns$4.run(AlHttpDns.java:225)
+    at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1167)
+    at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:641)
+    at java.lang.Thread.run(Thread.java:919)</div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=1VF0O6R5KE1D5&digestName=at+com.xueersi.parentsmeeting.module.browser.crop.CropOverlayView.crop%28CropOverlayView.java%3A582%29%0Aat+com.xueersi.parentsmeeting.module.browser.crop.CropImageView.crop%28CropImageView.java%3A54%29%0Aat+com.xueersi.parentsmeeting.module.browser.activity.BrowserCaptureActivity%248.onUnDoubleClick%28BrowserCaptureActivity.java%3A391%29" target="_blank" class="crash-title-link">5. at com.xueersi.parentsmeeting.module.browser.crop.CropOverlayView.crop(CropOverlayView.java</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 2</span>
+                                        <span><strong>错误次数:</strong> 8</span>
+                                        <span><strong>崩溃率:</strong> 0.000103%</span>
+                                        <span><strong>版本:</strong> 10.17.15</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">java.lang.Error: FATAL EXCEPTION [main]
+Unity version     : 2022.3.52f1
+Device model      : HONOR KJR-W09
+Device fingerprint: HONOR/KJR-W09/HNKJR:10/HONORKJR-W09/4.0.2.263C00:user/release-keys
+CPU supported ABI : [arm64-v8a, armeabi-v7a, armeabi]
+Build Type        : Release
+Scripting Backend : IL2CPP
+Libs loaded from  : lib/arm64
+Strip Engine Code : true
+
+Caused by: java.lang.IllegalArgumentException: x + width must be <= bitmap.width()
+    at android.graphics.Bitmap.createBitmap(Bitmap.java:998)
+    at android.graphics.Bitmap.createBitmap(Bitmap.java:958)
+    at com.xueersi.parentsmeeting.module.browser.crop.CropOverlayView.crop(CropOverlayView.java:582)
+    at com.xueersi.parentsmeeting.module.browser.crop.CropImageView.crop(CropImageView.java:54)
+    at com.xueersi.parentsmeeting.module.browser.activity.BrowserCaptureActivity$8.onUnDoubleClick(BrowserCaptureActivity.java:391)
+    at com.xueersi.lib.frameutils.listener.OnUnDoubleClickListener.onClick(OnUnDoubleClickListener.java:51)
+    at android.view.View.performClick(View.java:7284)
+    at android.view.View.performClickInternal(View.java:7258)
+    at android.view.View.access$3600(View.java:831)
+    at android.view.View$PerformClick.run(View.java:27948)
+    at android.os.Handler.handleCallback(Handler.java:900)
+    at android.os.Handler.dispatchMessage(Handler.java:103)
+    at android.os.Looper.loop(Looper.java:219)
+    at android.app.ActivityThread.main(ActivityThread.java:8401)
+    at java.lang.reflect.Method.invoke(Method.java)
+    at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:513)
+    at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:1102)</div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=3JV7NUHR3MK32&digestName=at+com.xueersi.parentsmeeting.modules.livebusiness.plugin.pktemplate.widget.OpitStudentView.updateRTCVideoState%28OpitStudentView.java%3A225%29%0Aat+com.xueersi.parentsmeeting.modules.livebusiness.plugin.pktemplate.widget.OpitStudentView.updateRTCVideoState%28OpitStudentView.java%3A69%29%0Aat+com.xueersi.base.live.rtc.view.AbsStudentView.invalidate%28AbsStudentView.java%3A170%29" target="_blank" class="crash-title-link">6. at com.xueersi.parentsmeeting.modules.livebusiness.plugin.pktemplate.widget.OpitStudentView.updateRTCVideoState(OpitStudentView.java</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 6</span>
+                                        <span><strong>错误次数:</strong> 6</span>
+                                        <span><strong>崩溃率:</strong> 0.000077%</span>
+                                        <span><strong>版本:</strong> 10.17.15</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">java.lang.NullPointerException: Attempt to invoke virtual method 'boolean com.xueersi.base.live.rtc.data.GroupClassUserRtcStatus.getStreamStatus(boolean)' on a null object reference
+    at com.xueersi.parentsmeeting.modules.livebusiness.plugin.pktemplate.widget.OpitStudentView.updateRTCVideoState(OpitStudentView.java:225)
+    at com.xueersi.parentsmeeting.modules.livebusiness.plugin.pktemplate.widget.OpitStudentView.updateRTCVideoState(OpitStudentView.java:69)
+    at com.xueersi.base.live.rtc.view.AbsStudentView.invalidate(AbsStudentView.java:170)
+    at com.xueersi.parentsmeeting.modules.livebusiness.plugin.pktemplate.pager.OpenInteractRtcPage.invalidateView(OpenInteractRtcPage.java:185)
+    at com.xueersi.parentsmeeting.modules.livebusiness.plugin.pktemplate.bll.OpenInteractRtcBll$GroupClassEvent.onChanged(OpenInteractRtcBll.java:131)
+    at com.xueersi.parentsmeeting.modules.livebusiness.plugin.pktemplate.bll.OpenInteractRtcBll$GroupClassEvent.onChanged(OpenInteractRtcBll.java:124)
+    at com.xueersi.base.live.framework.event.PluginEventBus$StickObserver.onChanged(PluginEventBus.java:250)
+    at androidx.lifecycle.LiveData.considerNotify(LiveData.java:133)
+    at androidx.lifecycle.LiveData.dispatchingValue(LiveData.java:151)
+    at androidx.lifecycle.LiveData.setValue(LiveData.java:309)
+    at androidx.lifecycle.MutableLiveData.setValue(MutableLiveData.java:50)
+    at com.xueersi.base.live.framework.event.PluginEventBus$StickLiveData.setValue(PluginEventBus.java:150)
+    at com.xueersi.base.live.framework.event.PluginEventBus.onEvent(PluginEventBus.java:84)
+    at com.xueersi.parentsmeeting.modules.livebusiness.eventkeys.groupclass.GroupClassActionBridge.updateFrame(GroupClassActionBridge.java:59)
+    at com.xueersi.parentsmeeting.modules.livebusiness.plugin.newgroupclass.monitor.driver.RtcMonitorDriver.lambda$disableUserByTeacher$3$com-xueersi-parentsmeeting-modules-livebusiness-plugin-newgroupclass-monitor-driver-RtcMonitorDriver(RtcMonitorDriver.java:316)
+    at com.xueersi.parentsmeeting.modules.livebusiness.plugin.newgroupclass.monitor.driver.RtcMonitorDriver$$ExternalSyntheticLambda2.run(Unknown Source:2)
+    at android.os.Handler.handleCallback(Handler.java:900)
+    at android.os.Handler.dispatchMessage(Handler.java:103)
+    at android.os.Looper.loop(Looper.java:219)
+    at android.app.ActivityThread.main(ActivityThread.java:8673)
+    at java.lang.reflect.Method.invoke(Method.java)
+    at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:513)
+    at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:1109)</div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=2W9O6J4M8RW3O&digestName=at+com.xueersi.parentsmeeting.module.browser.provider.CameraPreviewManagerProvider%245.onImageAvailable%28CameraPreviewManagerProvider.java%3A864%29%0Aat+android.media.ImageReader%241.run%28ImageReader.java%3A837%29%0Aat+android.os.Handler.handleCallback%28Handler.java%3A966%29" target="_blank" class="crash-title-link">7. at com.xueersi.parentsmeeting.module.browser.provider.CameraPreviewManagerProvider$5.onImageAvailable(CameraPreviewManagerProvider.java</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 5</span>
+                                        <span><strong>错误次数:</strong> 5</span>
+                                        <span><strong>崩溃率:</strong> 0.000065%</span>
+                                        <span><strong>版本:</strong> 10.17.15</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">java.lang.NullPointerException: Attempt to invoke interface method 'void com.xueersi.parentsmeeting.module.browser.provider.CameraPreviewManagerProvider$OnImageAvailableListener.onImageAvailable(android.media.Image)' on a null object reference
+    at com.xueersi.parentsmeeting.module.browser.provider.CameraPreviewManagerProvider$5.onImageAvailable(CameraPreviewManagerProvider.java:864)
+    at android.media.ImageReader$1.run(ImageReader.java:837)
+    at android.os.Handler.handleCallback(Handler.java:966)
+    at android.os.Handler.dispatchMessage(Handler.java:110)
+    at android.os.Looper.loopOnce(Looper.java:205)
+    at android.os.Looper.loop(Looper.java:293)
+    at android.os.HandlerThread.run(HandlerThread.java:110)</div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=1L8M9HESPQMUP&digestName=at+com.fort.andJni.JniLib1747814368.%3Cclinit%3E%28JniLib.java%3A44%29%0Aat+com.fort.andJni.JniLib1747814368.cV%28JniLib.java%29%0Aat+com.huixue.sdk.data.PdpSDKConfig%24Builder.%3Cinit%3E%28Unknown+Source%3A21%29" target="_blank" class="crash-title-link">8. at com.fort.andJni.JniLib1747814368.<clinit>(JniLib.java</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 1</span>
+                                        <span><strong>错误次数:</strong> 5</span>
+                                        <span><strong>崩溃率:</strong> 0.000065%</span>
+                                        <span><strong>版本:</strong> 10.17.15</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">java.lang.NoSuchMethodError: no static or non-static method "Lcom/fort/andJni/JniLib1747814368;.cD([Ljava/lang/Object;)D"
+    at java.lang.Runtime.nativeLoad(Runtime.java)
+    at java.lang.Runtime.nativeLoad(Runtime.java:1121)
+    at java.lang.Runtime.loadLibrary0(Runtime.java:1075)
+    at java.lang.Runtime.loadLibrary0(Runtime.java:998)
+    at java.lang.System.loadLibrary(System.java:1656)
+    at com.fort.andJni.JniLib1747814368.<clinit>(JniLib.java:44)
+    at com.fort.andJni.JniLib1747814368.cV(JniLib.java)
+    at com.huixue.sdk.data.PdpSDKConfig$Builder.<init>(Unknown Source:21)
+    at com.xueersi.common.tasks.PrivacyTask.initDianDuSdk(PrivacyTask.java:195)
+    at com.xueersi.common.tasks.PrivacyTask.init(PrivacyTask.java:110)
+    at com.xueersi.common.tasks.PrivacyTask.run(PrivacyTask.java:93)
+    at com.xueersi.lib.framework.launchTask.task.DispatchRunnable.run(DispatchRunnable.java:49)
+    at com.xueersi.lib.framework.launchTask.TaskDispatcher.executeTaskMain(TaskDispatcher.java:137)
+    at com.xueersi.lib.framework.launchTask.TaskDispatcher.start(TaskDispatcher.java:122)
+    at com.xueersi.parentsmeeting.XesApplicationLike.onCreate(XesApplicationLike.java:223)
+    at com.taobao.sophix.y.k(Sophix:9)
+    at com.taobao.sophix.i0.a(Sophix:154)
+    at com.taobao.sophix.SophixApplication.onCreate(Sophix:2)
+    at android.app.Instrumentation.callApplicationOnCreate(Instrumentation.java:1211)
+    at android.app.ActivityThread.handleBindApplication(ActivityThread.java:6772)
+    at android.app.ActivityThread.access$1600(ActivityThread.java:253)
+    at android.app.ActivityThread$H.handleMessage(ActivityThread.java:2090)
+    at android.os.Handler.dispatchMessage(Handler.java:106)
+    at android.os.Looper.loopOnce(Looper.java:201)
+    at android.os.Looper.loop(Looper.java:288)
+    at android.app.ActivityThread.main(ActivityThread.java:7888)
+    at java.lang.reflect.Method.invoke(Method.java)
+    at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:568)
+    at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:1045)</div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=0Y4F8KZEL4KE4&digestName=at+com.xueersi.parentsmeeting.modules.livebusiness.pop.permission.LivePermissionPopupWindow.showAtLocation%28LivePermissionPopupWindow.java%3A123%29%0Aat+com.xueersi.parentsmeeting.modules.livebusiness.pop.permission.LivePermissionPopupWindow.showAtParentBottom%28LivePermissionPopupWindow.java%3A136%29%0Aat+com.xueersi.parentsmeeting.modules.livebusiness.plugin.newgroupclass.frame.pager.InteractivePager.showPermissionPop%28InteractivePager.java%3A1148%29" target="_blank" class="crash-title-link">9. at com.xueersi.parentsmeeting.modules.livebusiness.pop.permission.LivePermissionPopupWindow.showAtLocation(LivePermissionPopupWindow.java</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 2</span>
+                                        <span><strong>错误次数:</strong> 4</span>
+                                        <span><strong>崩溃率:</strong> 0.000052%</span>
+                                        <span><strong>版本:</strong> 10.17.15</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">android.view.WindowManager$BadTokenException: Unable to add window -- token android.view.ViewRootImpl$W@ddcacb5 is not valid; is your activity running?
+    at android.view.ViewRootImpl.setView(ViewRootImpl.java:1728)
+    at android.view.WindowManagerGlobal.addView(WindowManagerGlobal.java:472)
+    at android.view.WindowManagerImpl.addView(WindowManagerImpl.java:172)
+    at android.widget.PopupWindow.invokePopup(PopupWindow.java:1836)
+    at android.widget.PopupWindow.showAtLocation(PopupWindow.java:1566)
+    at android.widget.PopupWindow.showAtLocation(PopupWindow.java:1531)
+    at com.xueersi.parentsmeeting.modules.livebusiness.pop.permission.LivePermissionPopupWindow.showAtLocation(LivePermissionPopupWindow.java:123)
+    at com.xueersi.parentsmeeting.modules.livebusiness.pop.permission.LivePermissionPopupWindow.showAtParentBottom(LivePermissionPopupWindow.java:136)
+    at com.xueersi.parentsmeeting.modules.livebusiness.plugin.newgroupclass.frame.pager.InteractivePager.showPermissionPop(InteractivePager.java:1148)
+    at com.xueersi.parentsmeeting.modules.livebusiness.plugin.newgroupclass.frame.pager.InteractivePager.showSpeechVolumeInner(InteractivePager.java:709)
+    at com.xueersi.parentsmeeting.modules.livebusiness.plugin.newgroupclass.frame.pager.InteractivePager.showSpeechVolume(InteractivePager.java:647)
+    at com.xueersi.parentsmeeting.modules.livebusiness.plugin.newgroupclass.videospeech.bll.VideoSpeech3v3Bll.onJoinRtcRoom(VideoSpeech3v3Bll.java:554)
+    at com.xueersi.parentsmeeting.modules.livebusiness.plugin.newgroupclass.frame.bll.BaseRtcBusinessBll$4.rtcRoomJoinOnSuccess(BaseRtcBusinessBll.java:393)
+    at com.xueersi.base.live.rtc.server.TeamRtcServer$2.onJoinRoom(TeamRtcServer.java:254)
+    at com.xueersi.base.live.rtc.core.room.RoomListenerHandler$1.onJoinRoom(RoomListenerHandler.java:44)
+    at com.xueersi.base.live.rtc.core.room.RtcRoom.onJoinRoom(RtcRoom.java:916)
+    at com.xueersi.base.live.rtc.core.room.RtcRoom.joinRoom(RtcRoom.java:893)
+    at com.xueersi.base.live.rtc.server.TeamRtcServer$1.onGetTokenSuccess(TeamRtcServer.java:214)
+    at com.xueersi.parentsmeeting.modules.livebusiness.plugin.newgroupclass.debate.team.GroupClassProvider.getRtcTokenLazy(GroupClassProvider.java:108)
+    at com.xueersi.base.live.rtc.server.TeamRtcServer.joinRoom(TeamRtcServer.java:223)
+    at com.xueersi.parentsmeeting.modules.livebusiness.plugin.newgroupclass.frame.bll.BaseRtcBusinessBll.initRtc(BaseRtcBusinessBll.java:291)
+    at com.xueersi.parentsmeeting.modules.livebusiness.plugin.newgroupclass.frame.bll.BaseRtcBusinessBll.joinChannel(BaseRtcBusinessBll.java:335)
+    at com.xueersi.parentsmeeting.modules.livebusiness.plugin.newgroupclass.frame.bll.BaseGroupClassBll.onGetRtcTokenSuccess(BaseGroupClassBll.java:1177)
+    at com.xueersi.parentsmeeting.modules.livebusiness.plugin.newgroupclass.videospeech.bll.VideoSpeech3v3Bll.onGetRtcTokenSuccess(VideoSpeech3v3Bll.java:652)
+    at com.xueersi.parentsmeeting.modules.livebusiness.plugin.newgroupclass.frame.bll.BaseRtcBusinessBll$2$1.onDestroyFinish(BaseRtcBusinessBll.java:208)
+    at com.xueersi.base.live.rtc.RtcDestroy.waitDestroy(RtcDestroy.java:56)
+    at com.xueersi.parentsmeeting.modules.livebusiness.plugin.newgroupclass.frame.bll.BaseRtcBusinessBll$2.run(BaseRtcBusinessBll.java:204)
+    at android.os.Handler.handleCallback(Handler.java:966)
+    at android.os.Handler.dispatchMessage(Handler.java:110)
+    at android.os.Looper.loopOnce(Looper.java:205)
+    at android.os.Looper.loop(Looper.java:293)
+    at android.app.ActivityThread.loopProcess(ActivityThread.java:9986)
+    at android.app.ActivityThread.main(ActivityThread.java:9975)
+    at java.lang.reflect.Method.invoke(Method.java)
+    at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:586)
+    at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:1240)</div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=0N5AVAOWYA43G&digestName=at+com.renderheads.AVPro.Video.Player_MediaPlayer._SetVideoTrack%28Unknown+Source%3A43%29%0Aat+com.renderheads.AVPro.Video.Player_MediaPlayer.onPrepared%28Unknown+Source%3A528%29%0Aat+android.media.MediaPlayer.invoke%28MediaPlayer.java%3A827%29" target="_blank" class="crash-title-link">10. at com.renderheads.AVPro.Video.Player_MediaPlayer._SetVideoTrack(Unknown Source</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 2</span>
+                                        <span><strong>错误次数:</strong> 3</span>
+                                        <span><strong>崩溃率:</strong> 0.000039%</span>
+                                        <span><strong>版本:</strong> 10.17.15</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">java.lang.Error: FATAL EXCEPTION [UnityMain]
+Unity version     : 2022.3.52f1
+Device model      : HUAWEI WGR-W09
+Device fingerprint: HUAWEI/WGR-W09/HWWGR:12/HUAWEIWGR-W09/104.2.0.213C00:user/release-keys
+CPU supported ABI : [arm64-v8a, armeabi-v7a, armeabi]
+Build Type        : Release
+Scripting Backend : IL2CPP
+Libs loaded from  : lib/arm64
+Strip Engine Code : true
+
+Caused by: java.lang.RuntimeException: failure code: -38
+    at android.media.MediaPlayer.invoke(MediaPlayer.java:827)
+    at android.media.MediaPlayer.selectOrDeselectInbandTrack(MediaPlayer.java:3565)
+    at android.media.MediaPlayer.selectOrDeselectTrack(MediaPlayer.java:3523)
+    at android.media.MediaPlayer.selectTrack(MediaPlayer.java:3486)
+    at com.renderheads.AVPro.Video.Player_MediaPlayer._SetVideoTrack(Unknown Source:43)
+    at com.renderheads.AVPro.Video.Player_MediaPlayer.onPrepared(Unknown Source:528)
+    at android.media.MediaPlayer$EventHandler.handleMessage(MediaPlayer.java:3710)
+    at android.os.Handler.dispatchMessage(Handler.java:117)
+    at android.os.Looper.loopOnce(Looper.java:205)
+    at android.os.Looper.loop(Looper.java:293)
+    at com.unity3d.player.H0.run(Unknown Source:24)</div>
+                                        </div>
+                                    
+                                </div>
+                            
+                        </div>
+                    </div>
+                    
+                    
+                    
+                    <div class="section">
+                        <h2>⚙️ Native Crash详情</h2>
+                        <div class="crash-list">
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=0F6348W8FRE8T&digestName=libart.so%0Alibtalmsgsdk.so" target="_blank" class="crash-title-link">1. libart.so
+libtalmsgsdk.so</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 6</span>
+                                        <span><strong>错误次数:</strong> 6</span>
+                                        <span><strong>崩溃率:</strong> 0.000077%</span>
+                                        <span><strong>版本:</strong> 10.17.15</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">#00 pc 0000000000476b3c libart.so 
+    #01 pc 0000000000b3d8d4 libtalmsgsdk.so 
+    #02 pc 0000000000b3eb94 libtalmsgsdk.so 
+    #03 pc 00000000004e77a4 libtalmsgsdk.so 
+    #04 pc 0000000000838574 libtalmsgsdk.so 
+    #05 pc 00000000005a11a4 libtalmsgsdk.so 
+    #06 pc 00000000005a3010 libtalmsgsdk.so 
+    #07 pc 0000000000a97500 libtalmsgsdk.so 
+    #08 pc 0000000000a95a1c libtalmsgsdk.so 
+    #09 pc 00000000005a56cc libtalmsgsdk.so 
+    #10 pc 00000000005a61bc libtalmsgsdk.so 
+    #11 pc 00000000000c14dc libc.so 
+    #12 pc 0000000000054930 libc.so 
+    #13 pc 00000000000c140c libc.so 
+    #14 pc 00000000005a618c libtalmsgsdk.so 
+    </div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=0PAEZDHVASANO&digestName=%2Fdata%2Fapp+com.xueersi.parentsmeeting+lib%2Farm64%2Flibxslog.so+%28update_last_position+%2B+76%29%0A%2Fdata%2Fapp+com.xueersi.parentsmeeting+lib%2Farm64%2Flibxslog.so+%28set_last_position+%2B+156%29" target="_blank" class="crash-title-link">2. /data/app com.xueersi.parentsmeeting lib/arm64/libxslog.so (update_last_position + 76)
+/data/app com.xueersi.parentsmeeting lib/arm64/libxslog.so (set_last_position + 156)</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 1</span>
+                                        <span><strong>错误次数:</strong> 2</span>
+                                        <span><strong>崩溃率:</strong> 0.000026%</span>
+                                        <span><strong>版本:</strong> 10.17.15</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">#00 pc 0000000000002e50  /data/app/~~oDYSQYA7OhHjZ6MFeitHJw==/com.xueersi.parentsmeeting-uYQtawUxCv99-qQY0WmH5A==/lib/arm64/libxslog.so (update_last_position+76)
+    #01 pc 0000000000002f20  /data/app/~~oDYSQYA7OhHjZ6MFeitHJw==/com.xueersi.parentsmeeting-uYQtawUxCv99-qQY0WmH5A==/lib/arm64/libxslog.so (set_last_position+156)
+    #02 pc 00000000000037b8  /data/app/~~oDYSQYA7OhHjZ6MFeitHJw==/com.xueersi.parentsmeeting-uYQtawUxCv99-qQY0WmH5A==/lib/arm64/libxslog.so (clogan_flush+36)
+    #03 pc 00000000002d4044  /apex/com.android.art/lib64/libart.so (art_quick_generic_jni_trampoline+148)
+    #04 pc 000000000020a0a0  /apex/com.android.art/lib64/libart.so (nterp_helper+4016)
+    #05 pc 0000000000000ebe  [anon:dalvik-DEX data]
+    #06 pc 000000000020ae64  /apex/com.android.art/lib64/libart.so (nterp_helper+7540)
+    #07 pc 0000000000001e84  [anon:dalvik-DEX data]
+    #08 pc 000000000020a044  /apex/com.android.art/lib64/libart.so (nterp_helper+3924)
+    #09 pc 0000000000002896  [anon:dalvik-DEX data]
+    #10 pc 000000000020a044  /apex/com.android.art/lib64/libart.so (nterp_helper+3924)
+    #11 pc 00000000000022e0  [anon:dalvik-DEX data]
+    #12 pc 000000000020a044  /apex/com.android.art/lib64/libart.so (nterp_helper+3924)
+    #13 pc 0000000000002f42  [anon:dalvik-DEX data]
+    #14 pc 00000000002ca764  /apex/com.android.art/lib64/libart.so (art_quick_invoke_stub+548)
+    #15 pc 000000000030e980  /apex/com.android.art/lib64/libart.so (art::ArtMethod::Invoke(art::Thread*, unsigned int*, unsigned int, art::JValue*, char const*)+156)
+    #16 pc 00000000003c1db4  /apex/com.android.art/lib64/libart.so (art::JValue art::InvokeVirtualOrInterfaceWithJValues<art::ArtMethod*>(art::ScopedObjectAccessAlreadyRunnable const&, _jobject*, art::ArtMethod*, jvalue const*)+380)
+    #17 pc 00000000004578ec  /apex/com.android.art/lib64/libart.so (art::Thread::CreateCallback(void*)+992)
+    #18 pc 00000000000b1340  /apex/com.android.runtime/lib64/bionic/libc.so (__pthread_start(void*)+204)
+    #19 pc 0000000000050ff4  /apex/com.android.runtime/lib64/bionic/libc.so (__start_thread+64)
+    </div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=3T5ANBV0J6RSQ&digestName=%2Fapex%2Fcom.android.art%2Flib64%2Flibart.so+%28art%3A%3AJNI%3Cfalse%3E%3A%3AGetObjectClass%28_JNIEnv*%2C+_jobject*%29+%2B+160%29%0A%2Fdata%2Fapp+com.xueersi.parentsmeeting+lib%2Farm64%2Flibtalmsgsdk.so" target="_blank" class="crash-title-link">3. /apex/com.android.art/lib64/libart.so (art</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 1</span>
+                                        <span><strong>错误次数:</strong> 1</span>
+                                        <span><strong>崩溃率:</strong> 0.000013%</span>
+                                        <span><strong>版本:</strong> 10.17.15</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">#00 pc 00000000006d2868  /apex/com.android.art/lib64/libart.so (art::JNI<false>::GetObjectClass(_JNIEnv*, _jobject*)+160)
+    #01 pc 0000000000b3d8d4  /data/app/~~Kqca5rVD0moMnuVyfH0hPA==/com.xueersi.parentsmeeting-atOOaaHEAjP8xzphUT2Cnw==/lib/arm64/libtalmsgsdk.so
+    #02 pc 0000000000b3eb94  /data/app/~~Kqca5rVD0moMnuVyfH0hPA==/com.xueersi.parentsmeeting-atOOaaHEAjP8xzphUT2Cnw==/lib/arm64/libtalmsgsdk.so
+    #03 pc 00000000004e77a4  /data/app/~~Kqca5rVD0moMnuVyfH0hPA==/com.xueersi.parentsmeeting-atOOaaHEAjP8xzphUT2Cnw==/lib/arm64/libtalmsgsdk.so
+    #04 pc 0000000000838574  /data/app/~~Kqca5rVD0moMnuVyfH0hPA==/com.xueersi.parentsmeeting-atOOaaHEAjP8xzphUT2Cnw==/lib/arm64/libtalmsgsdk.so
+    #05 pc 00000000005a11a4  /data/app/~~Kqca5rVD0moMnuVyfH0hPA==/com.xueersi.parentsmeeting-atOOaaHEAjP8xzphUT2Cnw==/lib/arm64/libtalmsgsdk.so
+    #06 pc 00000000005a3010  /data/app/~~Kqca5rVD0moMnuVyfH0hPA==/com.xueersi.parentsmeeting-atOOaaHEAjP8xzphUT2Cnw==/lib/arm64/libtalmsgsdk.so
+    #07 pc 0000000000a97500  /data/app/~~Kqca5rVD0moMnuVyfH0hPA==/com.xueersi.parentsmeeting-atOOaaHEAjP8xzphUT2Cnw==/lib/arm64/libtalmsgsdk.so
+    #08 pc 0000000000a95a1c  /data/app/~~Kqca5rVD0moMnuVyfH0hPA==/com.xueersi.parentsmeeting-atOOaaHEAjP8xzphUT2Cnw==/lib/arm64/libtalmsgsdk.so
+    #09 pc 00000000005a56cc  /data/app/~~Kqca5rVD0moMnuVyfH0hPA==/com.xueersi.parentsmeeting-atOOaaHEAjP8xzphUT2Cnw==/lib/arm64/libtalmsgsdk.so
+    #10 pc 00000000005a61bc  /data/app/~~Kqca5rVD0moMnuVyfH0hPA==/com.xueersi.parentsmeeting-atOOaaHEAjP8xzphUT2Cnw==/lib/arm64/libtalmsgsdk.so
+    #11 pc 00000000000a3a68  /apex/com.android.runtime/lib64/bionic/libc.so (__pthread_start(void*)+196)
+    #12 pc 0000000000095ecc  /apex/com.android.runtime/lib64/bionic/libc.so (__start_thread+68)
+    </div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=3S7LRDGWZNQUN&digestName=%2Fdata%2Fapp+com.xueersi.parentsmeeting+lib%2Farm64%2Flibil2cpp.so%0A%2Fdata%2Fapp+com.xueersi.parentsmeeting+lib%2Farm64%2Flibil2cpp.so" target="_blank" class="crash-title-link">4. /data/app com.xueersi.parentsmeeting lib/arm64/libil2cpp.so
+/data/app com.xueersi.parentsmeeting lib/arm64/libil2cpp.so</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 1</span>
+                                        <span><strong>错误次数:</strong> 1</span>
+                                        <span><strong>崩溃率:</strong> 0.000013%</span>
+                                        <span><strong>版本:</strong> 10.17.15</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">#00 pc 00000000018e561c  /data/app/~~oDYSQYA7OhHjZ6MFeitHJw==/com.xueersi.parentsmeeting-uYQtawUxCv99-qQY0WmH5A==/lib/arm64/libil2cpp.so
+    #01 pc 0000000001961074  /data/app/~~oDYSQYA7OhHjZ6MFeitHJw==/com.xueersi.parentsmeeting-uYQtawUxCv99-qQY0WmH5A==/lib/arm64/libil2cpp.so
+    #02 pc 0000000001960eec  /data/app/~~oDYSQYA7OhHjZ6MFeitHJw==/com.xueersi.parentsmeeting-uYQtawUxCv99-qQY0WmH5A==/lib/arm64/libil2cpp.so
+    #03 pc 0000000001960bdc  /data/app/~~oDYSQYA7OhHjZ6MFeitHJw==/com.xueersi.parentsmeeting-uYQtawUxCv99-qQY0WmH5A==/lib/arm64/libil2cpp.so
+    #04 pc 0000000001961178  /data/app/~~oDYSQYA7OhHjZ6MFeitHJw==/com.xueersi.parentsmeeting-uYQtawUxCv99-qQY0WmH5A==/lib/arm64/libil2cpp.so
+    #05 pc 00000000008263b0  /data/app/~~oDYSQYA7OhHjZ6MFeitHJw==/com.xueersi.parentsmeeting-uYQtawUxCv99-qQY0WmH5A==/lib/arm64/libunity.so
+    #06 pc 0000000000825e34  /data/app/~~oDYSQYA7OhHjZ6MFeitHJw==/com.xueersi.parentsmeeting-uYQtawUxCv99-qQY0WmH5A==/lib/arm64/libunity.so
+    #07 pc 0000000000824b28  /data/app/~~oDYSQYA7OhHjZ6MFeitHJw==/com.xueersi.parentsmeeting-uYQtawUxCv99-qQY0WmH5A==/lib/arm64/libunity.so
+    #08 pc 0000000000828700  /data/app/~~oDYSQYA7OhHjZ6MFeitHJw==/com.xueersi.parentsmeeting-uYQtawUxCv99-qQY0WmH5A==/lib/arm64/libunity.so
+    #09 pc 00000000008e76b4  /data/app/~~oDYSQYA7OhHjZ6MFeitHJw==/com.xueersi.parentsmeeting-uYQtawUxCv99-qQY0WmH5A==/lib/arm64/libunity.so
+    #10 pc 00000000000b1340  /apex/com.android.runtime/lib64/bionic/libc.so (__pthread_start(void*)+204)
+    #11 pc 0000000000050ff4  /apex/com.android.runtime/lib64/bionic/libc.so (__start_thread+64)
+    </div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=3DIZ7K34ARGQD&digestName=%2Fdata%2Fapp+com.xueersi.parentsmeeting+lib%2Farm64%2FlibMNN_android64.so%0A%2Fdata%2Fapp+com.xueersi.parentsmeeting+lib%2Farm64%2FlibMNN_android64.so" target="_blank" class="crash-title-link">5. /data/app com.xueersi.parentsmeeting lib/arm64/libMNN_android64.so
+/data/app com.xueersi.parentsmeeting lib/arm64/libMNN_android64.so</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 1</span>
+                                        <span><strong>错误次数:</strong> 1</span>
+                                        <span><strong>崩溃率:</strong> 0.000013%</span>
+                                        <span><strong>版本:</strong> 10.17.15</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">#00 pc 00000000000898cc  /apex/com.android.runtime/lib64/bionic/libc.so (abort+160)
+    #01 pc 000000000012efb8  /data/app/~~7VtIoyAS2b7kr9wvBJ2LAA==/com.xueersi.parentsmeeting-KVl7DH-4E2uC3006-uohUw==/lib/arm64/libMNN_android64.so
+    #02 pc 000000000012bedc  /data/app/~~7VtIoyAS2b7kr9wvBJ2LAA==/com.xueersi.parentsmeeting-KVl7DH-4E2uC3006-uohUw==/lib/arm64/libMNN_android64.so
+    #03 pc 000000000009c6b8  /apex/com.android.runtime/lib64/bionic/libc.so (pthread_once+156)
+    #04 pc 000000000012bdfc  /data/app/~~7VtIoyAS2b7kr9wvBJ2LAA==/com.xueersi.parentsmeeting-KVl7DH-4E2uC3006-uohUw==/lib/arm64/libMNN_android64.so (__cxa_get_globals+28)
+    #05 pc 000000000012b788  /data/app/~~7VtIoyAS2b7kr9wvBJ2LAA==/com.xueersi.parentsmeeting-KVl7DH-4E2uC3006-uohUw==/lib/arm64/libMNN_android64.so (__cxa_throw+28)
+    #06 pc 0000000000194e00  /data/app/~~7VtIoyAS2b7kr9wvBJ2LAA==/com.xueersi.parentsmeeting-KVl7DH-4E2uC3006-uohUw==/lib/arm64/libeval_core.so (std::__ndk1::__throw_system_error(int, char const*)+140)
+    #07 pc 000000000012a2fc  /data/app/~~7VtIoyAS2b7kr9wvBJ2LAA==/com.xueersi.parentsmeeting-KVl7DH-4E2uC3006-uohUw==/lib/arm64/libMNN_android64.so (std::__ndk1::__thread_local_data()+112)
+    #08 pc 00000000000e5db0  /data/app/~~7VtIoyAS2b7kr9wvBJ2LAA==/com.xueersi.parentsmeeting-KVl7DH-4E2uC3006-uohUw==/lib/arm64/libeval_core.so
+    #09 pc 000000000009a22c  /apex/com.android.runtime/lib64/bionic/libc.so (__pthread_start(void*)+184)
+    #10 pc 000000000008ca48  /apex/com.android.runtime/lib64/bionic/libc.so (__start_thread+68)
+    </div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=30R8NDRY4853P&digestName=liblog.so%0Alibaaudio.so" target="_blank" class="crash-title-link">6. liblog.so
+libaaudio.so</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 1</span>
+                                        <span><strong>错误次数:</strong> 1</span>
+                                        <span><strong>崩溃率:</strong> 0.000013%</span>
+                                        <span><strong>版本:</strong> 10.17.15</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">#00 pc 000000000007066c libc.so 
+    #01 pc 0000000000009a68 liblog.so 
+    #02 pc 000000000001db3c libaaudio.so 
+    #03 pc 0000000000029b10 libaaudio.so 
+    #04 pc 0000000000023370 libaaudio.so 
+    #05 pc 000000000286b854 libmttwebview.so 
+    #06 pc 0000000002866b14 libmttwebview.so 
+    #07 pc 0000000002866ab8 libmttwebview.so 
+    #08 pc 0000000002867cf0 libmttwebview.so 
+    #09 pc 00000000028670f4 libmttwebview.so 
+    #10 pc 0000000002fad2ac libmttwebview.so 
+    #11 pc 0000000002fad7cc libmttwebview.so 
+    #12 pc 0000000002faeb78 libmttwebview.so 
+    #13 pc 0000000002fb2d18 libmttwebview.so 
+    #14 pc 0000000002fb2aac libmttwebview.so 
+    #15 pc 0000000002faf180 libmttwebview.so 
+    #16 pc 0000000003905f28 libmttwebview.so 
+    #17 pc 0000000003915108 libmttwebview.so 
+    #18 pc 00000000038dd438 libmttwebview.so 
+    #19 pc 00000000039157c4 libmttwebview.so 
+    #20 pc 00000000038f4500 libmttwebview.so 
+    #21 pc 000000000392ace8 libmttwebview.so 
+    #22 pc 0000000003940a8c libmttwebview.so 
+    #23 pc 00000000000cf7c0 libc.so 
+    #24 pc 00000000000721a8 libc.so 
+    #25 pc 000000000011d0cc ld-android.so 
+    #26 pc 000000000011d384 ld-android.so 
+    #27 pc 0000000003940a28 libmttwebview.so 
+    </div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=3T5ANBV0J6RSQ&digestName=%2Fapex%2Fcom.android.art%2Flib64%2Flibart.so+%28art%3A%3AJNI%3Cfalse%3E%3A%3AGetObjectClass%28_JNIEnv*%2C+_jobject*%29+%2B+160%29%0A%2Fdata%2Fapp+com.xueersi.parentsmeeting+lib%2Farm64%2Flibtalmsgsdk.so" target="_blank" class="crash-title-link">7. /apex/com.android.art/lib64/libart.so (art</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 1</span>
+                                        <span><strong>错误次数:</strong> 1</span>
+                                        <span><strong>崩溃率:</strong> 0.000013%</span>
+                                        <span><strong>版本:</strong> 10.17.15</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">#00 pc 00000000006d2868  /apex/com.android.art/lib64/libart.so (art::JNI<false>::GetObjectClass(_JNIEnv*, _jobject*)+160)
+    #01 pc 0000000000b3d8d4  /data/app/~~Kqca5rVD0moMnuVyfH0hPA==/com.xueersi.parentsmeeting-atOOaaHEAjP8xzphUT2Cnw==/lib/arm64/libtalmsgsdk.so
+    #02 pc 0000000000b3eb94  /data/app/~~Kqca5rVD0moMnuVyfH0hPA==/com.xueersi.parentsmeeting-atOOaaHEAjP8xzphUT2Cnw==/lib/arm64/libtalmsgsdk.so
+    #03 pc 00000000004e77a4  /data/app/~~Kqca5rVD0moMnuVyfH0hPA==/com.xueersi.parentsmeeting-atOOaaHEAjP8xzphUT2Cnw==/lib/arm64/libtalmsgsdk.so
+    #04 pc 0000000000838574  /data/app/~~Kqca5rVD0moMnuVyfH0hPA==/com.xueersi.parentsmeeting-atOOaaHEAjP8xzphUT2Cnw==/lib/arm64/libtalmsgsdk.so
+    #05 pc 00000000005a11a4  /data/app/~~Kqca5rVD0moMnuVyfH0hPA==/com.xueersi.parentsmeeting-atOOaaHEAjP8xzphUT2Cnw==/lib/arm64/libtalmsgsdk.so
+    #06 pc 00000000005a3010  /data/app/~~Kqca5rVD0moMnuVyfH0hPA==/com.xueersi.parentsmeeting-atOOaaHEAjP8xzphUT2Cnw==/lib/arm64/libtalmsgsdk.so
+    #07 pc 0000000000a97500  /data/app/~~Kqca5rVD0moMnuVyfH0hPA==/com.xueersi.parentsmeeting-atOOaaHEAjP8xzphUT2Cnw==/lib/arm64/libtalmsgsdk.so
+    #08 pc 0000000000a95a1c  /data/app/~~Kqca5rVD0moMnuVyfH0hPA==/com.xueersi.parentsmeeting-atOOaaHEAjP8xzphUT2Cnw==/lib/arm64/libtalmsgsdk.so
+    #09 pc 00000000005a56cc  /data/app/~~Kqca5rVD0moMnuVyfH0hPA==/com.xueersi.parentsmeeting-atOOaaHEAjP8xzphUT2Cnw==/lib/arm64/libtalmsgsdk.so
+    #10 pc 00000000005a61bc  /data/app/~~Kqca5rVD0moMnuVyfH0hPA==/com.xueersi.parentsmeeting-atOOaaHEAjP8xzphUT2Cnw==/lib/arm64/libtalmsgsdk.so
+    #11 pc 00000000000a3a68  /apex/com.android.runtime/lib64/bionic/libc.so (__pthread_start(void*)+196)
+    #12 pc 0000000000095ecc  /apex/com.android.runtime/lib64/bionic/libc.so (__start_thread+68)
+    </div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=2AMLIVNI413O1&digestName=%2Fvendor%2Flib64%2Fegl%2FlibGLESv2_adreno.so+%28%21%21%210000%2152b9b00c6ce5aac3ee31a32bd51833%210c393b63cf%21+%2B+8%29%0A%2Fvendor%2Flib64%2Fegl%2FlibGLESv2_adreno.so+%28%21%21%210000%21115befedd67dce09304c97e11cb591%210c393b63cf%21+%2B+3076%29" target="_blank" class="crash-title-link">8. /vendor/lib64/egl/libGLESv2_adreno.so (!!!0000!52b9b00c6ce5aac3ee31a32bd51833!0c393b63cf! + 8)
+/vendor/lib64/egl/libGLESv2_adreno.so (!!!0000!115befedd67dce09304c97e11cb591!0c393b63cf! + 3076)</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 1</span>
+                                        <span><strong>错误次数:</strong> 1</span>
+                                        <span><strong>崩溃率:</strong> 0.000013%</span>
+                                        <span><strong>版本:</strong> 10.17.15</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">#00 pc 0000000000517c18  /vendor/lib64/egl/libGLESv2_adreno.so (!!!0000!52b9b00c6ce5aac3ee31a32bd51833!0c393b63cf!+8)
+    #01 pc 00000000001d63c4  /vendor/lib64/egl/libGLESv2_adreno.so (!!!0000!115befedd67dce09304c97e11cb591!0c393b63cf!+3076)
+    #02 pc 00000000001e30f0  /vendor/lib64/egl/libGLESv2_adreno.so (!!!0000!0e6b00ab8c4b112f9f6effa6a8b2b5!0c393b63cf!+2608)
+    #03 pc 00000000002a1e1c  /vendor/lib64/egl/libGLESv2_adreno.so (!!!0000!4ecf3032464df959aad423cba1a73c!0c393b63cf!+852)
+    #04 pc 00000000002a1a60  /vendor/lib64/egl/libGLESv2_adreno.so (!!!0000!141e50cb152287019aff218176d094!0c393b63cf!+272)
+    #05 pc 00000000002a187c  /vendor/lib64/egl/libGLESv2_adreno.so (!!!0000!838e96e6042a39f699090106d8c25f!0c393b63cf!+212)
+    #06 pc 0000000000169aec  /vendor/lib64/egl/libGLESv2_adreno.so (glTexSubImage2D+148)
+    #07 pc 00000000048fe664  /product/app/HihonorWebView/HihonorWebView.apk!libwebviewchromium.so
+    #08 pc 0000000004728758  /product/app/HihonorWebView/HihonorWebView.apk!libwebviewchromium.so
+    #09 pc 00000000047289c8  /product/app/HihonorWebView/HihonorWebView.apk!libwebviewchromium.so
+    #10 pc 000000000472fe80  /product/app/HihonorWebView/HihonorWebView.apk!libwebviewchromium.so
+    #11 pc 000000000464c7c4  /product/app/HihonorWebView/HihonorWebView.apk!libwebviewchromium.so
+    #12 pc 000000000464c700  /product/app/HihonorWebView/HihonorWebView.apk!libwebviewchromium.so
+    #13 pc 0000000005004534  /product/app/HihonorWebView/HihonorWebView.apk!libwebviewchromium.so
+    #14 pc 0000000005015374  /product/app/HihonorWebView/HihonorWebView.apk!libwebviewchromium.so
+    #15 pc 0000000005017c44  /product/app/HihonorWebView/HihonorWebView.apk!libwebviewchromium.so
+    #16 pc 0000000005014638  /product/app/HihonorWebView/HihonorWebView.apk!libwebviewchromium.so
+    #17 pc 0000000005014f24  /product/app/HihonorWebView/HihonorWebView.apk!libwebviewchromium.so
+    #18 pc 0000000001ea17f0  /product/app/HihonorWebView/HihonorWebView.apk!libwebviewchromium.so
+    #19 pc 0000000001f07374  /product/app/HihonorWebView/HihonorWebView.apk!libwebviewchromium.so
+    #20 pc 0000000001f0763c  /product/app/HihonorWebView/HihonorWebView.apk!libwebviewchromium.so
+    #21 pc 0000000001ea17f0  /product/app/HihonorWebView/HihonorWebView.apk!libwebviewchromium.so
+    #22 pc 0000000001f07a90  /product/app/HihonorWebView/HihonorWebView.apk!libwebviewchromium.so
+    #23 pc 0000000001f081c8  /product/app/HihonorWebView/HihonorWebView.apk!libwebviewchromium.so
+    #24 pc 0000000001ef65e4  /product/app/HihonorWebView/HihonorWebView.apk!libwebviewchromium.so
+    #25 pc 0000000001effef0  /product/app/HihonorWebView/HihonorWebView.apk!libwebviewchromium.so
+    #26 pc 0000000001eeb604  /product/app/HihonorWebView/HihonorWebView.apk!libwebviewchromium.so
+    #27 pc 000000000000244c  /system/lib64/libwebviewchromium_plat_support.so (android::(anonymous namespace)::draw_gl(int, void*, android::uirenderer::DrawGlInfo const&, android::uirenderer::WebViewOverlayData const&)+328)
+    #28 pc 00000000006189dc  /system/lib64/libhwui.so (android::uirenderer::WebViewFunctor::drawGl(android::uirenderer::DrawGlInfo const&)+144)
+    #29 pc 00000000005e7ef8  /system/lib64/libhwui.so (android::uirenderer::skiapipeline::GLFunctorDrawable::onDraw(SkCanvas*)+2140)
+    #30 pc 00000000002028e0  /system/lib64/libhwui.so (SkDrawable::draw(SkCanvas*, SkMatrix const*)+10340)
+    #31 pc 000000000032d6e0  /system/lib64/libhwui.so (skgpu::ganesh::Device::drawDrawable(SkCanvas*, SkDrawable*, SkMatrix const*)+60)
+    #32 pc 00000000005bd91c  /system/lib64/libhwui.so (android::uirenderer::$_38::__invoke(void const*, SkCanvas*, SkMatrix const&) (.llvm.1870059109771289883)+76)
+    #33 pc 00000000005b07c8  /system/lib64/libhwui.so (void android::uirenderer::DisplayListData::map<void (*)(void const*, SkCanvas*, SkMatrix const&), SkCanvas*, SkMatrix>(void (* const*)(void const*, SkCanvas*, SkMatrix const&), SkCanvas*, SkMatrix) const+152)
+    #34 pc 00000000005b06c4  /system/lib64/libhwui.so (android::uirenderer::DisplayListData::draw(SkCanvas*) const+88)
+    #35 pc 000000000022371c  /system/lib64/libhwui.so (android::uirenderer::skiapipeline::RenderNodeDrawable::drawContent(SkCanvas*) const+1608)
+    #36 pc 0000000000208fb4  /system/lib64/libhwui.so (android::uirenderer::$_25::__invoke(void const*, SkCanvas*, SkMatrix const&) (.llvm.1870059109771289883)+6116)
+    #37 pc 00000000005b07c8  /system/lib64/libhwui.so (void android::uirenderer::DisplayListData::map<void (*)(void const*, SkCanvas*, SkMatrix const&), SkCanvas*, SkMatrix>(void (* const*)(void const*, SkCanvas*, SkMatrix const&), SkCanvas*, SkMatrix) const+152)
+    #38 pc 00000000005b06c4  /system/lib64/libhwui.so (android::uirenderer::DisplayListData::draw(SkCanvas*) const+88)
+    #39 pc 000000000022371c  /system/lib64/libhwui.so (android::uirenderer::skiapipeline::RenderNodeDrawable::drawContent(SkCanvas*) const+1608)
+    #40 pc 0000000000208fb4  /system/lib64/libhwui.so (android::uirenderer::$_25::__invoke(void const*, SkCanvas*, SkMatrix const&) (.llvm.1870059109771289883)+6116)
+    #41 pc 00000000005b07c8  /system/lib64/libhwui.so (void android::uirenderer::DisplayListData::map<void (*)(void const*, SkCanvas*, SkMatrix const&), SkCanvas*, SkMatrix>(void (* const*)(void const*, SkCanvas*, SkMatrix const&), SkCanvas*, SkMatrix) const+152)
+    #42 pc 00000000005b06c4  /system/lib64/libhwui.so (android::uirenderer::DisplayListData::draw(SkCanvas*) const+88)
+    #43 pc 000000000022371c  /system/lib64/libhwui.so (android::uirenderer::skiapipeline::RenderNodeDrawable::drawContent(SkCanvas*) const+1608)
+    #44 pc 0000000000208fb4  /system/lib64/libhwui.so (android::uirenderer::$_25::__invoke(void const*, SkCanvas*, SkMatrix const&) (.llvm.1870059109771289883)+6116)
+    #45 pc 00000000005b07c8  /system/lib64/libhwui.so (void android::uirenderer::DisplayListData::map<void (*)(void const*, SkCanvas*, SkMatrix const&), SkCanvas*, SkMatrix>(void (* const*)(void const*, SkCanvas*, SkMatrix const&), SkCanvas*, SkMatrix) const+152)
+    #46 pc 00000000005b06c4  /system/lib64/libhwui.so (android::uirenderer::DisplayListData::draw(SkCanvas*) const+88)
+    #47 pc 000000000022371c  /system/lib64/libhwui.so (android::uirenderer::skiapipeline::RenderNodeDrawable::drawContent(SkCanvas*) const+1608)
+    #48 pc 0000000000208fb4  /system/lib64/libhwui.so (android::uirenderer::$_25::__invoke(void const*, SkCanvas*, SkMatrix const&) (.llvm.1870059109771289883)+6116)
+    #49 pc 00000000005b07c8  /system/lib64/libhwui.so (void android::uirenderer::DisplayListData::map<void (*)(void const*, SkCanvas*, SkMatrix const&), SkCanvas*, SkMatrix>(void (* const*)(void const*, SkCanvas*, SkMatrix const&), SkCanvas*, SkMatrix) const+152)
+    #50 pc 00000000005b06c4  /system/lib64/libhwui.so (android::uirenderer::DisplayListData::draw(SkCanvas*) const+88)
+    #51 pc 000000000022371c  /system/lib64/libhwui.so (android::uirenderer::skiapipeline::RenderNodeDrawable::drawContent(SkCanvas*) const+1608)
+    #52 pc 00000000002060c8  /system/lib64/libhwui.so (android::uirenderer::skiapipeline::RenderNodeDrawable::forceDraw(SkCanvas*) const+228)
+    #53 pc 000000000057252c  /system/lib64/libhwui.so (android::uirenderer::skiapipeline::SkiaPipeline::renderLayerImpl(android::uirenderer::RenderNode*, android::uirenderer::Rect const&)+644)
+    #54 pc 00000000005eaf34  /system/lib64/libhwui.so (android::uirenderer::skiapipeline::SkiaGpuPipeline::renderLayersImpl(android::uirenderer::LayerUpdateQueue const&, bool)+168)
+    #55 pc 0000000000572d10  /system/lib64/libhwui.so (android::uirenderer::skiapipeline::SkiaPipeline::renderFrame(android::uirenderer::LayerUpdateQueue const&, SkRect const&, std::__1::vector<android::sp<android::uirenderer::RenderNode>, std::__1::allocator<android::sp<android::uirenderer::RenderNode>>> const&, bool, android::uirenderer::Rect const&, sk_sp<SkSurface>, SkMatrix const&)+192)
+    #56 pc 00000000005efd6c  /system/lib64/libhwui.so (android::uirenderer::skiapipeline::SkiaOpenGLPipeline::draw(android::uirenderer::renderthread::Frame const&, SkRect const&, SkRect const&, android::uirenderer::LightGeometry const&, android::uirenderer::LayerUpdateQueue*, android::uirenderer::Rect const&, bool, android::uirenderer::LightInfo const&, std::__1::vector<android::sp<android::uirenderer::RenderNode>, std::__1::allocator<android::sp<android::uirenderer::RenderNode>>> const&, android::uirenderer::FrameInfoVisualizer*, android::uirenderer::renderthread::HardwareBufferRenderParams const&, std::__1::mutex&)+796)
+    #57 pc 00000000002c1bd8  /system/lib64/libhwui.so (android::uirenderer::renderthread::CanvasContext::draw(bool)+2544)
+    #58 pc 00000000002bedc8  /system/lib64/libhwui.so (std::__1::__function::__func<android::uirenderer::renderthread::DrawFrameTask::postAndWait()::$_0, std::__1::allocator<android::uirenderer::renderthread::DrawFrameTask::postAndWait()::$_0>, void ()>::operator()() (.b8098a3f34a61487ab84f68b781b8130)+1892)
+    #59 pc 0000000000295430  /system/lib64/libhwui.so (android::uirenderer::renderthread::RenderThread::threadLoop()+336)
+    #60 pc 0000000000017fe8  /system/lib64/libutils.so (android::Thread::_threadLoop(void*)+248)
+    #61 pc 000000000001c01c  /system/lib64/libutils.so (libutil_thread_trampoline(void*) (.__uniq.226528677032898775202282855395389835431)+20)
+    #62 pc 0000000000082858  /apex/com.android.runtime/lib64/bionic/libc.so (__pthread_start(void*)+232)
+    #63 pc 0000000000075730  /apex/com.android.runtime/lib64/bionic/libc.so (__start_thread+64)
+    </div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=2HI7DLDB5LJAT&digestName=%2Fapex%2Fcom.android.art%2Flib64%2Flibart.so+%28art%3A%3AJValue+art%3A%3AInvokeVirtualOrInterfaceWithVarArgs%3C_jmethodID*%3E%28art%3A%3AScopedObjectAccessAlreadyRunnable+const%26%2C+_jobject*%2C+_jmethodID*%2C+std%3A%3A__va_list%29+%2B+1680%29%0A%2Fapex%2Fcom.android.art%2Flib64%2Flibart.so+%28art%3A%3AJNI%3Cfalse%3E%3A%3ACallVoidMethodV%28_JNIEnv*%2C+_jobject*%2C+_jmethodID*%2C+std%3A%3A__va_list%29+%2B+184%29" target="_blank" class="crash-title-link">9. /apex/com.android.art/lib64/libart.so (art</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 1</span>
+                                        <span><strong>错误次数:</strong> 1</span>
+                                        <span><strong>崩溃率:</strong> 0.000013%</span>
+                                        <span><strong>版本:</strong> 10.17.15</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">#00 pc 00000000003483dc  /apex/com.android.art/lib64/libart.so (art::JValue art::InvokeVirtualOrInterfaceWithVarArgs<_jmethodID*>(art::ScopedObjectAccessAlreadyRunnable const&, _jobject*, _jmethodID*, std::__va_list)+1680)
+    #01 pc 00000000006360b4  /apex/com.android.art/lib64/libart.so (art::JNI<false>::CallVoidMethodV(_JNIEnv*, _jobject*, _jmethodID*, std::__va_list)+184)
+    #02 pc 0000000000b3db2c  /data/app/~~1nnGB7uiC8Sm4eLAO0S3Rg==/com.xueersi.parentsmeeting-lWMteMM_FRdXA0FB8Tr3cA==/lib/arm64/libtalmsgsdk.so
+    #03 pc 0000000000b3eb94  /data/app/~~1nnGB7uiC8Sm4eLAO0S3Rg==/com.xueersi.parentsmeeting-lWMteMM_FRdXA0FB8Tr3cA==/lib/arm64/libtalmsgsdk.so
+    #04 pc 00000000004e77a4  /data/app/~~1nnGB7uiC8Sm4eLAO0S3Rg==/com.xueersi.parentsmeeting-lWMteMM_FRdXA0FB8Tr3cA==/lib/arm64/libtalmsgsdk.so
+    #05 pc 0000000000838574  /data/app/~~1nnGB7uiC8Sm4eLAO0S3Rg==/com.xueersi.parentsmeeting-lWMteMM_FRdXA0FB8Tr3cA==/lib/arm64/libtalmsgsdk.so
+    #06 pc 00000000005a11a4  /data/app/~~1nnGB7uiC8Sm4eLAO0S3Rg==/com.xueersi.parentsmeeting-lWMteMM_FRdXA0FB8Tr3cA==/lib/arm64/libtalmsgsdk.so
+    #07 pc 00000000005a3010  /data/app/~~1nnGB7uiC8Sm4eLAO0S3Rg==/com.xueersi.parentsmeeting-lWMteMM_FRdXA0FB8Tr3cA==/lib/arm64/libtalmsgsdk.so
+    #08 pc 0000000000a97500  /data/app/~~1nnGB7uiC8Sm4eLAO0S3Rg==/com.xueersi.parentsmeeting-lWMteMM_FRdXA0FB8Tr3cA==/lib/arm64/libtalmsgsdk.so
+    #09 pc 0000000000a95a1c  /data/app/~~1nnGB7uiC8Sm4eLAO0S3Rg==/com.xueersi.parentsmeeting-lWMteMM_FRdXA0FB8Tr3cA==/lib/arm64/libtalmsgsdk.so
+    #10 pc 00000000005a56cc  /data/app/~~1nnGB7uiC8Sm4eLAO0S3Rg==/com.xueersi.parentsmeeting-lWMteMM_FRdXA0FB8Tr3cA==/lib/arm64/libtalmsgsdk.so
+    #11 pc 00000000005a61bc  /data/app/~~1nnGB7uiC8Sm4eLAO0S3Rg==/com.xueersi.parentsmeeting-lWMteMM_FRdXA0FB8Tr3cA==/lib/arm64/libtalmsgsdk.so
+    #12 pc 0000000000082c40  /apex/com.android.runtime/lib64/bionic/libc.so (__pthread_start(void*)+184)
+    #13 pc 00000000000750bc  /apex/com.android.runtime/lib64/bionic/libc.so (__start_thread+68)
+    </div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=1RJPA1EU4JOOO&digestName=%2Fdata%2Fapp+com.xueersi.parentsmeeting+lib%2Farm64%2Flibclientcore.so+%28event_add_nolock_+%2B+168%29%0A%2Fdata%2Fapp+com.xueersi.parentsmeeting+lib%2Farm64%2Flibclientcore.so+%28event_add+%2B+68%29" target="_blank" class="crash-title-link">10. /data/app com.xueersi.parentsmeeting lib/arm64/libclientcore.so (event_add_nolock_ + 168)
+/data/app com.xueersi.parentsmeeting lib/arm64/libclientcore.so (event_add + 68)</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 1</span>
+                                        <span><strong>错误次数:</strong> 1</span>
+                                        <span><strong>崩溃率:</strong> 0.000013%</span>
+                                        <span><strong>版本:</strong> 10.17.15</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">#00 pc 000000000044c154  /data/app/~~5OY7yhncTns28wzHOOjdWA==/com.xueersi.parentsmeeting-3yMLeZLti12m1rmzGxY5Zw==/lib/arm64/libclientcore.so (event_add_nolock_+168)
+    #01 pc 000000000044ee74  /data/app/~~5OY7yhncTns28wzHOOjdWA==/com.xueersi.parentsmeeting-3yMLeZLti12m1rmzGxY5Zw==/lib/arm64/libclientcore.so (event_add+68)
+    #02 pc 000000000038525c  /data/app/~~5OY7yhncTns28wzHOOjdWA==/com.xueersi.parentsmeeting-3yMLeZLti12m1rmzGxY5Zw==/lib/arm64/libclientcore.so (CNetSession::addWriteQue(char const*, int, ESOCKETSTATUS)+228)
+    #03 pc 0000000000385074  /data/app/~~5OY7yhncTns28wzHOOjdWA==/com.xueersi.parentsmeeting-3yMLeZLti12m1rmzGxY5Zw==/lib/arm64/libclientcore.so (CNetSession::writedata(char const*, int, ESOCKETSTATUS)+268)
+    #04 pc 0000000000384f58  /data/app/~~5OY7yhncTns28wzHOOjdWA==/com.xueersi.parentsmeeting-3yMLeZLti12m1rmzGxY5Zw==/lib/arm64/libclientcore.so (CNetSession::Send(char const*, int, bool)+40)
+    #05 pc 0000000000282750  /data/app/~~5OY7yhncTns28wzHOOjdWA==/com.xueersi.parentsmeeting-3yMLeZLti12m1rmzGxY5Zw==/lib/arm64/libclientcore.so
+    #06 pc 00000000002879c4  /data/app/~~5OY7yhncTns28wzHOOjdWA==/com.xueersi.parentsmeeting-3yMLeZLti12m1rmzGxY5Zw==/lib/arm64/libclientcore.so
+    #07 pc 0000000000288824  /data/app/~~5OY7yhncTns28wzHOOjdWA==/com.xueersi.parentsmeeting-3yMLeZLti12m1rmzGxY5Zw==/lib/arm64/libclientcore.so
+    #08 pc 000000000028555c  /data/app/~~5OY7yhncTns28wzHOOjdWA==/com.xueersi.parentsmeeting-3yMLeZLti12m1rmzGxY5Zw==/lib/arm64/libclientcore.so
+    #09 pc 0000000000286508  /data/app/~~5OY7yhncTns28wzHOOjdWA==/com.xueersi.parentsmeeting-3yMLeZLti12m1rmzGxY5Zw==/lib/arm64/libclientcore.so
+    #10 pc 000000000038d824  /data/app/~~5OY7yhncTns28wzHOOjdWA==/com.xueersi.parentsmeeting-3yMLeZLti12m1rmzGxY5Zw==/lib/arm64/libclientcore.so (bedrock::ThreadPool::Worker::run(void*)+460)
+    #11 pc 000000000006c9bc  /apex/com.android.runtime/lib64/bionic/libc.so (__pthread_start(void*)+196)
+    #12 pc 000000000005f644  /apex/com.android.runtime/lib64/bionic/libc.so (__start_thread+64)
+    </div>
+                                        </div>
+                                    
+                                </div>
+                            
+                        </div>
+                    </div>
+                    
+                    
+                    <div class="footer">
+                        <p>报告由 Baymax Chrome Extension 生成 | 数据来源: EMAS API</p>
+                    </div>
+                </div>
+                
+
+            </body>
+            </html>
+        

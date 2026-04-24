@@ -1,0 +1,56 @@
+---
+description: Claude Code MCP：bugfix 分支开发流程（pull、进模块、建分支、改代码、检查、禁止 add/push）
+alwaysApply: false
+---
+
+# Claude Code MCP：Bugfix 开发流程（固定顺序）
+
+在通过 Claude Code / MCP 做**修改与开发**时，严格按下列顺序执行；**禁止**在本流程内执行 `git add`、`git commit`、`git push`（仅本地改代码与验证）。
+
+## 1. 同步基线
+
+- 在**仓库 Git 根目录**执行 `git pull`（按需写清远端与分支，例如 `git pull origin main`）。
+- 确认基线正确，避免在过时或错误分支上开 bugfix。
+
+## 2. 进入目标模块
+
+- 根据**本次要改的模块**执行 `cd <模块路径>`（例如 `EMAS-crashtools`）。
+- 编译、分析、测试等命令默认在**该模块目录**下执行（除非仓库另有约定）。
+
+## 3. 创建并切换 bugfix 分支
+
+- 在 **Git 根目录**（与子模块是否为独立仓一致：以 `git rev-parse --show-toplevel` 为准）执行：
+  - `git checkout -b bugfix/<简短说明>`
+  - 示例：`bugfix/emas-overview-metrics`、`bugfix/crash-list-ui`。
+- 确认 `git branch --show-current` 为新建的 bugfix 分支后再改代码。
+
+## 4. 修改代码
+
+- 只改与需求相关的文件，避免无关重构与扩大范围。
+- 与现有代码风格、类型与错误处理保持一致。
+
+## 5. 编译与静态检查（在模块目录）
+
+- **Flutter/Dart 示例**：`dart analyze` 或 `flutter analyze`，以及 `flutter test`（或项目内脚本）。
+- 修完分析器报错与失败用例后再结束本步。
+- **本步仍不得**执行 `git add`、`git commit`、`git push`。
+
+## 6. 结束交付
+
+- 用简短条目列出：**变更文件路径**、**已执行的检查命令**、**未执行** `git add` / `push`。
+- 由人工在本地决定是否提交与推送。
+
+---
+
+## 可复制提示词（粘贴到 Claude Code / MCP）
+
+```text
+请严格按顺序执行，不要跳步：
+1) 在 Git 仓库根目录执行 git pull（并说明你用的远端与分支）。
+2) cd 进入我指定的模块目录（若未指定则先问我路径）。
+3) 在 Git 根目录执行 git checkout -b bugfix/<简短英文或拼音标识>，确认当前分支已是该 bugfix。
+4) 仅在相关文件内完成修改。
+5) 在模块目录执行编译/静态分析/测试（如 flutter analyze、flutter test），修到通过。
+
+硬性禁止：git add、git commit、git push。结束时列出改动文件清单与已跑命令。
+```
