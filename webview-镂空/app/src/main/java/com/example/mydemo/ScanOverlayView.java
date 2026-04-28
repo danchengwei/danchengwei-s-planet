@@ -100,6 +100,13 @@ public class ScanOverlayView extends View {
         return holeReady;
     }
 
+    /**
+     * 添加布局变化监听器，用于通知外部镂空区域的变化
+     */
+    public void addOnLayoutChangeListener(OnLayoutChangeListener listener) {
+        super.addOnLayoutChangeListener(listener);
+    }
+
     @Override
     protected void onDetachedFromWindow() {
         super.onDetachedFromWindow();
@@ -123,8 +130,8 @@ public class ScanOverlayView extends View {
         float hw = holeRect.width();
         float hh = holeRect.height();
 
-        float innerW = Math.min(hw * 0.62f, hh * 0.72f);
-        float innerH = innerW;
+        float innerW = hw * 0.95f;
+        float innerH = hh * 0.95f;
         float innerL = holeL + (hw - innerW) / 2f;
         float innerT = holeT + (hh - innerH) / 2f;
         float innerR = innerL + innerW;

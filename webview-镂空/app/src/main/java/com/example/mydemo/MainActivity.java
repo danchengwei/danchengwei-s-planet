@@ -11,6 +11,7 @@ import android.view.MotionEvent;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
+import android.widget.FrameLayout;
 import android.webkit.ConsoleMessage;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
@@ -77,6 +78,7 @@ public class MainActivity extends AppCompatActivity {
 
         initWebView();
         setupHoleTouchFocus();
+        setupHoleSyncForTextureView();
 
         loadH5Page();
     }
@@ -109,8 +111,8 @@ public class MainActivity extends AppCompatActivity {
 
     private void loadH5Page() {
         // 开发联调：直接加载局域网 dev server
-        webView.loadUrl("http://10.8.227.21:5173/");
-        Log.i("MainActivity", "加载 H5 dev server: http://10.8.227.21:5173/");
+        webView.loadUrl("http://10.8.227.13:5173/");
+        Log.i("MainActivity", "加载 H5 dev server: http://10.8.227.13:5173/");
     }
 
     @SuppressLint({"SetJavaScriptEnabled", "ClickableViewAccessibility"})
@@ -223,6 +225,36 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    /**
+     * 监听镂空区域变化，同步调整 TextureView 的位置和大小，
+     * 确保相机预览正好填充 H5 的镂空区域。
+     */
+    private void setupHoleSyncForTextureView() {
+        // 在 ScanOverlay 布局变化时更新 TextureView 位置
+        scanOverlay.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+            if (scanOverlay.hasHole()) {
+                updateTextureViewBounds();
+            }
+        });
+    }
+
+    private void updateTextureViewBounds() {
+        if (!scanOverlay.hasHole()) {
+            return;
+        }
+        
+        RectF holeRect = scanOverlay.getHoleRect();
+        
+        FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) cameraTexture.getLayoutParams();
+        params.leftMargin = (int) holeRect.left;
+        params.topMargin = (int) holeRect.top;
+        params.width = (int) holeRect.width();
+        params.height = (int) holeRect.height();
+        cameraTexture.setLayoutParams(params);
+        
+        Log.d("MainActivity", "更新 TextureView 位置: " + holeRect.toString());
+    }
+
     private void focusPreviewAt(float viewX, float viewY) {
         if (boundCamera == null || cameraTexture.getWidth() <= 0 || cameraTexture.getHeight() <= 0) {
             return;
@@ -330,7 +362,37 @@ public class MainActivity extends AppCompatActivity {
 
         @JavascriptInterface
         public void setNativeHoleRect(int left, int top, int width, int height) {
-            runOnUiThread(() -> scanOverlay.setHoleFromWeb(left, top, (float) left + width, (float) top + height));
+            runOnUiThread(() -> {
+                // H5 传来的是 CSS 像素（逻辑像素），需要转换为物理像素
+                // 使用更准确的缩放计算：物理屏幕宽度 / WebView 内容宽度
+                int webViewWidth = webView.getWidth();
+                float cssPixelRatio = webViewWidth > 0 ? webViewWidth / 375f : 1.0f; // 假设 H5 设计稿基准宽度 375
+                
+                // 也可以通过 window.innerWidth 获取实际 CSS 宽度
+                webView.evaluateJavascript(
+                    "(function(){return window.innerWidth;})()",
+                    value -> {
+                        try {
+                            int cssWidth = Integer.parseInt(value.replace("\"", ""));
+                            float accurateScale = webViewWidth / (float)cssWidth;
+                            
+                            int physicalLeft = Math.round(left * accurateScale);
+                            int physicalTop = Math.round(top * accurateScale);
+                            int physicalWidth = Math.round(width * accurateScale);
+                            int physicalHeight = Math.round(height * accurateScale);
+                            
+                            Log.d("MainActivity", "H5 坐标: left=" + left + ", top=" + top + ", width=" + width + ", height=" + height);
+                            Log.d("MainActivity", "CSS 宽度: " + cssWidth + ", 物理宽度: " + webViewWidth + ", 缩放比例: " + accurateScale);
+                            Log.d("MainActivity", "物理坐标: left=" + physicalLeft + ", top=" + physicalTop + ", width=" + physicalWidth + ", height=" + physicalHeight);
+                            
+                            scanOverlay.setHoleFromWeb(physicalLeft, physicalTop, (float) physicalLeft + physicalWidth, (float) physicalTop + physicalHeight);
+                            updateTextureViewBounds();
+                        } catch (Exception e) {
+                            Log.e("MainActivity", "解析 CSS 宽度失败", e);
+                        }
+                    }
+                );
+            });
         }
     }
 
