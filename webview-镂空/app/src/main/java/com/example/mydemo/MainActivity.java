@@ -110,9 +110,11 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void loadH5Page() {
-        // 开发联调：直接加载局域网 dev server
-        webView.loadUrl("http://10.8.227.13:5173/");
-        Log.i("MainActivity", "加载 H5 dev server: http://10.8.227.13:5173/");
+        // 加载本地静态 HTML 文件（无需代理服务器）
+        String localUrl = "file:///android_asset/h5/index.html";
+        Log.i("MainActivity", "准备加载本地 H5: " + localUrl);
+        webView.loadUrl(localUrl);
+        Log.i("MainActivity", "已调用 webView.loadUrl()");
     }
 
     @SuppressLint({"SetJavaScriptEnabled", "ClickableViewAccessibility"})
@@ -134,6 +136,13 @@ public class MainActivity extends AppCompatActivity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         }
+        
+        // 禁用缩放控件（本地静态页面不需要）
+        webSettings.setBuiltInZoomControls(false);
+        webSettings.setDisplayZoomControls(false);
+        
+        // 启用缓存加速加载
+        webSettings.setCacheMode(WebSettings.LOAD_DEFAULT);
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
