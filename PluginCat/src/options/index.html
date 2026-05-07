@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>网页电子宠物 - 设置</title>
+    <link rel="stylesheet" href="./options.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>🐱 网页电子宠物</h1>
+      <p class="sub">选择一个大模型服务商，填入 API Key 即可开始</p>
+
+      <label class="field">
+        <span>模型服务商</span>
+        <select id="provider"></select>
+      </label>
+
+      <label class="field">
+        <span>模型名 <em class="muted">(选填)</em></span>
+        <input id="model" type="text" autocomplete="off" />
+        <small class="hint" id="modelHint"></small>
+      </label>
+
+      <label class="field">
+        <span>API Key</span>
+        <input id="apiKey" type="password" autocomplete="off" />
+        <small class="hint">
+          <a id="docLink" target="_blank" rel="noreferrer">→ 去获取 API Key</a>
+          ·&nbsp;只保存在 <code>chrome.storage.sync</code>，不会上传到第三方。
+        </small>
+      </label>
+
+      <div class="row">
+        <button id="save">完成</button>
+        <span id="busy" class="busy" hidden>
+          <span class="spinner"></span>
+          <span>正在测试模型连通性…</span>
+        </span>
+      </div>
+    </main>
+
+    <!-- 结果弹窗 -->
+    <div class="modal" id="modal" hidden>
+      <div class="modal-backdrop" data-modal-close></div>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div class="modal-icon" id="modalIcon">✓</div>
+        <h2 id="modalTitle">配置成功</h2>
+        <div class="modal-body" id="modalBody"></div>
+        <div class="modal-sample" id="modalSample" hidden></div>
+        <div class="modal-actions">
+          <button class="btn-secondary" id="modalSecondary" hidden></button>
+          <button id="modalPrimary">好的</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

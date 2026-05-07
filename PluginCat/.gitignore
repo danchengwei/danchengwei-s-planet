@@ -1,0 +1,7 @@
+node_modules
+dist
+.DS_Store
+*.log
+web-pet.zip
+# 图标由 scripts/gen-icons.mjs 从 assets/icon.svg 生成
+public/icons

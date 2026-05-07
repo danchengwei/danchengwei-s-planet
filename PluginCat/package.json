@@ -1,0 +1,21 @@
+{
+  "name": "web-pet",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "一个网页电子宠物 Chrome 扩展，基于 hunyuan-lite",
+  "scripts": {
+    "gen:icons": "node scripts/gen-icons.mjs",
+    "dev": "npm run gen:icons && vite",
+    "build": "npm run gen:icons && vite build",
+    "preview": "vite preview",
+    "pack": "npm run build && cd dist && zip -r ../web-pet.zip ."
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.0.0-beta.25",
+    "@types/chrome": "^0.0.268",
+    "sharp": "^0.34.5",
+    "typescript": "^5.4.5",
+    "vite": "^5.2.11"
+  }
+}

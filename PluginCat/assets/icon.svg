@@ -1,0 +1,44 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <!-- 柔和渐变底（给小尺寸更突出） -->
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="45%" r="55%">
+      <stop offset="0%" stop-color="#ffcf8f"/>
+      <stop offset="100%" stop-color="#f5a86b"/>
+    </radialGradient>
+  </defs>
+
+  <!-- 耳朵（外） -->
+  <path fill="#e4884c" d="M18,52 L30,8 L60,40 Z"/>
+  <path fill="#e4884c" d="M110,52 L98,8 L68,40 Z"/>
+  <!-- 耳朵（内，粉） -->
+  <path fill="#ffc1cc" d="M28,44 L34,18 L52,40 Z"/>
+  <path fill="#ffc1cc" d="M100,44 L94,18 L76,40 Z"/>
+
+  <!-- 脸 -->
+  <circle fill="url(#bg)" cx="64" cy="68" r="48"/>
+
+  <!-- 腮红 -->
+  <circle fill="#ff8fa8" opacity="0.75" cx="30" cy="82" r="8"/>
+  <circle fill="#ff8fa8" opacity="0.75" cx="98" cy="82" r="8"/>
+
+  <!-- 胡须（短版，小尺寸更清） -->
+  <g stroke="#6b4a2f" stroke-width="2.2" stroke-linecap="round" opacity="0.7">
+    <line x1="12" y1="70" x2="28" y2="72"/>
+    <line x1="12" y1="78" x2="28" y2="78"/>
+    <line x1="116" y1="70" x2="100" y2="72"/>
+    <line x1="116" y1="78" x2="100" y2="78"/>
+  </g>
+
+  <!-- 眼睛 -->
+  <ellipse fill="#2a3a2a" cx="46" cy="62" rx="6" ry="8"/>
+  <ellipse fill="#ffffff" cx="48.5" cy="58" rx="2" ry="2.8"/>
+  <ellipse fill="#2a3a2a" cx="82" cy="62" rx="6" ry="8"/>
+  <ellipse fill="#ffffff" cx="84.5" cy="58" rx="2" ry="2.8"/>
+
+  <!-- 鼻子 -->
+  <path fill="#ff6988" d="M56,76 L72,76 L64,85 Z"/>
+
+  <!-- 嘴 -->
+  <path fill="none" stroke="#3a2a1a" stroke-width="3" stroke-linecap="round"
+        d="M50,88 Q58,96 64,88 Q70,96 78,88"/>
+</svg>
