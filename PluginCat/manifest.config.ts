@@ -42,6 +42,10 @@ export default defineManifest({
     {
       resources: ['src/content/pet.css'],
       matches: ['<all_urls>']
+    },
+    {
+      resources: ['pet/spineboy/*'],
+      matches: ['<all_urls>']
     }
   ]
 });
