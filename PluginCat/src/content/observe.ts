@@ -1,4 +1,4 @@
-import type { NetworkEntry, Observation, ObservedElement } from '../shared/types';
+import type { ApiCall, ConsoleEntry, NetworkEntry, Observation, ObservedElement, StorageArea } from '../shared/types';
 
 /* ============================================================
  * 隐私脱敏
@@ -317,4 +317,251 @@ export function initNetworkObserver() {
 
 export function recentNetwork(limit = 20): NetworkEntry[] {
   return netBuf.slice(-limit);
+}
+
+/* ============================================================
+ * API 调用缓冲：接收 MAIN world injected.ts 回传的 fetch/XHR 明细
+ * ============================================================ */
+
+const apiBuf: ApiCall[] = [];
+const apiById = new Map<number, ApiCall>();
+const API_BUF_MAX = 200;
+const consoleBuf: ConsoleEntry[] = [];
+const CONSOLE_BUF_MAX = 200;
+let apiObserverInitialized = false;
+
+export function initApiObserver() {
+  if (apiObserverInitialized) return;
+  apiObserverInitialized = true;
+  window.addEventListener('message', (ev) => {
+    if (ev.source !== window) return;
+    const d: any = ev.data;
+    if (!d || d.__pet_api__ !== true) return;
+    if (d.type === 'start') {
+      const call: ApiCall = {
+        id: Number(d.id),
+        url: redactUrl(String(d.url || '')),
+        method: String(d.method || 'GET').toUpperCase(),
+        kind: d.kind === 'xhr' ? 'xhr' : 'fetch',
+        reqSnippet: typeof d.reqSnippet === 'string' ? redactText(d.reqSnippet) : undefined,
+        time: Number(d.time) || Date.now()
+      };
+      if (!Number.isFinite(call.id)) return;
+      if (apiBuf.length >= API_BUF_MAX) {
+        const dropped = apiBuf.shift();
+        if (dropped) apiById.delete(dropped.id);
+      }
+      apiBuf.push(call);
+      apiById.set(call.id, call);
+    } else if (d.type === 'console') {
+      if (consoleBuf.length >= CONSOLE_BUF_MAX) consoleBuf.shift();
+      consoleBuf.push({
+        level: d.level === 'warn' || d.level === 'error' || d.level === 'info' ? d.level : 'log',
+        message: redactText(String(d.message || '')),
+        time: Number(d.time) || Date.now()
+      });
+    } else if (d.type === 'end') {
+      const call = apiById.get(Number(d.id));
+      if (!call) return;
+      if (typeof d.status === 'number') call.status = d.status;
+      if (typeof d.durationMs === 'number') call.durationMs = d.durationMs;
+      if (typeof d.contentType === 'string') call.contentType = d.contentType;
+      if (typeof d.respSnippet === 'string') call.respSnippet = redactText(d.respSnippet);
+      if (typeof d.error === 'string') call.error = d.error;
+    }
+  });
+}
+
+export function recentApiCalls(limit = 20): ApiCall[] {
+  return apiBuf.slice(-limit);
+}
+
+export function searchApiCalls(query: string, limit = 20): ApiCall[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return recentApiCalls(limit);
+  return apiBuf.filter(c => c.url.toLowerCase().includes(q)).slice(-limit);
+}
+
+export function getApiCall(id: number): ApiCall | undefined {
+  return apiById.get(id);
+}
+
+export function formatApiCall(c: ApiCall): string {
+  const status = c.status != null ? String(c.status) : (c.error ? 'ERR' : '…');
+  const dur = c.durationMs != null ? `${c.durationMs}ms` : '?';
+  return `#${c.id} ${c.kind} ${c.method} ${status} ${dur} ${c.url}`;
+}
+
+export function formatApiDetail(c: ApiCall): string {
+  const lines: string[] = [];
+  lines.push(`#${c.id} ${c.method} ${c.url}`);
+  const status = c.status != null ? String(c.status) : (c.error || '?');
+  const dur = c.durationMs != null ? `${c.durationMs}ms` : '?';
+  lines.push(`状态: ${status}  耗时: ${dur}  类型: ${c.kind}${c.contentType ? `  content-type: ${c.contentType}` : ''}`);
+  if (c.reqSnippet) {
+    lines.push('[请求体 (截断到 512 字, 已脱敏)]');
+    lines.push(c.reqSnippet);
+  }
+  if (c.respSnippet) {
+    lines.push('[响应体 (截断到 2KB, 已脱敏)]');
+    lines.push(c.respSnippet);
+  } else if (!c.error) {
+    lines.push('(响应体未捕获：非文本/JSON 或请求仍在进行)');
+  }
+  return lines.join('\n');
+}
+
+/* ============================================================
+ * Console 缓冲
+ * ============================================================ */
+
+export function recentConsole(level?: ConsoleEntry['level'], limit = 50): ConsoleEntry[] {
+  const base = level ? consoleBuf.filter(c => c.level === level) : consoleBuf;
+  return base.slice(-limit);
+}
+
+export function formatConsoleEntry(e: ConsoleEntry, base = Date.now()): string {
+  const ago = Math.max(0, Math.round((base - e.time) / 1000));
+  return `[-${ago}s] [${e.level.toUpperCase()}] ${e.message}`;
+}
+
+/* ============================================================
+ * evalInPage：跨 world 执行 JS（主世界求值，拿返回值）
+ * ============================================================ */
+
+export function evalInPage(code: string, timeoutMs = 6000): Promise<{ ok: boolean; result?: string; type?: string; error?: string }> {
+  return new Promise(resolve => {
+    const reqId = `eval-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    let done = false;
+    const handler = (ev: MessageEvent) => {
+      if (ev.source !== window) return;
+      const d: any = ev.data;
+      if (!d || d.__pet_res__ !== true || d.reqId !== reqId) return;
+      if (done) return;
+      done = true;
+      window.removeEventListener('message', handler);
+      clearTimeout(timer);
+      resolve({ ok: !!d.ok, result: d.result, type: d.type, error: d.error });
+    };
+    const timer = window.setTimeout(() => {
+      if (done) return;
+      done = true;
+      window.removeEventListener('message', handler);
+      resolve({ ok: false, error: `eval 超时 (>${timeoutMs}ms)` });
+    }, timeoutMs);
+    window.addEventListener('message', handler);
+    window.postMessage({ __pet_req__: true, type: 'eval', reqId, code }, '*');
+  });
+}
+
+/* ============================================================
+ * Storage 读取（localStorage / sessionStorage / cookie）
+ * ============================================================ */
+
+const SENSITIVE_STORAGE_KEY = /(password|passwd|pwd|secret|token|apikey|api[_-]?key|auth|session|sid|jwt|access[_-]?token|refresh[_-]?token|otp|verification)/i;
+
+export interface StorageItem {
+  area: 'local' | 'session' | 'cookie';
+  key: string;
+  value?: string;
+  redacted?: boolean;
+  size?: number;
+}
+
+export function readStorage(area: StorageArea = 'all', keyMatch?: string): StorageItem[] {
+  const out: StorageItem[] = [];
+  const areas: Array<'local' | 'session' | 'cookie'> =
+    area === 'all' ? ['local', 'session', 'cookie'] : [area];
+  for (const a of areas) {
+    if (a === 'local' || a === 'session') {
+      const store = a === 'local' ? window.localStorage : window.sessionStorage;
+      try {
+        for (let i = 0; i < store.length; i++) {
+          const key = store.key(i);
+          if (!key) continue;
+          if (keyMatch && !key.toLowerCase().includes(keyMatch.toLowerCase())) continue;
+          const raw = store.getItem(key) ?? '';
+          out.push(buildItem(a, key, raw));
+        }
+      } catch { /* ignore: some pages disable storage */ }
+    } else if (a === 'cookie') {
+      try {
+        const raw = document.cookie || '';
+        if (!raw) continue;
+        const pairs = raw.split(/;\s*/).filter(Boolean);
+        for (const p of pairs) {
+          const eq = p.indexOf('=');
+          const key = eq === -1 ? p : p.slice(0, eq);
+          const value = eq === -1 ? '' : p.slice(eq + 1);
+          if (keyMatch && !key.toLowerCase().includes(keyMatch.toLowerCase())) continue;
+          out.push(buildItem('cookie', key, decodeCookieValue(value)));
+        }
+      } catch { /* ignore */ }
+    }
+  }
+  return out;
+}
+
+function decodeCookieValue(v: string): string {
+  try { return decodeURIComponent(v); } catch { return v; }
+}
+
+function buildItem(area: 'local' | 'session' | 'cookie', key: string, raw: string): StorageItem {
+  const size = raw.length;
+  if (SENSITIVE_STORAGE_KEY.test(key)) {
+    return { area, key, redacted: true, size };
+  }
+  return { area, key, value: truncateStr(redactText(raw), 2048), size };
+}
+
+function truncateStr(s: string, n: number): string {
+  return s.length > n ? s.slice(0, n) + '…' : s;
+}
+
+export function formatStorageItem(it: StorageItem): string {
+  const tag = `[${it.area}]`;
+  if (it.redacted) return `${tag} ${it.key} = ⚠️ REDACTED (${it.size} 字符)`;
+  return `${tag} ${it.key} = ${JSON.stringify(it.value || '')} (${it.size} 字符)`;
+}
+
+/* ============================================================
+ * DOM query：按 CSS 选择器批量取节点
+ * ============================================================ */
+
+export interface QueryHit {
+  index: number;
+  tag: string;
+  text?: string;
+  attr?: string;
+}
+
+export function runQuery(selector: string, limit = 10, attr?: string): { ok: true; hits: QueryHit[] } | { ok: false; error: string } {
+  let nodes: NodeListOf<Element>;
+  try {
+    nodes = document.querySelectorAll(selector);
+  } catch (err: any) {
+    return { ok: false, error: `无效选择器: ${err?.message || err}` };
+  }
+  const hits: QueryHit[] = [];
+  const cap = Math.min(limit, 30);
+  for (let i = 0; i < nodes.length && hits.length < cap; i++) {
+    const el = nodes[i] as HTMLElement;
+    if (el.closest('#__web_pet__')) continue;
+    const text = redactText((el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim()).slice(0, 200);
+    const hit: QueryHit = { index: i, tag: el.tagName.toLowerCase() };
+    if (text) hit.text = text;
+    if (attr) {
+      const av = el.getAttribute(attr);
+      if (av) hit.attr = redactText(av).slice(0, 200);
+    }
+    hits.push(hit);
+  }
+  return { ok: true, hits };
+}
+
+export function formatQueryHit(h: QueryHit, attr?: string): string {
+  const parts = [`[${h.index}]`, `<${h.tag}>`];
+  if (h.text) parts.push(JSON.stringify(h.text));
+  if (attr && h.attr) parts.push(`${attr}=${JSON.stringify(h.attr)}`);
+  return parts.join(' ');
 }

@@ -38,6 +38,24 @@ export interface NetworkEntry {
   time: number;
 }
 
+/** 被 MAIN world 的 fetch/XHR hook 捕获的一条业务 API 调用（带响应体摘要） */
+export interface ApiCall {
+  id: number;
+  url: string;
+  method: string;
+  kind: 'fetch' | 'xhr';
+  status?: number;
+  durationMs?: number;
+  contentType?: string;
+  /** 请求体前 512 字（已脱敏） */
+  reqSnippet?: string;
+  /** 响应体前 2KB（已脱敏，仅 text/json 等文本类 content-type） */
+  respSnippet?: string;
+  error?: string;
+  /** Date.now() when started */
+  time: number;
+}
+
 export interface Observation {
   url: string;
   title: string;
@@ -50,14 +68,30 @@ export interface Observation {
 
 /* ---------- Agent Action ---------- */
 
+export interface ConsoleEntry {
+  level: 'log' | 'warn' | 'error' | 'info';
+  message: string;
+  time: number;
+}
+
+export type StorageArea = 'local' | 'session' | 'cookie' | 'all';
+
 export type PetAction =
   | { kind: 'observe' }
-  | { kind: 'network' }
+  | { kind: 'network'; query?: string; id?: number }
   | { kind: 'scroll'; to: 'top' | 'bottom' | number }
   | { kind: 'click'; index: number }
   | { kind: 'fill'; index: number; value: string }
   | { kind: 'read'; index: number }
   | { kind: 'wait'; ms: number }
+  /** 在页面 MAIN world 执行一段 JS，拿返回值（会弹审批） */
+  | { kind: 'eval'; code: string }
+  /** 拿最近的 console 日志 */
+  | { kind: 'console'; level?: ConsoleEntry['level']; limit?: number }
+  /** 读 localStorage / sessionStorage / cookie */
+  | { kind: 'storage'; area?: StorageArea; keyMatch?: string }
+  /** 用 CSS 选择器批量查 DOM 节点（不进可交互元素索引） */
+  | { kind: 'query'; selector: string; limit?: number; attr?: string }
   | { kind: 'finish'; reply: string }
   | { kind: 'none' };
 

@@ -1,6 +1,6 @@
 import type { AskRequest, AskResponse, ChatMessage, PetAction } from '../shared/types';
 import { buildObservation, formatObservation, initNetworkObserver, recentNetwork, formatNetwork } from './observe';
-import { runAction, type ActionResult } from './actions';
+import { actionDenied, needsApproval, runAction, type ActionResult } from './actions';
 import type { PetRenderer } from './renderer/spine';
 import { detectContext, contextToState, timeOfDayState, pickHobby } from './activity';
 import { spawnEffect, type FxKind } from './fx';
@@ -512,8 +512,16 @@ class AgentProgress {
     this.append('💭', thought, 'thought');
   }
 
-  logAction(action: PetAction) {
-    this.append(iconFor(action), describeAction(action), 'action');
+  /**
+   * 展示本步动作。主文案优先用模型自己总结的 `reply`（面向用户的自然语言），
+   * `reply` 为空或只是字面重复 action kind 时，回退到 describeAction 的本地兜底。
+   */
+  logAction(action: PetAction, replyText?: string) {
+    const fromModel = (replyText || '').trim();
+    const label = fromModel && !isTrivialReply(fromModel, action.kind)
+      ? fromModel
+      : describeAction(action);
+    this.append(iconFor(action), label, 'action');
   }
 
   logResult(result: ActionResult) {
@@ -523,6 +531,49 @@ class AgentProgress {
 
   logError(message: string) {
     this.append('⚠️', message, 'error');
+  }
+
+  /** 展示一段代码给用户审批，返回 true=允许 / false=拒绝 */
+  askApproval(kind: string, code: string): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      this.mount();
+      this.clearPending();
+      const row = document.createElement('div');
+      row.className = 'pet-step approval';
+      const title = document.createElement('div');
+      title.className = 'approval-title';
+      title.textContent = `喵想执行 ${kind}：`;
+      const codeEl = document.createElement('pre');
+      codeEl.className = 'approval-code';
+      codeEl.textContent = code;
+      const btns = document.createElement('div');
+      btns.className = 'approval-actions';
+      const allow = document.createElement('button');
+      allow.className = 'approval-btn allow';
+      allow.textContent = '允许';
+      const deny = document.createElement('button');
+      deny.className = 'approval-btn deny';
+      deny.textContent = '拒绝';
+      btns.appendChild(allow);
+      btns.appendChild(deny);
+      row.appendChild(title);
+      row.appendChild(codeEl);
+      row.appendChild(btns);
+      this.container.appendChild(row);
+      this.scrollIntoView();
+      const finish = (ok: boolean) => {
+        btns.remove();
+        row.classList.add(ok ? 'approved' : 'denied');
+        const status = document.createElement('div');
+        status.className = 'approval-status';
+        status.textContent = ok ? '✓ 已允许' : '✗ 已拒绝';
+        row.appendChild(status);
+        this.scrollIntoView();
+        resolve(ok);
+      };
+      allow.addEventListener('click', () => finish(true));
+      deny.addEventListener('click', () => finish(false));
+    });
   }
 
   private append(icon: string, text: string, variant: string) {
@@ -545,7 +596,11 @@ class AgentProgress {
 function iconFor(a: PetAction): string {
   switch (a.kind) {
     case 'observe': return '🔍';
+    case 'query':   return '🎯';
     case 'network': return '🌐';
+    case 'console': return '📋';
+    case 'storage': return '💾';
+    case 'eval':    return '⚡';
     case 'scroll':  return '📜';
     case 'click':   return '👆';
     case 'fill':    return '✍️';
@@ -559,7 +614,14 @@ function iconFor(a: PetAction): string {
 function describeAction(a: PetAction): string {
   switch (a.kind) {
     case 'observe': return '观察页面';
-    case 'network': return '查看网络请求';
+    case 'query':   return `选择器查询 ${a.selector}`;
+    case 'network':
+      if (typeof a.id === 'number') return `查看 API #${a.id} 响应`;
+      if (a.query) return `搜索 API "${a.query}"`;
+      return '查看网络请求';
+    case 'console': return `查看 console${a.level ? ` (${a.level})` : ''}`;
+    case 'storage': return `读 storage${a.area ? ` (${a.area})` : ''}${a.keyMatch ? ` 匹配 "${a.keyMatch}"` : ''}`;
+    case 'eval':    return `执行 JS: ${a.code.length > 40 ? a.code.slice(0, 40) + '…' : a.code}`;
     case 'scroll':  return `滚动到 ${a.to === 'top' ? '顶部' : a.to === 'bottom' ? '底部' : a.to + 'px'}`;
     case 'click':   return `点击 [${a.index}]`;
     case 'fill':    return `填入 [${a.index}]`;
@@ -568,6 +630,32 @@ function describeAction(a: PetAction): string {
     case 'finish':  return '完成';
     case 'none':    return '无动作';
   }
+}
+
+/**
+ * 判定模型的 reply 是不是字面重复 action kind 的废话 ——
+ * 小模型经常会把 reply 填成"查看网络请求"、"观察页面"之类，这种情况下
+ * 还不如用 describeAction 的兜底文案（至少带参数上下文）。
+ */
+function isTrivialReply(reply: string, kind: PetAction['kind']): boolean {
+  const r = reply.replace(/\s|。|~|喵/g, '');
+  const blacklistByKind: Partial<Record<PetAction['kind'], string[]>> = {
+    observe: ['观察页面', '查看页面'],
+    network: ['查看网络请求', '查看network', '网络请求'],
+    console: ['查看console', '查看控制台'],
+    storage: ['读storage', '查看storage'],
+    query:   ['查询元素', '执行查询'],
+    eval:    ['执行js', '执行代码'],
+    click:   ['点击'],
+    fill:    ['填写', '填入'],
+    read:    ['读取元素', '读取'],
+    scroll:  ['滚动'],
+    wait:    ['等待'],
+  };
+  const patterns = blacklistByKind[kind];
+  if (!patterns) return false;
+  const lower = r.toLowerCase();
+  return patterns.some(p => lower === p.toLowerCase());
 }
 
 function looksLikeAgentJson(raw: string): boolean {
@@ -617,7 +705,7 @@ export function mountPet() {
   root.innerHTML = `
     <div class="pet-panel" data-panel>
       <div class="pet-header">
-        <span>🐱 网页小助手</span>
+        <span class="pet-title"><span class="pet-title-prompt">&gt;</span> NEKO_ASSIST<span class="pet-title-caret">_</span></span>
         <span class="pet-close" data-close>×</span>
       </div>
       <div class="pet-messages" data-messages>
@@ -919,10 +1007,10 @@ export function mountPet() {
           inAgent = true;
           thinkingBubble.remove();
           progress.logThought(thought);
-          progress.logAction(action);
+          progress.logAction(action, reply);
         } else {
           progress.logThought(thought);
-          progress.logAction(action);
+          progress.logAction(action, reply);
         }
 
         if (action.kind === 'finish') {
@@ -936,7 +1024,14 @@ export function mountPet() {
           break;
         }
 
-        const result = await runAction(action);
+        let result: ActionResult;
+        if (needsApproval(action)) {
+          const codePreview = action.kind === 'eval' ? action.code : describeAction(action);
+          const ok = await progress.askApproval(action.kind, codePreview);
+          result = ok ? await runAction(action) : actionDenied(action);
+        } else {
+          result = await runAction(action);
+        }
         progress.logResult(result);
         messages.push({ role: 'user', content: `[action result]\n${result.observation || (result.ok ? 'ok' : 'failed')}` });
       }

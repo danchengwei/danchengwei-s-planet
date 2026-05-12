@@ -24,6 +24,14 @@ export default defineManifest({
     type: 'module'
   },
   content_scripts: [
+    // 先在 MAIN world 劫持 fetch/XHR（必须 document_start，赶在页面脚本之前挂 hook）
+    {
+      matches: ['<all_urls>'],
+      js: ['src/content/injected.ts'],
+      run_at: 'document_start',
+      all_frames: false,
+      world: 'MAIN'
+    } as any,
     {
       matches: ['<all_urls>'],
       js: ['src/content/index.ts'],
