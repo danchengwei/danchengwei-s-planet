@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'gitlab_project_binding.dart';
-import 'mcp_config_defaults.dart';
 
 export 'gitlab_project_binding.dart';
 
@@ -32,19 +31,22 @@ class ToolConfig {
     this.agentMode = 'clipboard',
     this.agentFixedArgs = '[]',
     this.wallpaperId = '',
+    this.localProjectPath = '',
     this.uiPrimaryRailWidth,
     this.uiWorkbenchSidebarWidth,
     Map<String, dynamic>? mcpServers,
     Map<String, bool>? mcpExportIncludeById,
     this.mcpGitlabInstallAck = false,
     this.emasUseMockCrashData = false,
+    List<Map<String, dynamic>>? grayTestTasks,
+    this.grayTestMonitoringEnabled = false,
+    this.grayTestCheckIntervalSeconds = 30,
   })  : gitlabProjects = gitlabProjects ?? const [],
         mcpExportIncludeById = Map<String, bool>.from(mcpExportIncludeById ?? const {}),
         mcpServers = mcpServers != null
-            ? McpConfigDefaults.normalizeStoredMcpServers(
-                McpConfigDefaults.deepCopyMap(Map<dynamic, dynamic>.from(mcpServers)),
-              )
-            : McpConfigDefaults.defaultStoredMcpServers();
+            ? Map<String, dynamic>.from(mcpServers)
+            : const {},
+        grayTestTasks = grayTestTasks ?? const [];
 
   static const _defaultSystemPrompt = '''
 你是资深移动端崩溃分析工程师，擅长 Android/iOS 原生与跨端栈。回答使用简体中文。
@@ -99,12 +101,16 @@ class ToolConfig {
       agentMode: agent['agentMode']!,
       agentFixedArgs: agent['agentFixedArgs']!,
       wallpaperId: j['wallpaperId']?.toString() ?? '',
+      localProjectPath: j['localProjectPath']?.toString() ?? '',
       uiPrimaryRailWidth: _optDouble(j['uiPrimaryRailWidth']),
       uiWorkbenchSidebarWidth: _optDouble(j['uiWorkbenchSidebarWidth']),
       mcpServers: _mcpServersFromJson(j),
       mcpExportIncludeById: _mcpExportIncludeByIdFromJson(j),
       mcpGitlabInstallAck: _mcpGitlabInstallAckFromJson(j),
       emasUseMockCrashData: j['emasUseMockCrashData'] == true,
+      grayTestTasks: _grayTestTasksFromJson(j),
+      grayTestMonitoringEnabled: j['grayTestMonitoringEnabled'] == true,
+      grayTestCheckIntervalSeconds: j['grayTestCheckIntervalSeconds'] as int? ?? 30,
     );
   }
 
@@ -186,19 +192,27 @@ class ToolConfig {
 
   static Map<String, dynamic> _mcpServersFromJson(Map<String, dynamic> j) {
     if (!j.containsKey('mcpServers')) {
-      return McpConfigDefaults.deepCopyMap(
-        Map<dynamic, dynamic>.from(McpConfigDefaults.defaultStoredMcpServers()),
-      );
+      return const {};
     }
     final v = j['mcpServers'];
     if (v is! Map) {
-      return McpConfigDefaults.deepCopyMap(
-        Map<dynamic, dynamic>.from(McpConfigDefaults.defaultStoredMcpServers()),
-      );
+      return const {};
     }
-    return McpConfigDefaults.normalizeStoredMcpServers(
-      McpConfigDefaults.deepCopyMap(Map<dynamic, dynamic>.from(v)),
-    );
+    return Map<String, dynamic>.from(v);
+  }
+
+  static List<Map<String, dynamic>> _grayTestTasksFromJson(Map<String, dynamic> j) {
+    final raw = j['grayTestTasks'];
+    if (raw is List<dynamic>) {
+      final out = <Map<String, dynamic>>[];
+      for (final e in raw) {
+        if (e is Map<String, dynamic>) {
+          out.add(Map<String, dynamic>.from(e));
+        }
+      }
+      return out;
+    }
+    return const [];
   }
 
   String accessKeyId;
@@ -235,6 +249,9 @@ class ToolConfig {
   /// 主界面背景壁纸 id，空为无壁纸；与 `wallpaper_catalog.dart` 中内置 id 一致。
   String wallpaperId;
 
+  /// 本地项目路径（Git 仓库根目录），用于本地项目配置替代 GitLab API。
+  String localProjectPath;
+
   /// 主导航栏（工作台 / 配置）像素宽度；null 表示使用界面默认约 88。
   double? uiPrimaryRailWidth;
 
@@ -252,6 +269,15 @@ class ToolConfig {
 
   /// 为 true 且当前 Biz 为 `crash` 时，列表用本地 Mock，不请求 GetIssues；`mock_digest_*` 详情走 Mock GetIssue。
   bool emasUseMockCrashData;
+
+  /// 灰度监听任务列表（每项为灰度任务 JSON）
+  List<Map<String, dynamic>> grayTestTasks;
+
+  /// 灰度监听全局启用开关
+  bool grayTestMonitoringEnabled;
+
+  /// 灰度监听检查间隔（秒）
+  int grayTestCheckIntervalSeconds;
 
   /// 是否将 [id] 写入导出的 `mcpServers`（`cursor`、`claude-code`、`gitlab` 等）。
   bool isMcpIdIncludedInExport(String id) => mcpExportIncludeById[id] != false;
@@ -300,12 +326,16 @@ class ToolConfig {
         'agentMode': agentMode,
         'agentFixedArgs': agentFixedArgs,
         'wallpaperId': wallpaperId,
+        if (localProjectPath.isNotEmpty) 'localProjectPath': localProjectPath,
         if (uiPrimaryRailWidth != null) 'uiPrimaryRailWidth': uiPrimaryRailWidth,
         if (uiWorkbenchSidebarWidth != null) 'uiWorkbenchSidebarWidth': uiWorkbenchSidebarWidth,
         'mcpServers': mcpServers,
         if (mcpExportIncludeById.isNotEmpty) 'mcpExportIncludeById': mcpExportIncludeById,
         'mcpGitlabInstallAck': mcpGitlabInstallAck,
         if (emasUseMockCrashData) 'emasUseMockCrashData': true,
+        if (grayTestTasks.isNotEmpty) 'grayTestTasks': grayTestTasks,
+        if (grayTestMonitoringEnabled) 'grayTestMonitoringEnabled': true,
+        if (grayTestCheckIntervalSeconds != 30) 'grayTestCheckIntervalSeconds': grayTestCheckIntervalSeconds,
       };
 
   List<String> validateEmas() {
