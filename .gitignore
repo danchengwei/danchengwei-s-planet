@@ -1,0 +1,54 @@
+# macOS
+.DS_Store
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+/.pub/
+/.packages
+
+# Build outputs
+build/
+/build/
+
+# IDEs
+.idea/
+.vscode/
+*.iml
+
+# Xcode
+ios/Pods/
+ios/Runner.xcworkspace/
+macos/Pods/
+macos/Runner.xcworkspace/
+
+# Android
+.gradle/
+.android/
+local.properties
+
+# Logs
+*.log
+
+# Sensitive / local config
+.claude/
+crash-tools-test-config.json
+crash-tools-test-config.sample.json
+skills-lock.json
+local.properties
+
+# API Keys, Tokens, and Credentials
+*.apikey
+*.key
+*.secret
+*.token
+*.credentials
+**/.*credentials
+**/.env
+**/.env.local
+**/.env.*.local
+**/config.local.*
+**/secrets.json
+**/credentials.json

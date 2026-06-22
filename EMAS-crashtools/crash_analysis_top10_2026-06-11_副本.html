@@ -1,0 +1,1146 @@
+
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Baymax Crash分析报告</title>
+                <meta charset="UTF-8">
+                <style>
+                    body { 
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+                        margin: 0; 
+                        padding: 20px; 
+                        background: #F8F9FA; 
+                        line-height: 1.6;
+                    }
+                    .container { max-width: 1200px; margin: 0 auto; }
+                    .header { 
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                        color: white; 
+                        padding: 30px; 
+                        border-radius: 12px; 
+                        margin-bottom: 30px; 
+                        text-align: center;
+                    }
+                    .header h1 { margin: 0; font-size: 2.5em; font-weight: 300; }
+                    .header p { margin: 10px 0 0 0; opacity: 0.9; font-size: 1.1em; }
+                    
+                    .summary-grid { 
+                        display: grid; 
+                        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); 
+                        gap: 20px; 
+                        margin-bottom: 30px; 
+                    }
+                    .overview-row {
+                        display: grid;
+                        grid-template-columns: 1fr;
+                        gap: 20px;
+                        margin-bottom: 30px;
+                    }
+                    .overview-left {
+                        display: grid;
+                        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                        gap: 20px;
+                    }
+                    .summary-card { 
+                        background: white; 
+                        padding: 25px; 
+                        border-radius: 12px; 
+                        box-shadow: 0 4px 6px rgba(0,0,0,0.07); 
+                        border-left: 5px solid #0D6EFD;
+                    }
+                    .summary-card.java { border-left-color: #28A745; }
+                    .summary-card.native { border-left-color: #DC3545; }
+                    .summary-card h3 { 
+                        margin: 0 0 15px 0; 
+                        color: #212529; 
+                        font-size: 1.3em; 
+                        display: flex; 
+                        align-items: center; 
+                    }
+                    .summary-card .icon { margin-right: 10px; font-size: 1.5em; }
+                    
+                    .stat-grid { 
+                        display: grid; 
+                        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); 
+                        gap: 15px; 
+                    }
+                    .stat-item { text-align: center; }
+                    .stat-value { 
+                        font-size: 2em; 
+                        font-weight: 700; 
+                        color: #0D6EFD; 
+                        display: block; 
+                    }
+                    .stat-label { 
+                        font-size: 0.9em; 
+                        color: #6C757D; 
+                        margin-top: 5px; 
+                    }
+                    
+                    .section { 
+                        background: white; 
+                        padding: 30px; 
+                        border-radius: 12px; 
+                        margin-bottom: 30px; 
+                        box-shadow: 0 4px 6px rgba(0,0,0,0.07); 
+                    }
+                    .section h2 { 
+                        margin: 0 0 20px 0; 
+                        color: #212529; 
+                        font-size: 1.8em; 
+                        border-bottom: 2px solid #E9ECEF; 
+                        padding-bottom: 10px; 
+                    }
+                    
+                    .crash-list { margin-top: 20px; }
+                    .crash-item { 
+                        background: #F8F9FA; 
+                        padding: 20px; 
+                        margin-bottom: 15px; 
+                        border-radius: 8px; 
+                        border-left: 4px solid #DC3545; 
+                    }
+                    .crash-item h4 { 
+                        margin: 0 0 10px 0; 
+                        color: #DC3545; 
+                        font-size: 1.1em; 
+                    }
+                    .crash-title-link {
+                        color: #DC3545;
+                        text-decoration: none;
+                        transition: color 0.2s ease;
+                    }
+                    .crash-title-link:hover {
+                        color: #B02A37;
+                        text-decoration: underline;
+                    }
+                    .crash-item .meta { 
+                        display: grid; 
+                        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); 
+                        gap: 10px; 
+                        margin-bottom: 10px; 
+                    }
+                    .crash-item .meta span { 
+                        font-size: 0.9em; 
+                        color: #495057; 
+                    }
+                    /* 堆栈显示容器 - 简洁滚动方案 */
+                    .stack-container { 
+                        margin-top: 12px; 
+                        background: #F1F3F4; 
+                        border-radius: 6px; 
+                        overflow: hidden; 
+                    }
+                    .stack-trace { 
+                        padding: 12px; 
+                        font-family: 'Consolas', 'Monaco', monospace; 
+                        font-size: 0.8em; 
+                        line-height: 1.4; 
+                        color: #212529; 
+                        white-space: pre-wrap; 
+                        word-break: break-all; 
+                        background: #FFF3E0;
+                        border-radius: 4px;
+                        max-height: 120px;
+                        overflow-y: auto;
+                        border: 1px solid #E9ECEF;
+                    }
+                    .stack-trace::-webkit-scrollbar {
+                        width: 8px;
+                    }
+                    .stack-trace::-webkit-scrollbar-track {
+                        background: #F1F3F4;
+                        border-radius: 4px;
+                    }
+                    .stack-trace::-webkit-scrollbar-thumb {
+                        background: #CED4DA;
+                        border-radius: 4px;
+                    }
+                    .stack-trace::-webkit-scrollbar-thumb:hover {
+                        background: #ADB5BD;
+                    }
+                    
+
+                    
+                    .footer { 
+                        text-align: center; 
+                        padding: 20px; 
+                        color: #6C757D; 
+                        font-size: 0.9em; 
+                    }
+                    
+                    @media (max-width: 768px) {
+                        .overview-left {
+                            grid-template-columns: 1fr;
+                        }
+                    }
+                    
+                    @media print {
+                        body { background: white; }
+                        .section, .summary-card { box-shadow: none; border: 1px solid #DEE2E6; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h1>🚨 Baymax Crash分析报告</h1>
+                        <p>分析周期: 1周前 (06月04日 - 06月11日) | 生成时间: 2026/6/11 16:32:27</p>
+                        <p>版本范围: 10.22.* (4个), 10.21.03, 10.20.03</p>
+                        <p>数据量: Java Top 10 + Native Top 10</p>
+                    </div>
+                    
+                    <div class="overview-row">
+                        <div class="overview-left">
+                            <div class="summary-card">
+                                <h3><span class="icon">📊</span>总体概览</h3>
+                                <div class="stat-grid">
+                                    <div class="stat-item">
+                                        <span class="stat-value">89</span>
+                                        <div class="stat-label">总崩溃数</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-value">74</span>
+                                        <div class="stat-label">影响设备</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-value">0.0001%</span>
+                                        <div class="stat-label">平均崩溃率</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="summary-card java">
+                                <h3><span class="icon">☕</span>Java Crash (51.7%)</h3>
+                                <div class="stat-grid">
+                                    <div class="stat-item">
+                                        <span class="stat-value" style="color: #28A745;">46</span>
+                                        <div class="stat-label">崩溃数</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-value" style="color: #28A745;">31</span>
+                                        <div class="stat-label">影响设备</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-value" style="color: #28A745;">0.0001%</span>
+                                        <div class="stat-label">崩溃率</div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="summary-card native">
+                                <h3><span class="icon">⚙️</span>Native Crash (48.3%)</h3>
+                                <div class="stat-grid">
+                                    <div class="stat-item">
+                                        <span class="stat-value" style="color: #DC3545;">43</span>
+                                        <div class="stat-label">崩溃数</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-value" style="color: #DC3545;">43</span>
+                                        <div class="stat-label">影响设备</div>
+                                    </div>
+                                    <div class="stat-item">
+                                        <span class="stat-value" style="color: #DC3545;">0.0001%</span>
+                                        <div class="stat-label">崩溃率</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    
+                    <div class="section">
+                        <h2>☕ Java Crash详情</h2>
+                        <div class="crash-list">
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=0J1PUIZYX454O&digestName=at+com.xueersi.parentsmeeting.modules.books.fragment.BooksContainerFragment.getPagerSelectedHomeTab%28BooksContainerFragment.kt%3A341%29%0Aat+com.xueersi.parentsmeeting.modules.books.fragment.BooksContainerFragment.onTabSelect%28BooksContainerFragment.kt%3A363%29%0Aat+com.xueersi.parentsmeeting.module.home.HomeV2Activity.selectBottomTab%28HomeV2Activity.java%3A922%29" target="_blank" class="crash-title-link">1. at com.xueersi.parentsmeeting.modules.books.fragment.BooksContainerFragment.getPagerSelectedHomeTab(BooksContainerFragment.kt</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 9</span>
+                                        <span><strong>错误次数:</strong> 9</span>
+                                        <span><strong>崩溃率:</strong> 0.000105%</span>
+                                        <span><strong>版本:</strong> 10.22.03</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">java.lang.RuntimeException: Unable to start activity ComponentInfo{com.xueersi.parentsmeeting/com.xueersi.parentsmeeting.module.home.HomeV2Activity}: kotlin.UninitializedPropertyAccessException: lateinit property mTabLayout has not been initialized
+    at android.app.ActivityThread.performLaunchActivity(ActivityThread.java:3920)
+    at android.app.ActivityThread.handleLaunchActivity(ActivityThread.java:4073)
+    at android.app.servertransaction.LaunchActivityItem.execute(LaunchActivityItem.java:101)
+    at android.app.servertransaction.TransactionExecutor.executeCallbacks(TransactionExecutor.java:135)
+    at android.app.servertransaction.TransactionExecutor.execute(TransactionExecutor.java:95)
+    at android.app.ActivityThread$H.handleMessage(ActivityThread.java:2426)
+    at com.xueersi.lib.framework.utils.LooperHook$XesHandlerCallback2.handleMessage(LooperHook.java:102)
+    at android.os.Handler.dispatchMessage(Handler.java:102)
+    at android.os.Looper.loopOnce(Looper.java:211)
+    at android.os.Looper.loop(Looper.java:300)
+    at android.app.ActivityThread.main(ActivityThread.java:8503)
+    at java.lang.reflect.Method.invoke(Method.java)
+    at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:561)
+    at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:954)
+Caused by: kotlin.UninitializedPropertyAccessException: lateinit property mTabLayout has not been initialized
+    at com.xueersi.parentsmeeting.modules.books.fragment.BooksContainerFragment.getPagerSelectedHomeTab(BooksContainerFragment.kt:341)
+    at com.xueersi.parentsmeeting.modules.books.fragment.BooksContainerFragment.onTabSelect(BooksContainerFragment.kt:363)
+    at com.xueersi.parentsmeeting.module.home.HomeV2Activity.selectBottomTab(HomeV2Activity.java:922)
+    at com.xueersi.parentsmeeting.module.home.HomeV2Activity.lambda$onCreate$0$com-xueersi-parentsmeeting-module-home-HomeV2Activity(HomeV2Activity.java:458)
+    at com.xueersi.parentsmeeting.module.home.HomeV2Activity$$ExternalSyntheticLambda1.onItemChecked(Unknown Source:2)
+    at com.xueersi.parentsmeeting.module.home.HomeNavigationHelper.onBottomItemChecked(HomeNavigationHelper.java:485)
+    at com.xueersi.parentsmeeting.module.home.HomeNavigationHelper.-$$Nest$monBottomItemChecked
+    at com.xueersi.parentsmeeting.module.home.HomeNavigationHelper$3.onChecked(HomeNavigationHelper.java:275)
+    at com.xueersi.common.widget.navigation.BottomNavigation.onChildChecked(BottomNavigation.java:86)
+    at com.xueersi.common.widget.navigation.BottomNavigation.-$$Nest$monChildChecked
+    at com.xueersi.common.widget.navigation.BottomNavigation$1.onChecked(BottomNavigation.java:30)
+    at com.xueersi.common.widget.navigation.BaseBottomItem.setChecked(BaseBottomItem.java:80)
+    at com.xueersi.common.widget.navigation.BottomNavigation.setCheckedItemByKey(BottomNavigation.java:111)
+    at com.xueersi.parentsmeeting.module.home.HomeNavigationHelper.setCurrentTabByKey(HomeNavigationHelper.java:538)
+    at com.xueersi.parentsmeeting.module.home.HomeV2Activity.onCreate(HomeV2Activity.java:504)
+    at android.app.Activity.performCreate(Activity.java:8589)
+    at android.app.Activity.performCreate(Activity.java:8553)
+    at android.app.Instrumentation.callActivityOnCreate(Instrumentation.java:1445)
+    at android.app.ActivityThread.performLaunchActivity(ActivityThread.java:3901)
+    at android.app.ActivityThread.handleLaunchActivity(ActivityThread.java:4073)
+    at android.app.servertransaction.LaunchActivityItem.execute(LaunchActivityItem.java:101)
+    at android.app.servertransaction.TransactionExecutor.executeCallbacks(TransactionExecutor.java:135)
+    at android.app.servertransaction.TransactionExecutor.execute(TransactionExecutor.java:95)
+    at android.app.ActivityThread$H.handleMessage(ActivityThread.java:2426)
+    at com.xueersi.lib.framework.utils.LooperHook$XesHandlerCallback2.handleMessage(LooperHook.java:102)
+    at android.os.Handler.dispatchMessage(Handler.java:102)
+    at android.os.Looper.loopOnce(Looper.java:211)
+    at android.os.Looper.loop(Looper.java:300)
+    at android.app.ActivityThread.main(ActivityThread.java:8503)
+    at java.lang.reflect.Method.invoke(Method.java)
+    at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:561)
+    at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:954)</div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=1G379CMBDGTNE&digestName=at+com.xueersi.parentsmeeting.modules.contentcenter.home.HomeFragment.onCreateView%28HomeFragment.java%3A439%29%0Aat+com.xueersi.common.base.BaseCompatActivity.onStart%28BaseCompatActivity.java%3A268%29%0Aat+com.xueersi.parentsmeeting.module.home.HomeV2Activity.onStart%28HomeV2Activity.java%3A1755%29" target="_blank" class="crash-title-link">2. at com.xueersi.parentsmeeting.modules.contentcenter.home.HomeFragment.onCreateView(HomeFragment.java</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 1</span>
+                                        <span><strong>错误次数:</strong> 8</span>
+                                        <span><strong>崩溃率:</strong> 0.000094%</span>
+                                        <span><strong>版本:</strong> 10.22.07</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">java.lang.RuntimeException: Unable to start activity ComponentInfo{com.xueersi.parentsmeeting/com.xueersi.parentsmeeting.module.home.HomeV2Activity}: android.view.InflateException: Binary XML file line #141: Binary XML file line #141: Error inflating class ImageView
+    at android.app.ActivityThread.performLaunchActivity(ActivityThread.java:3048)
+    at android.app.ActivityThread.handleLaunchActivity(ActivityThread.java:3126)
+    at android.app.ActivityThread.-wrap11
+    at android.app.ActivityThread$H.handleMessage(ActivityThread.java:1820)
+    at com.xueersi.lib.framework.utils.LooperHook$XesHandlerCallback2.handleMessage(LooperHook.java:102)
+    at android.os.Handler.dispatchMessage(Handler.java:102)
+    at android.os.Looper.loop(Looper.java:192)
+    at android.app.ActivityThread.main(ActivityThread.java:6893)
+    at java.lang.reflect.Method.invoke(Method.java)
+    at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:549)
+    at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:875)
+Caused by: android.view.InflateException: Binary XML file line #141: Binary XML file line #141: Error inflating class ImageView
+Caused by: android.view.InflateException: Binary XML file line #141: Error inflating class ImageView
+Caused by: android.content.res.Resources$NotFoundException: Drawable com.xueersi.parentsmeeting:drawable/pop_sanjiao with resource ID #0x7f0823fb
+Caused by: android.content.res.Resources$NotFoundException: File res/drawable-xxhdpi-v4/pop_sanjiao.webp from drawable resource ID #0x7f0823fb
+    at android.content.res.ResourcesImpl.loadDrawableForCookie(ResourcesImpl.java:980)
+    at android.content.res.ResourcesImpl.loadDrawable(ResourcesImpl.java:769)
+    at android.content.res.Resources.loadDrawable(Resources.java:922)
+    at android.content.res.TypedArray.getDrawableForDensity(TypedArray.java:953)
+    at android.content.res.TypedArray.getDrawable(TypedArray.java:928)
+    at android.widget.ImageView.<init>(ImageView.java:188)
+    at android.widget.ImageView.<init>(ImageView.java:171)
+    at androidx.appcompat.widget.AppCompatImageView.<init>(AppCompatImageView.java:74)
+    at androidx.appcompat.widget.AppCompatImageView.<init>(AppCompatImageView.java:69)
+    at androidx.appcompat.app.AppCompatViewInflater.createImageView(AppCompatViewInflater.java:199)
+    at androidx.appcompat.app.AppCompatViewInflater.createView(AppCompatViewInflater.java:119)
+    at androidx.appcompat.app.AppCompatDelegateImpl.createView(AppCompatDelegateImpl.java:1551)
+    at androidx.appcompat.app.AppCompatDelegateImpl.onCreateView(AppCompatDelegateImpl.java:1602)
+    at android.view.LayoutInflater$FactoryMerger.onCreateView(LayoutInflater.java:195)
+    at android.view.LayoutInflater.createViewFromTag(LayoutInflater.java:817)
+    at android.view.LayoutInflater.createViewFromTag(LayoutInflater.java:775)
+    at android.view.LayoutInflater.rInflate(LayoutInflater.java:908)
+    at android.view.LayoutInflater.rInflateChildren(LayoutInflater.java:869)
+    at android.view.LayoutInflater.rInflate(LayoutInflater.java:911)
+    at android.view.LayoutInflater.rInflateChildren(LayoutInflater.java:869)
+    at android.view.LayoutInflater.rInflate(LayoutInflater.java:911)
+    at android.view.LayoutInflater.rInflateChildren(LayoutInflater.java:869)
+    at android.view.LayoutInflater.inflate(LayoutInflater.java:521)
+    at android.view.LayoutInflater.inflate(LayoutInflater.java:429)
+    at com.xueersi.parentsmeeting.modules.contentcenter.home.HomeFragment.onCreateView(HomeFragment.java:439)
+    at androidx.fragment.app.Fragment.performCreateView(Fragment.java:2600)
+    at androidx.fragment.app.FragmentManagerImpl.moveToState(FragmentManagerImpl.java:881)
+    at androidx.fragment.app.FragmentManagerImpl.moveFragmentToExpectedState(FragmentManagerImpl.java:1238)
+    at androidx.fragment.app.FragmentManagerImpl.moveToState(FragmentManagerImpl.java:1303)
+    at androidx.fragment.app.FragmentManagerImpl.dispatchStateChange(FragmentManagerImpl.java:2659)
+    at androidx.fragment.app.FragmentManagerImpl.dispatchActivityCreated(FragmentManagerImpl.java:2613)
+    at androidx.fragment.app.FragmentController.dispatchActivityCreated(FragmentController.java:246)
+    at androidx.fragment.app.FragmentActivity.onStart(FragmentActivity.java:542)
+    at androidx.appcompat.app.AppCompatActivity.onStart(AppCompatActivity.java:210)
+    at com.xueersi.common.base.BaseCompatActivity.onStart(BaseCompatActivity.java:268)
+    at com.xueersi.parentsmeeting.module.home.HomeV2Activity.onStart(HomeV2Activity.java:1755)
+    at android.app.Instrumentation.callActivityOnStart(Instrumentation.java:1339)
+    at android.app.Activity.performStart(Activity.java:7160)
+    at android.app.ActivityThread.performLaunchActivity(ActivityThread.java:3011)
+    at android.app.ActivityThread.handleLaunchActivity(ActivityThread.java:3126)
+    at android.app.ActivityThread.-wrap11
+    at android.app.ActivityThread$H.handleMessage(ActivityThread.java:1820)
+    at com.xueersi.lib.framework.utils.LooperHook$XesHandlerCallback2.handleMessage(LooperHook.java:102)
+    at android.os.Handler.dispatchMessage(Handler.java:102)
+    at android.os.Looper.loop(Looper.java:192)
+    at android.app.ActivityThread.main(ActivityThread.java:6893)
+    at java.lang.reflect.Method.invoke(Method.java)
+    at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:549)
+    at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:875)
+Caused by: java.io.FileNotFoundException: res/drawable-xxhdpi-v4/pop_sanjiao.webp
+    at android.content.res.AssetManager.openNonAssetNative(AssetManager.java)
+    at android.content.res.AssetManager.openNonAsset(AssetManager.java:468)
+    at android.content.res.ResourcesImpl.loadDrawableForCookie(ResourcesImpl.java:966)
+    at android.content.res.ResourcesImpl.loadDrawable(ResourcesImpl.java:769)
+    at android.content.res.Resources.loadDrawable(Resources.java:922)
+    at android.content.res.TypedArray.getDrawableForDensity(TypedArray.java:953)
+    at android.content.res.TypedArray.getDrawable(TypedArray.java:928)
+    at android.widget.ImageView.<init>(ImageView.java:188)
+    at android.widget.ImageView.<init>(ImageView.java:171)
+    at androidx.appcompat.widget.AppCompatImageView.<init>(AppCompatImageView.java:74)
+    at androidx.appcompat.widget.AppCompatImageView.<init>(AppCompatImageView.java:69)
+    at androidx.appcompat.app.AppCompatViewInflater.createImageView(AppCompatViewInflater.java:199)
+    at androidx.appcompat.app.AppCompatViewInflater.createView(AppCompatViewInflater.java:119)
+    at androidx.appcompat.app.AppCompatDelegateImpl.createView(AppCompatDelegateImpl.java:1551)
+    at androidx.appcompat.app.AppCompatDelegateImpl.onCreateView(AppCompatDelegateImpl.java:1602)
+    at android.view.LayoutInflater$FactoryMerger.onCreateView(LayoutInflater.java:195)
+    at android.view.LayoutInflater.createViewFromTag(LayoutInflater.java:817)
+    at android.view.LayoutInflater.createViewFromTag(LayoutInflater.java:775)
+    at android.view.LayoutInflater.rInflate(LayoutInflater.java:908)
+    at android.view.LayoutInflater.rInflateChildren(LayoutInflater.java:869)
+    at android.view.LayoutInflater.rInflate(LayoutInflater.java:911)
+    at android.view.LayoutInflater.rInflateChildren(LayoutInflater.java:869)
+    at android.view.LayoutInflater.rInflate(LayoutInflater.java:911)
+    at android.view.LayoutInflater.rInflateChildren(LayoutInflater.java:869)
+    at android.view.LayoutInflater.inflate(LayoutInflater.java:521)
+    at android.view.LayoutInflater.inflate(LayoutInflater.java:429)
+    at com.xueersi.parentsmeeting.modules.contentcenter.home.HomeFragment.onCreateView(HomeFragment.java:439)
+    at androidx.fragment.app.Fragment.performCreateView(Fragment.java:2600)
+    at androidx.fragment.app.FragmentManagerImpl.moveToState(FragmentManagerImpl.java:881)
+    at androidx.fragment.app.FragmentManagerImpl.moveFragmentToExpectedState(FragmentManagerImpl.java:1238)
+    at androidx.fragment.app.FragmentManagerImpl.moveToState(FragmentManagerImpl.java:1303)
+    at androidx.fragment.app.FragmentManagerImpl.dispatchStateChange(FragmentManagerImpl.java:2659)
+    at androidx.fragment.app.FragmentManagerImpl.dispatchActivityCreated(FragmentManagerImpl.java:2613)
+    at androidx.fragment.app.FragmentController.dispatchActivityCreated(FragmentController.java:246)
+    at androidx.fragment.app.FragmentActivity.onStart(FragmentActivity.java:542)
+    at androidx.appcompat.app.AppCompatActivity.onStart(AppCompatActivity.java:210)
+    at com.xueersi.common.base.BaseCompatActivity.onStart(BaseCompatActivity.java:268)
+    at com.xueersi.parentsmeeting.module.home.HomeV2Activity.onStart(HomeV2Activity.java:1755)
+    at android.app.Instrumentation.callActivityOnStart(Instrumentation.java:1339)
+    at android.app.Activity.performStart(Activity.java:7160)
+    at android.app.ActivityThread.performLaunchActivity(ActivityThread.java:3011)
+    at android.app.ActivityThread.handleLaunchActivity(ActivityThread.java:3126)
+    at android.app.ActivityThread.-wrap11
+    at android.app.ActivityThread$H.handleMessage(ActivityThread.java:1820)
+    at com.xueersi.lib.framework.utils.LooperHook$XesHandlerCallback2.handleMessage(LooperHook.java:102)
+    at android.os.Handler.dispatchMessage(Handler.java:102)
+    at android.os.Looper.loop(Looper.java:192)
+    at android.app.ActivityThread.main(ActivityThread.java:6893)
+    at java.lang.reflect.Method.invoke(Method.java)
+    at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:549)
+    at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:875)</div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=1KQR4LMY7JYWM&digestName=at+com.xueersi.unitybridge.activity.UnityPlayerActivity%244.unityCallNative%28UnityPlayerActivity.java%3A442%29%0Aat+com.xueersi.unitybridge.bridge.UnityApiBridge.lambda%24unity_call_native%240%24com-xueersi-unitybridge-bridge-UnityApiBridge%28UnityApiBridge.java%3A119%29%0Aat+com.xueersi.unitybridge.bridge.UnityApiBridge%24%24ExternalSyntheticLambda0.run%28Unknown+Source%3A8%29" target="_blank" class="crash-title-link">3. at com.xueersi.unitybridge.activity.UnityPlayerActivity$4.unityCallNative(UnityPlayerActivity.java</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 3</span>
+                                        <span><strong>错误次数:</strong> 5</span>
+                                        <span><strong>崩溃率:</strong> 0.000058%</span>
+                                        <span><strong>版本:</strong> 10.20.03</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">java.lang.Error: FATAL EXCEPTION [main]
+Unity version     : 2022.3.52f1
+Device model      : HUAWEI AGS5-W00
+Device fingerprint: HUAWEI/AGS5-W00/HWAGS5:12/HUAWEIAGS5-W00/103.0.0.196C00:user/release-keys
+CPU supported ABI : [arm64-v8a, armeabi-v7a, armeabi]
+Build Type        : Release
+Scripting Backend : IL2CPP
+Libs loaded from  : lib/arm64
+Strip Engine Code : true
+
+Caused by: java.lang.NumberFormatException: For input string: "0,0"
+    at sun.misc.FloatingDecimal.readJavaFormatString(FloatingDecimal.java:2043)
+    at sun.misc.FloatingDecimal.parseFloat(FloatingDecimal.java:122)
+    at java.lang.Float.parseFloat(Float.java:451)
+    at com.xueersi.unitybridge.activity.UnityPlayerActivity$4.unityCallNative(UnityPlayerActivity.java:442)
+    at com.xueersi.unitybridge.bridge.UnityApiBridge.lambda$unity_call_native$0$com-xueersi-unitybridge-bridge-UnityApiBridge(UnityApiBridge.java:119)
+    at com.xueersi.unitybridge.bridge.UnityApiBridge$$ExternalSyntheticLambda0.run(Unknown Source:8)
+    at android.os.Handler.handleCallback(Handler.java:966)
+    at android.os.Handler.dispatchMessage(Handler.java:110)
+    at android.os.Looper.loopOnce(Looper.java:205)
+    at android.os.Looper.loop(Looper.java:293)
+    at android.app.ActivityThread.main(ActivityThread.java:9697)
+    at java.lang.reflect.Method.invoke(Method.java)
+    at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:586)
+    at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:1211)</div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=2ILDW052C6RWQ&digestName=at+android.view.ViewRootImpl.setView%28ViewRootImpl.java%3A1840%29%0Aat+android.view.WindowManagerGlobal.addView%28WindowManagerGlobal.java%3A485%29%0Aat+android.view.WindowManagerImpl.addView%28WindowManagerImpl.java%3A172%29" target="_blank" class="crash-title-link">4. at android.view.ViewRootImpl.setView(ViewRootImpl.java</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 1</span>
+                                        <span><strong>错误次数:</strong> 5</span>
+                                        <span><strong>崩溃率:</strong> 0.000058%</span>
+                                        <span><strong>版本:</strong> 10.21.03</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">java.lang.Error: FATAL EXCEPTION [main]
+Unity version     : 2022.3.52f1
+Device model      : HUAWEI PLR-AL30
+Device fingerprint: HUAWEI/PLR-AL30/HWPLR:12/HUAWEIPLR-AL30/104.3.0.198C00:user/release-keys
+CPU supported ABI : [arm64-v8a, armeabi-v7a, armeabi]
+Build Type        : Release
+Scripting Backend : IL2CPP
+Libs loaded from  : lib/arm64
+Strip Engine Code : true
+
+Caused by: android.view.WindowManager$BadTokenException: Unable to add window -- token null is not valid; is your activity running?
+    at android.view.ViewRootImpl.setView(ViewRootImpl.java:1840)
+    at android.view.WindowManagerGlobal.addView(WindowManagerGlobal.java:485)
+    at android.view.WindowManagerImpl.addView(WindowManagerImpl.java:172)
+    at android.app.Dialog.show(Dialog.java:1031)
+    at android.app.AlertDialog$Builder.show(AlertDialog.java:1147)
+    at bitter.jnibridge.JNIBridge.invoke(SourceFile)
+    at bitter.jnibridge.a.invoke(Unknown Source:18)
+    at java.lang.reflect.Proxy.invoke(Proxy.java:1006)
+    at $Proxy32.run
+    at android.os.Handler.handleCallback(Handler.java:966)
+    at android.os.Handler.dispatchMessage(Handler.java:110)
+    at android.os.Looper.loopOnce(Looper.java:205)
+    at android.os.Looper.loop(Looper.java:293)
+    at android.app.ActivityThread.loopProcess(ActivityThread.java:10260)
+    at android.app.ActivityThread.main(ActivityThread.java:10249)
+    at java.lang.reflect.Method.invoke(Method.java)
+    at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:592)
+    at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:1329)</div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=3DI102MBN1GQV&digestName=at+com.tal.ssw.lib.common.SSWConfigOptions.setDeviceId%28Unknown+Source%3A2%29%0Aat+com.xueersi.parentsmeeting.module.anytimeask.AnytimeAskInit.initAnytimeSDK%28AnytimeAskInit.java%3A84%29%0Aat+com.xueersi.parentsmeeting.module.anytimeask.InitAnytimeSDKTask.run%28InitAnytimeSDKTask.java%3A46%29" target="_blank" class="crash-title-link">5. at com.tal.ssw.lib.common.SSWConfigOptions.setDeviceId(Unknown Source</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 4</span>
+                                        <span><strong>错误次数:</strong> 4</span>
+                                        <span><strong>崩溃率:</strong> 0.000047%</span>
+                                        <span><strong>版本:</strong> 10.20.03</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">java.lang.RuntimeException: Unable to create application com.xueersi.parentsmeeting.SophixStubApplication: java.lang.NullPointerException: Parameter specified as non-null is null: method com.tal.ssw.lib.common.SSWConfigOptions.setDeviceId, parameter deviceID
+    at android.app.ActivityThread.handleBindApplication(ActivityThread.java:8667)
+    at android.app.ActivityThread.access$2800(ActivityThread.java:313)
+    at android.app.ActivityThread$H.handleMessage(ActivityThread.java:2924)
+    at android.os.Handler.dispatchMessage(Handler.java:117)
+    at android.os.Looper.loopOnce(Looper.java:205)
+    at android.os.Looper.loop(Looper.java:293)
+    at android.app.ActivityThread.loopProcess(ActivityThread.java:9998)
+    at android.app.ActivityThread.main(ActivityThread.java:9987)
+    at java.lang.reflect.Method.invoke(Method.java)
+    at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:586)
+    at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:1240)
+Caused by: java.lang.NullPointerException: Parameter specified as non-null is null: method com.tal.ssw.lib.common.SSWConfigOptions.setDeviceId, parameter deviceID
+    at com.tal.ssw.lib.common.SSWConfigOptions.setDeviceId(Unknown Source:2)
+    at com.xueersi.parentsmeeting.module.anytimeask.AnytimeAskInit.initAnytimeSDK(AnytimeAskInit.java:84)
+    at com.xueersi.parentsmeeting.module.anytimeask.InitAnytimeSDKTask.run(InitAnytimeSDKTask.java:46)
+    at com.xueersi.lib.framework.launchTask.task.DispatchRunnable.run(DispatchRunnable.java:49)
+    at com.xueersi.lib.framework.launchTask.TaskDispatcher.executeTaskMain(TaskDispatcher.java:137)
+    at com.xueersi.lib.framework.launchTask.TaskDispatcher.start(TaskDispatcher.java:122)
+    at com.xueersi.parentsmeeting.XesApplicationLike.onCreate(XesApplicationLike.java:223)
+    at com.taobao.sophix.y.k(Sophix:9)
+    at com.taobao.sophix.i0.a(Sophix:154)
+    at com.taobao.sophix.SophixApplication.onCreate(Sophix:2)
+    at android.app.Instrumentation.callApplicationOnCreate(Instrumentation.java:1225)
+    at android.app.ActivityThread.handleBindApplication(ActivityThread.java:8647)
+    at android.app.ActivityThread.access$2800(ActivityThread.java:313)
+    at android.app.ActivityThread$H.handleMessage(ActivityThread.java:2924)
+    at android.os.Handler.dispatchMessage(Handler.java:117)
+    at android.os.Looper.loopOnce(Looper.java:205)
+    at android.os.Looper.loop(Looper.java:293)
+    at android.app.ActivityThread.loopProcess(ActivityThread.java:9998)
+    at android.app.ActivityThread.main(ActivityThread.java:9987)
+    at java.lang.reflect.Method.invoke(Method.java)
+    at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:586)
+    at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:1240)</div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=2V5432IYXI34V&digestName=at+com.tencent.smtt.sdk.WebView.loadUrl%28Unknown+Source%3A15%29%0Aat+com.xueersi.lib.corebrowser.view.XesWebView.loadUrl%28XesWebView.java%3A133%29%0Aat+com.xueersi.parentsmeeting.modules.contentcenter.home.twofloor.HomeTopHeaderView.preLoadH5Web%28HomeTopHeaderView.java%3A766%29" target="_blank" class="crash-title-link">6. at com.tencent.smtt.sdk.WebView.loadUrl(Unknown Source</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 4</span>
+                                        <span><strong>错误次数:</strong> 4</span>
+                                        <span><strong>崩溃率:</strong> 0.000047%</span>
+                                        <span><strong>版本:</strong> 10.20.03</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">java.util.concurrent.RejectedExecutionException: Task java.util.concurrent.FutureTask@95a6445 rejected from java.util.concurrent.ThreadPoolExecutor@867e79a[Terminated, pool size = 0, active threads = 0, queued tasks = 0, completed tasks = 2]
+    at java.util.concurrent.ThreadPoolExecutor$AbortPolicy.rejectedExecution(ThreadPoolExecutor.java:2085)
+    at java.util.concurrent.ThreadPoolExecutor.reject(ThreadPoolExecutor.java:848)
+    at java.util.concurrent.ThreadPoolExecutor.execute(ThreadPoolExecutor.java:1394)
+    at java.util.concurrent.AbstractExecutorService.submit(AbstractExecutorService.java:118)
+    at java.util.concurrent.Executors$DelegatedExecutorService.submit(Executors.java:634)
+    at android.webkit.DuerUrlChecker.executeCheckUrlTask(DuerUrlChecker.java:173)
+    at android.webkit.WebView.loadUrl(WebView.java:1030)
+    at com.tencent.smtt.sdk.WebView.loadUrl(Unknown Source:15)
+    at com.xueersi.lib.corebrowser.view.XesWebView.loadUrl(XesWebView.java:133)
+    at com.xueersi.parentsmeeting.modules.contentcenter.home.twofloor.HomeTopHeaderView.preLoadH5Web(HomeTopHeaderView.java:766)
+    at com.xueersi.parentsmeeting.modules.contentcenter.home.HomeFragment$1.handleMessage(HomeFragment.java:197)
+    at android.os.Handler.dispatchMessage(Handler.java:106)
+    at android.os.Looper.loop(Looper.java:199)
+    at android.app.ActivityThread.main(ActivityThread.java:6888)
+    at java.lang.reflect.Method.invoke(Method.java)
+    at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:497)
+    at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:912)</div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=37MG13GRS0LZA&digestName=at+com.xueersi.parentsmeeting.modules.books.fragment.BooksContainerFragment.onTabSelect%28BooksContainerFragment.kt%3A362%29%0Aat+com.xueersi.parentsmeeting.module.home.HomeV2Activity.selectBottomTab%28HomeV2Activity.java%3A922%29%0Aat+com.xueersi.parentsmeeting.module.home.HomeV2Activity.lambda%24onCreate%240%24com-xueersi-parentsmeeting-module-home-HomeV2Activity%28HomeV2Activity.java%3A458%29" target="_blank" class="crash-title-link">7. at com.xueersi.parentsmeeting.modules.books.fragment.BooksContainerFragment.onTabSelect(BooksContainerFragment.kt</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 2</span>
+                                        <span><strong>错误次数:</strong> 3</span>
+                                        <span><strong>崩溃率:</strong> 0.000035%</span>
+                                        <span><strong>版本:</strong> 10.22.07</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">kotlin.UninitializedPropertyAccessException: lateinit property viewModel has not been initialized
+    at com.xueersi.parentsmeeting.modules.books.fragment.BooksContainerFragment.onTabSelect(BooksContainerFragment.kt:362)
+    at com.xueersi.parentsmeeting.module.home.HomeV2Activity.selectBottomTab(HomeV2Activity.java:922)
+    at com.xueersi.parentsmeeting.module.home.HomeV2Activity.lambda$onCreate$0$com-xueersi-parentsmeeting-module-home-HomeV2Activity(HomeV2Activity.java:458)
+    at com.xueersi.parentsmeeting.module.home.HomeV2Activity$$ExternalSyntheticLambda1.onItemChecked(Unknown Source:2)
+    at com.xueersi.parentsmeeting.module.home.HomeNavigationHelper.onBottomItemChecked(HomeNavigationHelper.java:485)
+    at com.xueersi.parentsmeeting.module.home.HomeNavigationHelper.-$$Nest$monBottomItemChecked
+    at com.xueersi.parentsmeeting.module.home.HomeNavigationHelper$3.onChecked(HomeNavigationHelper.java:275)
+    at com.xueersi.common.widget.navigation.BottomNavigation.onChildChecked(BottomNavigation.java:86)
+    at com.xueersi.common.widget.navigation.BottomNavigation.-$$Nest$monChildChecked
+    at com.xueersi.common.widget.navigation.BottomNavigation$1.onChecked(BottomNavigation.java:30)
+    at com.xueersi.common.widget.navigation.BaseBottomItem.setChecked(BaseBottomItem.java:80)
+    at com.xueersi.common.widget.navigation.BottomNavigation.setCheckedItemByKey(BottomNavigation.java:111)
+    at com.xueersi.parentsmeeting.module.home.HomeNavigationHelper.setCurrentTabKey(HomeNavigationHelper.java:544)
+    at com.xueersi.parentsmeeting.module.home.HomeNavigationHelper.lambda$generateDefaultData$3$com-xueersi-parentsmeeting-module-home-HomeNavigationHelper(HomeNavigationHelper.java:452)
+    at com.xueersi.parentsmeeting.module.home.HomeNavigationHelper$$ExternalSyntheticLambda1.run(Unknown Source:2)
+    at android.os.Handler.handleCallback(Handler.java:966)
+    at android.os.Handler.dispatchMessage(Handler.java:110)
+    at android.os.Looper.loopOnce(Looper.java:205)
+    at android.os.Looper.loop(Looper.java:293)
+    at android.app.ActivityThread.processInnerLoop(ActivityThread.java:10266)
+    at android.app.ActivityThread.loopProcess(ActivityThread.java:10258)
+    at android.app.ActivityThread.main(ActivityThread.java:10249)
+    at java.lang.reflect.Method.invoke(Method.java)
+    at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:592)
+    at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:1329)</div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=03IMM8ZWEMZP7&digestName=at+android.view.Surface.%3Cinit%3E%28Surface.java%3A303%29" target="_blank" class="crash-title-link">8. at android.view.Surface.<init>(Surface.java</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 3</span>
+                                        <span><strong>错误次数:</strong> 3</span>
+                                        <span><strong>崩溃率:</strong> 0.000035%</span>
+                                        <span><strong>版本:</strong> 10.21.03</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">java.lang.IllegalArgumentException: surfaceTexture must not be null
+    at android.view.Surface.<init>(Surface.java:303)</div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=110GGQ991QXTE&digestName=at+android.hardware.camera2.impl.CameraMetadataNative.getPhysicalCameraIds%28CameraMetadataNative.java%3A2331%29%0Aat+android.hardware.camera2.CameraCharacteristics.getPhysicalCameraIds%28CameraCharacteristics.java%3A642%29%0Aat+android.hardware.camera2.CameraManager.getPhysicalIdToCharsMap%28CameraManager.java%3A546%29" target="_blank" class="crash-title-link">9. at android.hardware.camera2.impl.CameraMetadataNative.getPhysicalCameraIds(CameraMetadataNative.java</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 3</span>
+                                        <span><strong>错误次数:</strong> 3</span>
+                                        <span><strong>崩溃率:</strong> 0.000035%</span>
+                                        <span><strong>版本:</strong> 10.22.07</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">java.lang.AssertionError: android.request.availableCapabilities must be non-null in the characteristics
+    at android.hardware.camera2.impl.CameraMetadataNative.getPhysicalCameraIds(CameraMetadataNative.java:2331)
+    at android.hardware.camera2.CameraCharacteristics.getPhysicalCameraIds(CameraCharacteristics.java:642)
+    at android.hardware.camera2.CameraManager.getPhysicalIdToCharsMap(CameraManager.java:546)
+    at android.hardware.camera2.CameraManager.openCameraDeviceUserAsync(CameraManager.java:583)
+    at android.hardware.camera2.CameraManager.openCameraForUid(CameraManager.java:914)
+    at android.hardware.camera2.CameraManager.openCameraForUid(CameraManager.java:935)
+    at android.hardware.camera2.CameraManager.openCamera(CameraManager.java:799)
+    at androidx.camera.camera2.internal.compat.CameraManagerCompatApi29Impl.openCamera(CameraManagerCompatApi29Impl.java:44)
+    at androidx.camera.camera2.internal.compat.CameraManagerCompat.openCamera(CameraManagerCompat.java:215)
+    at androidx.camera.camera2.internal.Camera2CameraImpl.openCameraDevice(Camera2CameraImpl.java:1065)
+    at androidx.camera.camera2.internal.Camera2CameraImpl.tryForceOpenCameraDevice(Camera2CameraImpl.java:1004)
+    at androidx.camera.camera2.internal.Camera2CameraImpl.openInternal(Camera2CameraImpl.java:277)
+    at androidx.camera.camera2.internal.Camera2CameraImpl.tryAttachUseCases(Camera2CameraImpl.java:761)
+    at androidx.camera.camera2.internal.Camera2CameraImpl.lambda$attachUseCases$11$androidx-camera-camera2-internal-Camera2CameraImpl(Camera2CameraImpl.java:700)
+    at androidx.camera.camera2.internal.Camera2CameraImpl$$ExternalSyntheticLambda4.run(Unknown Source:4)
+    at androidx.camera.core.impl.utils.executor.SequentialExecutor$QueueWorker.workOnQueue(SequentialExecutor.java:231)
+    at androidx.camera.core.impl.utils.executor.SequentialExecutor$QueueWorker.run(SequentialExecutor.java:173)
+    at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1167)
+    at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:641)
+    at java.lang.Thread.run(Thread.java:933)</div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=2714UAVI41XZ3&digestName=at+android.view.inputmethod.IInputMethodManagerGlobalInvoker.onProgress%28IInputMethodManagerGlobalInvoker.java%3A762%29%0Aat+android.view.inputmethod.ImeTracker%241.onProgress%28ImeTracker.java%3A668%29%0Aat+android.view.inputmethod.InputMethodManager%24H.handleMessage%28InputMethodManager.java%3A1483%29" target="_blank" class="crash-title-link">10. at android.view.inputmethod.IInputMethodManagerGlobalInvoker.onProgress(IInputMethodManagerGlobalInvoker.java</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 1</span>
+                                        <span><strong>错误次数:</strong> 2</span>
+                                        <span><strong>崩溃率:</strong> 0.000023%</span>
+                                        <span><strong>版本:</strong> 10.22.07</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">android.os.DeadSystemRuntimeException: android.os.DeadSystemException
+    at android.view.inputmethod.IInputMethodManagerGlobalInvoker.onProgress(IInputMethodManagerGlobalInvoker.java:762)
+    at android.view.inputmethod.ImeTracker$1.onProgress(ImeTracker.java:668)
+    at android.view.inputmethod.InputMethodManager$H.handleMessage(InputMethodManager.java:1483)
+    at android.os.Handler.dispatchMessage(Handler.java:116)
+    at android.os.Looper.loopOnce(Looper.java:306)
+    at android.os.Looper.loop(Looper.java:416)
+    at android.app.ActivityThread.main(ActivityThread.java:9999)
+    at java.lang.reflect.Method.invoke(Method.java)
+    at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:613)
+    at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:1074)
+Caused by: android.os.DeadSystemException
+    at android.view.inputmethod.IInputMethodManagerGlobalInvoker.onProgress(IInputMethodManagerGlobalInvoker.java:762)
+    at android.view.inputmethod.ImeTracker$1.onProgress(ImeTracker.java:668)
+    at android.view.inputmethod.InputMethodManager$H.handleMessage(InputMethodManager.java:1483)
+    at android.os.Handler.dispatchMessage(Handler.java:116)
+    at android.os.Looper.loopOnce(Looper.java:306)
+    at android.os.Looper.loop(Looper.java:416)
+    at android.app.ActivityThread.main(ActivityThread.java:9999)
+    at java.lang.reflect.Method.invoke(Method.java)
+    at com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:613)
+    at com.android.internal.os.ZygoteInit.main(ZygoteInit.java:1074)</div>
+                                        </div>
+                                    
+                                </div>
+                            
+                        </div>
+                    </div>
+                    
+                    
+                    
+                    <div class="section">
+                        <h2>⚙️ Native Crash详情</h2>
+                        <div class="crash-list">
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=114HNE3DU3E1U&digestName=%2Fapex%2Fcom.android.art%2Flib64%2Flibart.so+%28art%3A%3ARuntime%3A%3AAbort%28char+const*%29+%2B+120%29%0A%2Fapex%2Fcom.android.art%2Flib64%2Flibbase.so+%28android%3A%3Abase%3A%3ASetAborter%28std%3A%3A__1%3A%3Afunction%3Cvoid+%28char+const*%29%3E%26%26%29%3A%3A%24_0%3A%3A__invoke%28char+const*%29+%2B+80%29" target="_blank" class="crash-title-link">1. /apex/com.android.art/lib64/libart.so (art</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 9</span>
+                                        <span><strong>错误次数:</strong> 9</span>
+                                        <span><strong>崩溃率:</strong> 0.000105%</span>
+                                        <span><strong>版本:</strong> 10.22.07</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">#00 pc 00000000000950b0  /apex/com.android.runtime/lib64/bionic/libc.so (abort+168)
+    #01 pc 000000000076fa40  /apex/com.android.art/lib64/libart.so (art::Runtime::Abort(char const*)+120)
+    #02 pc 00000000000357d0  /apex/com.android.art/lib64/libbase.so (android::base::SetAborter(std::__1::function<void (char const*)>&&)::$_0::__invoke(char const*)+80)
+    #03 pc 000000000000701c  /system/lib64/liblog.so (__android_log_assert+312)
+    #04 pc 000000000055dd24  /system/lib64/libhwui.so (android::uirenderer::renderthread::EglManager::initialize()+2188)
+    #05 pc 0000000000576ba0  /system/lib64/libhwui.so (std::__1::__packaged_task_func<android::uirenderer::EGLUploader::onBeginUpload()::'lambda'(), std::__1::allocator<android::uirenderer::EGLUploader::onBeginUpload()::'lambda'()>, void ()>::operator()()+20)
+    #06 pc 000000000055bcf4  /system/lib64/libhwui.so (std::__1::__function::__func<decltype(fp()) android::uirenderer::WorkQueue::runSync<android::uirenderer::renderthread::RenderProxy::setStopped(bool)::$_0>(android::uirenderer::renderthread::RenderProxy::setStopped(bool)::$_0&&)::'lambda'(), std::__1::allocator<decltype(fp()) android::uirenderer::WorkQueue::runSync<android::uirenderer::renderthread::RenderProxy::setStopped(bool)::$_0>(android::uirenderer::renderthread::RenderProxy::setStopped(bool)::$_0&&)::'lambda'()>, void ()>::operator()() (.__uniq.110435125376433984577876079601927332169.ff389ec0a273efce8a75f26bf303935d)+92)
+    #07 pc 000000000054b2b0  /system/lib64/libhwui.so (android::uirenderer::WorkQueue::process()+608)
+    #08 pc 0000000000549bf0  /system/lib64/libhwui.so (android::uirenderer::ThreadBase::threadLoop()+76)
+    #09 pc 00000000000142d4  /system/lib64/libutils.so (android::Thread::_threadLoop(void*)+288)
+    #10 pc 00000000000fd0f4  /apex/com.android.runtime/lib64/bionic/libc.so (__pthread_start(void*)+208)
+    #11 pc 0000000000096a04  /apex/com.android.runtime/lib64/bionic/libc.so (__start_thread+68)
+    </div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=3HI790RLM1BU6&digestName=%2Fapex%2Fcom.android.art%2Flib64%2Flibart.so+%28art%3A%3AJNI%3Cfalse%3E%3A%3AGetObjectClass%28_JNIEnv*%2C+_jobject*%29+%2B+624%29%0A%2Fdata%2Fapp+com.xueersi.parentsmeeting+lib%2Farm64%2Flibtalmsgsdk.so" target="_blank" class="crash-title-link">2. /apex/com.android.art/lib64/libart.so (art</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 6</span>
+                                        <span><strong>错误次数:</strong> 6</span>
+                                        <span><strong>崩溃率:</strong> 0.000070%</span>
+                                        <span><strong>版本:</strong> 10.22.05</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">#00 pc 00000000004839e4  /apex/com.android.art/lib64/libart.so (art::JNI<false>::GetObjectClass(_JNIEnv*, _jobject*)+624)
+    #01 pc 0000000000b3d8d4  /data/app/~~3H6ZOTjC71-AHEA29v0RTQ==/com.xueersi.parentsmeeting-336Zk86TqnZF20r2Du0pBQ==/lib/arm64/libtalmsgsdk.so
+    #02 pc 0000000000b3eb94  /data/app/~~3H6ZOTjC71-AHEA29v0RTQ==/com.xueersi.parentsmeeting-336Zk86TqnZF20r2Du0pBQ==/lib/arm64/libtalmsgsdk.so
+    #03 pc 00000000004e77a4  /data/app/~~3H6ZOTjC71-AHEA29v0RTQ==/com.xueersi.parentsmeeting-336Zk86TqnZF20r2Du0pBQ==/lib/arm64/libtalmsgsdk.so
+    #04 pc 0000000000838574  /data/app/~~3H6ZOTjC71-AHEA29v0RTQ==/com.xueersi.parentsmeeting-336Zk86TqnZF20r2Du0pBQ==/lib/arm64/libtalmsgsdk.so
+    #05 pc 00000000005a11a4  /data/app/~~3H6ZOTjC71-AHEA29v0RTQ==/com.xueersi.parentsmeeting-336Zk86TqnZF20r2Du0pBQ==/lib/arm64/libtalmsgsdk.so
+    #06 pc 00000000005a3010  /data/app/~~3H6ZOTjC71-AHEA29v0RTQ==/com.xueersi.parentsmeeting-336Zk86TqnZF20r2Du0pBQ==/lib/arm64/libtalmsgsdk.so
+    #07 pc 0000000000a97500  /data/app/~~3H6ZOTjC71-AHEA29v0RTQ==/com.xueersi.parentsmeeting-336Zk86TqnZF20r2Du0pBQ==/lib/arm64/libtalmsgsdk.so
+    #08 pc 0000000000a95a1c  /data/app/~~3H6ZOTjC71-AHEA29v0RTQ==/com.xueersi.parentsmeeting-336Zk86TqnZF20r2Du0pBQ==/lib/arm64/libtalmsgsdk.so
+    #09 pc 00000000005a56cc  /data/app/~~3H6ZOTjC71-AHEA29v0RTQ==/com.xueersi.parentsmeeting-336Zk86TqnZF20r2Du0pBQ==/lib/arm64/libtalmsgsdk.so
+    #10 pc 00000000005a61bc  /data/app/~~3H6ZOTjC71-AHEA29v0RTQ==/com.xueersi.parentsmeeting-336Zk86TqnZF20r2Du0pBQ==/lib/arm64/libtalmsgsdk.so
+    #11 pc 00000000000ebe70  /apex/com.android.runtime/lib64/bionic/libc.so (__pthread_start(void*)+264)
+    #12 pc 000000000008b7f0  /apex/com.android.runtime/lib64/bionic/libc.so (__start_thread+64)
+    </div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=24DU98SJD3UHY&digestName=%2Fdata%2Fapp+com.xueersi.parentsmeeting+lib%2Farm64%2Flibaudioengine.so%0A%2Fdata%2Fapp+com.xueersi.parentsmeeting+lib%2Farm64%2Flibaudioengine.so" target="_blank" class="crash-title-link">3. /data/app com.xueersi.parentsmeeting lib/arm64/libaudioengine.so
+/data/app com.xueersi.parentsmeeting lib/arm64/libaudioengine.so</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 6</span>
+                                        <span><strong>错误次数:</strong> 6</span>
+                                        <span><strong>崩溃率:</strong> 0.000070%</span>
+                                        <span><strong>版本:</strong> 10.22.07</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">#00 pc 0000000000089fcc  /apex/com.android.runtime/lib64/bionic/libc.so (abort+164)
+    #01 pc 000000000061fc9c  /data/app/~~CeswmQAqHnkQDILdpqk2Rw==/com.xueersi.parentsmeeting-iuaOefpYaWHrqT13aXy1Hg==/lib/arm64/libaudioengine.so
+    #02 pc 00000000000ed930  /apex/com.android.runtime/lib64/bionic/libc.so (pthread_once+132)
+    #03 pc 000000000061fe48  /data/app/~~CeswmQAqHnkQDILdpqk2Rw==/com.xueersi.parentsmeeting-iuaOefpYaWHrqT13aXy1Hg==/lib/arm64/libaudioengine.so
+    #04 pc 0000000000264944  /data/app/~~CeswmQAqHnkQDILdpqk2Rw==/com.xueersi.parentsmeeting-iuaOefpYaWHrqT13aXy1Hg==/lib/arm64/libaudioengine.so
+    #05 pc 00000000002430e0  /data/app/~~CeswmQAqHnkQDILdpqk2Rw==/com.xueersi.parentsmeeting-iuaOefpYaWHrqT13aXy1Hg==/lib/arm64/libaudioengine.so
+    #06 pc 00000000000ebe70  /apex/com.android.runtime/lib64/bionic/libc.so (__pthread_start(void*)+264)
+    #07 pc 000000000008b7f0  /apex/com.android.runtime/lib64/bionic/libc.so (__start_thread+64)
+    </div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=156QWDGQIITPI&digestName=%2Fapex%2Fcom.android.art%2Flib64%2Flibart.so+%28art%3A%3ARuntime%3A%3AAbort%28char+const*%29+%2B+708%29" target="_blank" class="crash-title-link">4. /apex/com.android.art/lib64/libart.so (art</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 4</span>
+                                        <span><strong>错误次数:</strong> 4</span>
+                                        <span><strong>崩溃率:</strong> 0.000047%</span>
+                                        <span><strong>版本:</strong> 10.22.07</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">#00 pc 0000000000051988  /apex/com.android.runtime/lib64/bionic/libc.so (abort+168)
+    #01 pc 0000000000635210  /apex/com.android.art/lib64/libart.so (art::Runtime::Abort(char const*)+708)
+    #02 pc 0000000000016bc4  /system/lib64/libbase.so (android::base::SetAborter(std::__1::function<void (char const*)>&&)::$_3::__invoke(char const*)+80)
+    #03 pc 0000000000006f14  /system/lib64/liblog.so (__android_log_assert+312)
+    #04 pc 0000000000467700  /system/lib64/libhwui.so (android::uirenderer::renderthread::EglManager::createContext()+372)
+    #05 pc 0000000000466dcc  /system/lib64/libhwui.so (android::uirenderer::renderthread::EglManager::initialize()+160)
+    #06 pc 0000000000466d14  /system/lib64/libhwui.so (std::__1::__packaged_task_func<android::uirenderer::EGLUploader::onBeginUpload()::'lambda'(), std::__1::allocator<android::uirenderer::EGLUploader::onBeginUpload()::'lambda'()>, void ()>::operator()()+20)
+    #07 pc 000000000021255c  /system/lib64/libhwui.so (std::__1::__function::__func<decltype(fp()) android::uirenderer::WorkQueue::runSync<android::uirenderer::EGLUploader::onBeginUpload()::'lambda'()>(android::uirenderer::EGLUploader::onBeginUpload()::'lambda'()&&)::'lambda'(), std::__1::allocator<decltype(fp()) android::uirenderer::WorkQueue::runSync<android::uirenderer::EGLUploader::onBeginUpload()::'lambda'()>(android::uirenderer::EGLUploader::onBeginUpload()::'lambda'()&&)::'lambda'()>, void ()>::operator()()+92)
+    #08 pc 00000000003d732c  /system/lib64/libhwui.so (android::uirenderer::WorkQueue::process()+160)
+    #09 pc 00000000004fad70  /system/lib64/libhwui.so (android::uirenderer::ThreadBase::threadLoop()+76)
+    #10 pc 0000000000012574  /system/lib64/libutils.so (android::Thread::_threadLoop(void*)+264)
+    #11 pc 0000000000011de8  /system/lib64/libutils.so (thread_data_t::trampoline(thread_data_t const*)+408)
+    #12 pc 00000000000b6a24  /apex/com.android.runtime/lib64/bionic/libc.so (__pthread_start(void*)+264)
+    #13 pc 00000000000532bc  /apex/com.android.runtime/lib64/bionic/libc.so (__start_thread+68)
+    </div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=0YGBP3KN8AS6I&digestName=%2Fdata%2Fapp+com.xueersi.parentsmeeting+lib%2Farm64%2Flibyuv_omni.so+%28CopyRow_NEON+%2B+8%29%0A%2Fdata%2Fapp+com.xueersi.parentsmeeting+lib%2Farm64%2Flibyuv_omni.so+%28CopyPlane+%2B+196%29" target="_blank" class="crash-title-link">5. /data/app com.xueersi.parentsmeeting lib/arm64/libyuv_omni.so (CopyRow_NEON + 8)
+/data/app com.xueersi.parentsmeeting lib/arm64/libyuv_omni.so (CopyPlane + 196)</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 4</span>
+                                        <span><strong>错误次数:</strong> 4</span>
+                                        <span><strong>崩溃率:</strong> 0.000047%</span>
+                                        <span><strong>版本:</strong> 10.22.07</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">#00 pc 00000000000361dc  /data/app/~~0Ah_GAn0tI52-tZo0jZVCQ==/com.xueersi.parentsmeeting-3UlKlAYBODk8bZMdzmhd-Q==/lib/arm64/libyuv_omni.so (CopyRow_NEON+8)
+    #01 pc 0000000000016d68  /data/app/~~0Ah_GAn0tI52-tZo0jZVCQ==/com.xueersi.parentsmeeting-3UlKlAYBODk8bZMdzmhd-Q==/lib/arm64/libyuv_omni.so (CopyPlane+196)
+    #02 pc 0000000000011ef4  /data/app/~~0Ah_GAn0tI52-tZo0jZVCQ==/com.xueersi.parentsmeeting-3UlKlAYBODk8bZMdzmhd-Q==/lib/arm64/libyuv_omni.so (I420ToNV12+372)
+    #03 pc 000000000001316c  /data/app/~~0Ah_GAn0tI52-tZo0jZVCQ==/com.xueersi.parentsmeeting-3UlKlAYBODk8bZMdzmhd-Q==/lib/arm64/libyuv_omni.so (ConvertFromI420+1444)
+    #04 pc 0000000000092d34  /data/app/~~0Ah_GAn0tI52-tZo0jZVCQ==/com.xueersi.parentsmeeting-3UlKlAYBODk8bZMdzmhd-Q==/lib/arm64/libcodec_omni.so (LibYuvManager_JNI::nativeCommonToNV12(_JNIEnv*, _jobject*, long, _jbyteArray*, unsigned char, int, int, int, int, int, int, int, int, int, int)+520)
+    #05 pc 0000000000227430  /apex/com.android.art/lib64/libart.so (art_quick_generic_jni_trampoline+144)
+    #06 pc 000000000020b0ac  /apex/com.android.art/lib64/libart.so (nterp_helper+7468)
+    #07 pc 0000000000020266  <anonymous:6eaa843000> (com.wushuangtech.library.video.LibYuvManager.transToNV12+134)
+    #08 pc 000000000020a9d8  /apex/com.android.art/lib64/libart.so (nterp_helper+5720)
+    #09 pc 0000000000008596  <anonymous:6eaa2a8000> (com.wushuangtech.utils.YuvToBitmap.Yuv420ToJpegConvert+74)
+    #10 pc 00000000002093b4  /apex/com.android.art/lib64/libart.so (nterp_helper+52)
+    #11 pc 000000000000189e  <anonymous:6eaa843000> (com.wushuangtech.api.RtcEngineEventReporter.executingVideoLocalData+510)
+    #12 pc 000000000020a2d4  /apex/com.android.art/lib64/libart.so (nterp_helper+3924)
+    #13 pc 0000000000001b6c  <anonymous:6eaa843000> (com.wushuangtech.api.RtcEngineEventReporter.handleVideoEventBySync+16)
+    #14 pc 0000000002069500  /memfd:jit-cache (deleted) (com.wushuangtech.api.RtcEngineEventReporter.receiveEvent+1312)
+    #15 pc 00000000020c5b88  /memfd:jit-cache (deleted) (com.wushuangtech.library.GlobalHolder.sendSyncRtcEngineEvent+120)
+    #16 pc 000000000020a330  /apex/com.android.art/lib64/libart.so (nterp_helper+4016)
+    #17 pc 00000000000014a4  <anonymous:6eaa2c7000> (com.wushuangtech.wstechapi.internal.OmniVideoModule$LocalVideoModuleEventCallBackImpl.onVideoTextureFrameReport+160)
+    #18 pc 000000000020b814  /apex/com.android.art/lib64/libart.so (nterp_helper+9364)
+    #19 pc 00000000000062a8  <anonymous:6eaa28f000> (com.wushuangtech.myvideoimprove.VideoModuleRendererEntry.onVideoFrameTexture+20)
+    #20 pc 000000000020b814  /apex/com.android.art/lib64/libart.so (nterp_helper+9364)
+    #21 pc 000000000000414c  <anonymous:6eaa28f000> (com.wushuangtech.myvideoimprove.LocalVideoRenderModel.onVideoFrameData+20)
+    #22 pc 000000000020b814  /apex/com.android.art/lib64/libart.so (nterp_helper+9364)
+    #23 pc 00000000000121ac  <anonymous:6eaa28f000> (com.wushuangtech.myvideoimprove.render.LocalVideoRenderer.onRendererTextureReadyCallBack+28)
+    #24 pc 000000000020b814  /apex/com.android.art/lib64/libart.so (nterp_helper+9364)
+    #25 pc 0000000000010270  <anonymous:6eaa28f000> (com.wushuangtech.myvideoimprove.render.LocalOpenGLRenderer.notifyHandleTextureData+20)
+    #26 pc 000000000020b814  /apex/com.android.art/lib64/libart.so (nterp_helper+9364)
+    #27 pc 0000000000027c2e  <anonymous:6eaa843000> (com.wushuangtech.library.video.opengles.output.HandleDataOutput.putByteBuffer+86)
+    #28 pc 000000000020a9d8  /apex/com.android.art/lib64/libart.so (nterp_helper+5720)
+    #29 pc 00000000000283ce  <anonymous:6eaa843000> (com.wushuangtech.library.video.opengles.output.HandleDataOutput.receiveVideoData+42)
+    #30 pc 000000000020a9d8  /apex/com.android.art/lib64/libart.so (nterp_helper+5720)
+    #31 pc 0000000000010612  <anonymous:6eaa28f000> (com.wushuangtech.myvideoimprove.render.LocalOpenGLRenderer.setRenderRawData+42)
+    #32 pc 000000000020a2d4  /apex/com.android.art/lib64/libart.so (nterp_helper+3924)
+    #33 pc 0000000000011fb0  <anonymous:6eaa28f000> (com.wushuangtech.myvideoimprove.render.LocalVideoRenderer.handleEGLRenderEvent+184)
+    #34 pc 000000000020a2d4  /apex/com.android.art/lib64/libart.so (nterp_helper+3924)
+    #35 pc 00000000000001ae  <anonymous:6eaa2a3000> (com.wushuangtech.myvideoimprove.render.VideoRendererImpl$LocalEGLEventCallBackImpl.onEGLRendererEvent+22)
+    #36 pc 000000000020b0f4  /apex/com.android.art/lib64/libart.so (nterp_helper+7540)
+    #37 pc 00000000000238c8  <anonymous:6eaa843000> (com.wushuangtech.library.video.egl.EGLEnvImpl.sendCallBack+12)
+    #38 pc 000000000020a2d4  /apex/com.android.art/lib64/libart.so (nterp_helper+3924)
+    #39 pc 00000000000238a2  <anonymous:6eaa843000> (com.wushuangtech.library.video.egl.EGLEnvImpl.sendCallBack+2)
+    #40 pc 000000000020a2d4  /apex/com.android.art/lib64/libart.so (nterp_helper+3924)
+    #41 pc 000000000002361e  <anonymous:6eaa843000> (com.wushuangtech.library.video.egl.EGLEnvImpl.executeRenderEvent+58)
+    #42 pc 000000000020a2d4  /apex/com.android.art/lib64/libart.so (nterp_helper+3924)
+    #43 pc 0000000000023878  <anonymous:6eaa843000> (com.wushuangtech.library.video.egl.EGLEnvImpl.receiveMessage+92)
+    #44 pc 000000000020a2d4  /apex/com.android.art/lib64/libart.so (nterp_helper+3924)
+    #45 pc 00000000000234b0  <anonymous:6eaa843000> (com.wushuangtech.library.video.egl.EGLEnvImpl.access$100)
+    #46 pc 00000000002093b4  /apex/com.android.art/lib64/libart.so (nterp_helper+52)
+    #47 pc 00000000000233f6  <anonymous:6eaa843000> (com.wushuangtech.library.video.egl.EGLEnvImpl$LocalHandlerThreadHandler.handleMessage+58)
+    #48 pc 00000000005299e8  /system/framework/arm64/boot-framework.oat (android.os.Handler.dispatchMessage+152)
+    #49 pc 000000000052c984  /system/framework/arm64/boot-framework.oat (android.os.Looper.loopOnce+980)
+    #50 pc 000000000052c530  /system/framework/arm64/boot-framework.oat (android.os.Looper.loop+528)
+    #51 pc 000000000052b894  /system/framework/arm64/boot-framework.oat (android.os.HandlerThread.run+548)
+    #52 pc 00000000002109a4  /apex/com.android.art/lib64/libart.so (art_quick_invoke_stub+612)
+    #53 pc 00000000002539a4  /apex/com.android.art/lib64/libart.so (art::ArtMethod::Invoke(art::Thread*, unsigned int*, unsigned int, art::JValue*, char const*)+172)
+    #54 pc 000000000066f48c  /apex/com.android.art/lib64/libart.so (art::Thread::CreateCallback(void*)+1404)
+    #55 pc 000000000066ef00  /apex/com.android.art/lib64/libart.so (art::Thread::CreateCallbackWithUffdGc(void*)+8)
+    #56 pc 00000000000cb6a8  /apex/com.android.runtime/lib64/bionic/libc.so (__pthread_start(void*)+208)
+    #57 pc 000000000006821c  /apex/com.android.runtime/lib64/bionic/libc.so (__start_thread+64)
+    </div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=30DHDPNZ1V2QC&digestName=%2Fapex%2Fcom.android.art%2Flib64%2Flibart.so+%28std%3A%3A__1%3A%3Abasic_ostream%3Cchar%2C+std%3A%3A__1%3A%3Achar_traits%3Cchar%3E+%3E%26+std%3A%3A__1%3A%3A__put_character_sequence%3Cchar%2C+std%3A%3A__1%3A%3Achar_traits%3Cchar%3E+%3E%28std%3A%3A__1%3A%3Abasic_ostream%3Cchar%2C+std%3A%3A__1%3A%3Achar_traits%3Cchar%3E+%3E%26%2C+char+const*%2C+unsigned+long%29+%2B+252%29%0A%2Fapex%2Fcom.android.art%2Flib64%2Flibart.so+%28art%3A%3AStackDumpVisitor%3A%3AStartMethod%28art%3A%3AArtMethod*%2C+unsigned+long%29+%2B+368%29" target="_blank" class="crash-title-link">6. /apex/com.android.art/lib64/libart.so (std</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 3</span>
+                                        <span><strong>错误次数:</strong> 3</span>
+                                        <span><strong>崩溃率:</strong> 0.000035%</span>
+                                        <span><strong>版本:</strong> 10.22.07</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">#00 pc 0000000000093614  /apex/com.android.runtime/lib64/bionic/libc.so (abort+164)
+    #01 pc 000000000004e128  /system/lib64/libc++.so (abort_message+276)
+    #02 pc 000000000004ebcc  /system/lib64/libc++.so (__cxxabiv1::(anonymous namespace)::construct_() (.__uniq.316532360147046324967316634507009853548)+48)
+    #03 pc 00000000000fa030  /apex/com.android.runtime/lib64/bionic/libc.so (pthread_once+128)
+    #04 pc 000000000004eb78  /system/lib64/libc++.so (__cxa_get_globals_fast+24)
+    #05 pc 000000000004eab8  /system/lib64/libc++.so (__cxa_uncaught_exceptions+8)
+    #06 pc 000000000005d9e8  /system/lib64/libc++.so (std::uncaught_exception()+8)
+    #07 pc 0000000000066d88  /system/lib64/libc++.so (std::__1::basic_ostream<char, std::__1::char_traits<char> >::sentry::~sentry()+56)
+    #08 pc 000000000024de04  /apex/com.android.art/lib64/libart.so (std::__1::basic_ostream<char, std::__1::char_traits<char> >& std::__1::__put_character_sequence<char, std::__1::char_traits<char> >(std::__1::basic_ostream<char, std::__1::char_traits<char> >&, char const*, unsigned long)+252)
+    #09 pc 00000000006c8268  /apex/com.android.art/lib64/libart.so (art::StackDumpVisitor::StartMethod(art::ArtMethod*, unsigned long)+368)
+    #10 pc 000000000057e2c4  /apex/com.android.art/lib64/libart.so (art::MonitorObjectsStackVisitor::VisitFrame()+76)
+    #11 pc 000000000068ecbc  /apex/com.android.art/lib64/libart.so (void art::StackVisitor::WalkStack<(art::StackVisitor::CountTransitions)0>(bool)+468)
+    #12 pc 00000000006bb220  /apex/com.android.art/lib64/libart.so (art::Thread::DumpJavaStack(std::__1::basic_ostream<char, std::__1::char_traits<char> >&, bool, bool) const+264)
+    #13 pc 0000000000003f5c  /data/app/~~IC_jkGSdv-mpM9ImPzEutQ==/com.xueersi.parentsmeeting-kMHz6QDYmo4NR7pia3MS4g==/lib/arm64/libxcrash.so
+    #14 pc 000000000000089c  [vdso]
+    #15 pc 00000000009e9e04  /data/app/~~IC_jkGSdv-mpM9ImPzEutQ==/com.xueersi.parentsmeeting-kMHz6QDYmo4NR7pia3MS4g==/lib/arm64/libunity.so
+    #16 pc 00000000000fa030  /apex/com.android.runtime/lib64/bionic/libc.so (pthread_once+128)
+    #17 pc 000000000175a0fc  /data/app/~~IC_jkGSdv-mpM9ImPzEutQ==/com.xueersi.parentsmeeting-kMHz6QDYmo4NR7pia3MS4g==/lib/arm64/libunity.so
+    #18 pc 000000000117d318  /data/app/~~IC_jkGSdv-mpM9ImPzEutQ==/com.xueersi.parentsmeeting-kMHz6QDYmo4NR7pia3MS4g==/lib/arm64/libunity.so
+    #19 pc 000000000117d600  /data/app/~~IC_jkGSdv-mpM9ImPzEutQ==/com.xueersi.parentsmeeting-kMHz6QDYmo4NR7pia3MS4g==/lib/arm64/libunity.so
+    #20 pc 00000000009bf134  /data/app/~~IC_jkGSdv-mpM9ImPzEutQ==/com.xueersi.parentsmeeting-kMHz6QDYmo4NR7pia3MS4g==/lib/arm64/libunity.so
+    #21 pc 00000000009da54c  /data/app/~~IC_jkGSdv-mpM9ImPzEutQ==/com.xueersi.parentsmeeting-kMHz6QDYmo4NR7pia3MS4g==/lib/arm64/libunity.so
+    #22 pc 00000000009cd868  /data/app/~~IC_jkGSdv-mpM9ImPzEutQ==/com.xueersi.parentsmeeting-kMHz6QDYmo4NR7pia3MS4g==/lib/arm64/libunity.so
+    #23 pc 00000000009cfdcc  /data/app/~~IC_jkGSdv-mpM9ImPzEutQ==/com.xueersi.parentsmeeting-kMHz6QDYmo4NR7pia3MS4g==/lib/arm64/libunity.so
+    #24 pc 00000000009d0b24  /data/app/~~IC_jkGSdv-mpM9ImPzEutQ==/com.xueersi.parentsmeeting-kMHz6QDYmo4NR7pia3MS4g==/lib/arm64/libunity.so
+    #25 pc 00000000009ea154  /data/app/~~IC_jkGSdv-mpM9ImPzEutQ==/com.xueersi.parentsmeeting-kMHz6QDYmo4NR7pia3MS4g==/lib/arm64/libunity.so
+    #26 pc 0000000000227430  /apex/com.android.art/lib64/libart.so (art_quick_generic_jni_trampoline+144)
+    #27 pc 000000000020a330  /apex/com.android.art/lib64/libart.so (nterp_helper+4016)
+    #28 pc 0000000000028234  [anon:dalvik-DEX data] (com.unity3d.player.UnityPlayer.-$$Nest$mnativeRender)
+    #29 pc 0000000000209418  /apex/com.android.art/lib64/libart.so (nterp_helper+152)
+    #30 pc 0000000000024170  [anon:dalvik-DEX data] (com.unity3d.player.G0.handleMessage+244)
+    #31 pc 0000000000591cdc  /system/framework/arm64/boot-framework.oat (android.os.Handler.dispatchMessage+140)
+    #32 pc 0000000000595108  /system/framework/arm64/boot-framework.oat (android.os.Looper.loopOnce+1096)
+    #33 pc 0000000000594c2c  /system/framework/arm64/boot-framework.oat (android.os.Looper.loop+572)
+    #34 pc 0000000000209418  /apex/com.android.art/lib64/libart.so (nterp_helper+152)
+    #35 pc 0000000000024530  [anon:dalvik-DEX data] (com.unity3d.player.H0.run+48)
+    #36 pc 00000000002109a4  /apex/com.android.art/lib64/libart.so (art_quick_invoke_stub+612)
+    #37 pc 0000000000253de8  /apex/com.android.art/lib64/libart.so (art::ArtMethod::Invoke(art::Thread*, unsigned int*, unsigned int, art::JValue*, char const*)+172)
+    #38 pc 00000000006aecac  /apex/com.android.art/lib64/libart.so (art::Thread::CreateCallback(void*)+1460)
+    #39 pc 00000000000f8468  /apex/com.android.runtime/lib64/bionic/libc.so (__pthread_start(void*)+208)
+    #40 pc 0000000000094e4c  /apex/com.android.runtime/lib64/bionic/libc.so (__start_thread+64)
+    </div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=2A9GHWT9AUJM0&digestName=%2Fapex%2Fcom.android.art%2Flib64%2Flibart.so+%28art%3A%3ARuntime%3A%3AAbort%28char+const*%29+%2B+668%29%0A%2Fapex%2Fcom.android.art%2Flib64%2Flibbase.so+%28android%3A%3Abase%3A%3ASetAborter%28std%3A%3A__1%3A%3Afunction%3Cvoid+%28char+const*%29%3E%26%26%29%3A%3A%24_3%3A%3A__invoke%28char+const*%29+%2B+76%29" target="_blank" class="crash-title-link">7. /apex/com.android.art/lib64/libart.so (art</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 3</span>
+                                        <span><strong>错误次数:</strong> 3</span>
+                                        <span><strong>崩溃率:</strong> 0.000035%</span>
+                                        <span><strong>版本:</strong> 10.22.07</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">#00 pc 000000000008bebc  /apex/com.android.runtime/lib64/bionic/libc.so (abort+168)
+    #01 pc 00000000006d157c  /apex/com.android.art/lib64/libart.so (art::Runtime::Abort(char const*)+668)
+    #02 pc 000000000001695c  /apex/com.android.art/lib64/libbase.so (android::base::SetAborter(std::__1::function<void (char const*)>&&)::$_3::__invoke(char const*)+76)
+    #03 pc 0000000000006f14  /system/lib64/liblog.so (__android_log_assert+312)
+    #04 pc 00000000006c5364  /system/lib64/libhwui.so (android::uirenderer::renderthread::EglManager::createContext()+372)
+    #05 pc 00000000006c4a30  /system/lib64/libhwui.so (android::uirenderer::renderthread::EglManager::initialize()+160)
+    #06 pc 00000000006c4978  /system/lib64/libhwui.so (std::__1::__packaged_task_func<android::uirenderer::EGLUploader::onBeginUpload()::'lambda'(), std::__1::allocator<android::uirenderer::EGLUploader::onBeginUpload()::'lambda'()>, void ()>::operator()()+20)
+    #07 pc 00000000009f033c  /system/lib64/libhwui.so (std::__1::__function::__func<decltype(fp()) android::uirenderer::WorkQueue::runSync<android::uirenderer::EGLUploader::onBeginUpload()::'lambda'()>(android::uirenderer::EGLUploader::onBeginUpload()::'lambda'()&&)::'lambda'(), std::__1::allocator<decltype(fp()) android::uirenderer::WorkQueue::runSync<android::uirenderer::EGLUploader::onBeginUpload()::'lambda'()>(android::uirenderer::EGLUploader::onBeginUpload()::'lambda'()&&)::'lambda'()>, void ()>::operator()()+92)
+    #08 pc 000000000064c784  /system/lib64/libhwui.so (android::uirenderer::WorkQueue::process()+160)
+    #09 pc 00000000007570a0  /system/lib64/libhwui.so (android::uirenderer::ThreadBase::threadLoop()+76)
+    #10 pc 0000000000012574  /system/lib64/libutils.so (android::Thread::_threadLoop(void*)+264)
+    #11 pc 0000000000011de8  /system/lib64/libutils.so (thread_data_t::trampoline(thread_data_t const*)+408)
+    #12 pc 00000000000f1194  /apex/com.android.runtime/lib64/bionic/libc.so (__pthread_start(void*)+264)
+    #13 pc 000000000008d7f0  /apex/com.android.runtime/lib64/bionic/libc.so (__start_thread+68)
+    </div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=0HRSQ4JCXPCC8&digestName=%2Fapex%2Fcom.android.art%2Flib64%2Flibart.so+%28std%3A%3A__1%3A%3Abasic_ostream%3Cchar%2C+std%3A%3A__1%3A%3Achar_traits%3Cchar%3E+%3E%26+std%3A%3A__1%3A%3A__put_character_sequence%3Cchar%2C+std%3A%3A__1%3A%3Achar_traits%3Cchar%3E+%3E%28std%3A%3A__1%3A%3Abasic_ostream%3Cchar%2C+std%3A%3A__1%3A%3Achar_traits%3Cchar%3E+%3E%26%2C+char+const*%2C+unsigned+long%29+%2B+252%29%0A%2Fapex%2Fcom.android.art%2Flib64%2Flibart.so+%28art%3A%3AThread%3A%3ADumpJavaStack%28std%3A%3A__1%3A%3Abasic_ostream%3Cchar%2C+std%3A%3A__1%3A%3Achar_traits%3Cchar%3E+%3E%26%2C+bool%2C+bool%29+const+%2B+352%29" target="_blank" class="crash-title-link">8. /apex/com.android.art/lib64/libart.so (std</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 3</span>
+                                        <span><strong>错误次数:</strong> 3</span>
+                                        <span><strong>崩溃率:</strong> 0.000035%</span>
+                                        <span><strong>版本:</strong> 10.22.07</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">#00 pc 0000000000089fcc  /apex/com.android.runtime/lib64/bionic/libc.so (abort+164)
+    #01 pc 000000000004910c  /system/lib64/libc++.so (abort_message+248)
+    #02 pc 0000000000049b3c  /system/lib64/libc++.so (__cxxabiv1::(anonymous namespace)::construct_()+48)
+    #03 pc 00000000000ed930  /apex/com.android.runtime/lib64/bionic/libc.so (pthread_once+132)
+    #04 pc 0000000000049ae8  /system/lib64/libc++.so (__cxa_get_globals_fast+24)
+    #05 pc 0000000000049a28  /system/lib64/libc++.so (__cxa_uncaught_exceptions+8)
+    #06 pc 0000000000058620  /system/lib64/libc++.so (std::uncaught_exception()+8)
+    #07 pc 0000000000061020  /system/lib64/libc++.so (std::__1::basic_ostream<char, std::__1::char_traits<char> >::sentry::~sentry()+56)
+    #08 pc 000000000027c6a0  /apex/com.android.art/lib64/libart.so (std::__1::basic_ostream<char, std::__1::char_traits<char> >& std::__1::__put_character_sequence<char, std::__1::char_traits<char> >(std::__1::basic_ostream<char, std::__1::char_traits<char> >&, char const*, unsigned long)+252)
+    #09 pc 00000000006b8830  /apex/com.android.art/lib64/libart.so (art::Thread::DumpJavaStack(std::__1::basic_ostream<char, std::__1::char_traits<char> >&, bool, bool) const+352)
+    #10 pc 0000000000003f5c  /data/app/~~MkHq5VouLml88CsNCPrs5g==/com.xueersi.parentsmeeting-3UZFYe7EKIrtxoJeslfFPw==/lib/arm64/libxcrash.so
+    #11 pc 0000000000002244  /apex/com.android.art/lib64/libsigchain.so (art::SignalChain::Handler(int, siginfo*, void*)+440)
+    #12 pc 000000000000060c  [vdso] (__kernel_rt_sigreturn)
+    #13 pc 00000000010aab5c  /data/app/~~MkHq5VouLml88CsNCPrs5g==/com.xueersi.parentsmeeting-3UZFYe7EKIrtxoJeslfFPw==/lib/arm64/libunity.so
+    #14 pc 00000000010be284  /data/app/~~MkHq5VouLml88CsNCPrs5g==/com.xueersi.parentsmeeting-3UZFYe7EKIrtxoJeslfFPw==/lib/arm64/libunity.so
+    #15 pc 000000000000675c  [anon:thread signal stack]
+    </div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=2DBU1HE8ZWKOL&digestName=%2Fdata%2Fapp+com.xueersi.parentsmeeting+lib%2Farm64%2Flibpsplayer.so%0A%2Fdata%2Fapp+com.xueersi.parentsmeeting+lib%2Farm64%2Flibpssdl.so" target="_blank" class="crash-title-link">9. /data/app com.xueersi.parentsmeeting lib/arm64/libpsplayer.so
+/data/app com.xueersi.parentsmeeting lib/arm64/libpssdl.so</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 3</span>
+                                        <span><strong>错误次数:</strong> 3</span>
+                                        <span><strong>崩溃率:</strong> 0.000035%</span>
+                                        <span><strong>版本:</strong> 10.20.03</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">#00 pc 000000000004ade8  /data/app/~~ASXn8Zvxb-U2dArS3aV9bw==/com.xueersi.parentsmeeting--5I8Cf03v2PnXM3PfGa-Qw==/lib/arm64/libpsplayer.so
+    #01 pc 0000000000014814  /data/app/~~ASXn8Zvxb-U2dArS3aV9bw==/com.xueersi.parentsmeeting--5I8Cf03v2PnXM3PfGa-Qw==/lib/arm64/libpssdl.so
+    #02 pc 000000000009a22c  /apex/com.android.runtime/lib64/bionic/libc.so (__pthread_start(void*)+184)
+    #03 pc 000000000008ca48  /apex/com.android.runtime/lib64/bionic/libc.so (__start_thread+68)
+    </div>
+                                        </div>
+                                    
+                                </div>
+                            
+                                <div class="crash-item">
+                                    <h4><a href="https://emas.console.aliyun.com/apm/3711937/28085188/2/crashAnalysis/crash/detail?fromType=crash&digestId=0RKI8CPP94EPX&digestName=%2Fvendor%2Flib64%2Flibbishenggpucompiler_v200.so%0A%2Fvendor%2Flib64%2Flibbishenggpucompiler_v200.so" target="_blank" class="crash-title-link">10. /vendor/lib64/libbishenggpucompiler_v200.so
+/vendor/lib64/libbishenggpucompiler_v200.so</a></h4>
+                                    <div class="meta">
+                                        <span><strong>影响设备:</strong> 2</span>
+                                        <span><strong>错误次数:</strong> 2</span>
+                                        <span><strong>崩溃率:</strong> 0.000023%</span>
+                                        <span><strong>版本:</strong> 10.22.07</span>
+                                    </div>
+                                    
+                                        <div class="stack-container">
+                                            <div class="stack-trace">#00 pc 0000000001287738  /vendor/lib64/libbishenggpucompiler_v200.so
+    #01 pc 00000000013830e0  /vendor/lib64/libbishenggpucompiler_v200.so
+    #02 pc 000000000152f420  /vendor/lib64/libbishenggpucompiler_v200.so
+    #03 pc 00000000015ca768  /vendor/lib64/libbishenggpucompiler_v200.so
+    #04 pc 00000000015c9d94  /vendor/lib64/libbishenggpucompiler_v200.so
+    #05 pc 00000000015c9c84  /vendor/lib64/libbishenggpucompiler_v200.so
+    #06 pc 00000000019cbb6c  /vendor/lib64/libbishenggpucompiler_v200.so (cmpbe_v2_compile_multiple_shaders+8864)
+    #07 pc 00000000002a516c  /vendor/lib64/egl/libGLES_v200.so
+    #08 pc 00000000002a50d0  /vendor/lib64/egl/libGLES_v200.so
+    #09 pc 00000000002a1600  /vendor/lib64/egl/libGLES_v200.so
+    #10 pc 000000000029f938  /vendor/lib64/egl/libGLES_v200.so
+    #11 pc 000000000029c744  /vendor/lib64/egl/libGLES_v200.so
+    #12 pc 000000000029ba00  /vendor/lib64/egl/libGLES_v200.so
+    #13 pc 000000000029b460  /vendor/lib64/egl/libGLES_v200.so
+    #14 pc 000000000012885c  /data/app/~~TcV1DinDEG0n-cMA5kXpVA==/com.xueersi.parentsmeeting-RiXa40JlAjdERFtbFTpWnw==/lib/arm64/libpag.so
+    #15 pc 000000000022456c  /data/app/~~TcV1DinDEG0n-cMA5kXpVA==/com.xueersi.parentsmeeting-RiXa40JlAjdERFtbFTpWnw==/lib/arm64/libpag.so
+    #16 pc 0000000000224494  /data/app/~~TcV1DinDEG0n-cMA5kXpVA==/com.xueersi.parentsmeeting-RiXa40JlAjdERFtbFTpWnw==/lib/arm64/libpag.so
+    #17 pc 0000000000136a60  /data/app/~~TcV1DinDEG0n-cMA5kXpVA==/com.xueersi.parentsmeeting-RiXa40JlAjdERFtbFTpWnw==/lib/arm64/libpag.so
+    #18 pc 00000000001c9060  /data/app/~~TcV1DinDEG0n-cMA5kXpVA==/com.xueersi.parentsmeeting-RiXa40JlAjdERFtbFTpWnw==/lib/arm64/libpag.so
+    #19 pc 000000000013b6ec  /data/app/~~TcV1DinDEG0n-cMA5kXpVA==/com.xueersi.parentsmeeting-RiXa40JlAjdERFtbFTpWnw==/lib/arm64/libpag.so
+    #20 pc 00000000001215cc  /data/app/~~TcV1DinDEG0n-cMA5kXpVA==/com.xueersi.parentsmeeting-RiXa40JlAjdERFtbFTpWnw==/lib/arm64/libpag.so
+    #21 pc 0000000000131f70  /data/app/~~TcV1DinDEG0n-cMA5kXpVA==/com.xueersi.parentsmeeting-RiXa40JlAjdERFtbFTpWnw==/lib/arm64/libpag.so
+    #22 pc 000000000011acd8  /data/app/~~TcV1DinDEG0n-cMA5kXpVA==/com.xueersi.parentsmeeting-RiXa40JlAjdERFtbFTpWnw==/lib/arm64/libpag.so
+    #23 pc 0000000000142084  /data/app/~~TcV1DinDEG0n-cMA5kXpVA==/com.xueersi.parentsmeeting-RiXa40JlAjdERFtbFTpWnw==/lib/arm64/libpag.so
+    #24 pc 00000000000a3158  /data/app/~~TcV1DinDEG0n-cMA5kXpVA==/com.xueersi.parentsmeeting-RiXa40JlAjdERFtbFTpWnw==/lib/arm64/libpag.so (pag::PAGSurface::draw(pag::RenderCache*, std::__ndk1::shared_ptr<pag::Graphic>, pag::BackendSemaphore*, bool)+664)
+    #25 pc 00000000000a1484  /data/app/~~TcV1DinDEG0n-cMA5kXpVA==/com.xueersi.parentsmeeting-RiXa40JlAjdERFtbFTpWnw==/lib/arm64/libpag.so (pag::PAGPlayer::flushInternal(pag::BackendSemaphore*)+192)
+    #26 pc 00000000000a138c  /data/app/~~TcV1DinDEG0n-cMA5kXpVA==/com.xueersi.parentsmeeting-RiXa40JlAjdERFtbFTpWnw==/lib/arm64/libpag.so (pag::PAGPlayer::flush()+88)
+    #27 pc 000000000010bf7c  /data/app/~~TcV1DinDEG0n-cMA5kXpVA==/com.xueersi.parentsmeeting-RiXa40JlAjdERFtbFTpWnw==/lib/arm64/libpag.so (Java_org_libpag_PAGPlayer_flushAndFenceSync+204)
+    #28 pc 0000000000222244  /apex/com.android.art/lib64/libart.so (art_quick_generic_jni_trampoline+148)
+    #29 pc 0000000000212520  /apex/com.android.art/lib64/libart.so (nterp_helper+4016)
+    #30 pc 0000000000002e9e  [anon:dalvik-DEX data] (org.libpag.PAGPlayer.flush+2)
+    #31 pc 00000000002124c4  /apex/com.android.art/lib64/libart.so (nterp_helper+3924)
+    #32 pc 000000000000390c  [anon:dalvik-DEX data] (org.libpag.PAGView.flush+4)
+    #33 pc 00000000002124c4  /apex/com.android.art/lib64/libart.so (nterp_helper+3924)
+    #34 pc 0000000000003c74  [anon:dalvik-DEX data] (org.libpag.PAGView.onAnimationUpdate+60)
+    #35 pc 00000000002132e4  /apex/com.android.art/lib64/libart.so (nterp_helper+7540)
+    #36 pc 0000000000000a74  [anon:dalvik-DEX data] (org.libpag.PAGAnimator.onAnimationUpdate+20)
+    #37 pc 0000000000218964  /apex/com.android.art/lib64/libart.so (art_quick_invoke_stub+548)
+    #38 pc 0000000000285a20  /apex/com.android.art/lib64/libart.so (art::ArtMethod::Invoke(art::Thread*, unsigned int*, unsigned int, art::JValue*, char const*)+176)
+    #39 pc 000000000064b238  /apex/com.android.art/lib64/libart.so (art::(anonymous namespace)::InvokeWithArgArray(art::ScopedObjectAccessAlreadyRunnable const&, art::ArtMethod*, art::(anonymous namespace)::ArgArray*, art::JValue*, char const*)+104)
+    #40 pc 000000000064c6cc  /apex/com.android.art/lib64/libart.so (art::JValue art::InvokeVirtualOrInterfaceWithVarArgs<art::ArtMethod*>(art::ScopedObjectAccessAlreadyRunnable const&, _jobject*, art::ArtMethod*, std::__va_list)+356)
+    #41 pc 000000000064c888  /apex/com.android.art/lib64/libart.so (art::JValue art::InvokeVirtualOrInterfaceWithVarArgs<_jmethodID*>(art::ScopedObjectAccessAlreadyRunnable const&, _jobject*, _jmethodID*, std::__va_list)+68)
+    #42 pc 000000000049a664  /apex/com.android.art/lib64/libart.so (art::JNI<false>::CallVoidMethodV(_JNIEnv*, _jobject*, _jmethodID*, std::__va_list)+136)
+    #43 pc 00000000000ffd78  /data/app/~~TcV1DinDEG0n-cMA5kXpVA==/com.xueersi.parentsmeeting-RiXa40JlAjdERFtbFTpWnw==/lib/arm64/libpag.so
+    #44 pc 00000000001037ec  /data/app/~~TcV1DinDEG0n-cMA5kXpVA==/com.xueersi.parentsmeeting-RiXa40JlAjdERFtbFTpWnw==/lib/arm64/libpag.so
+    #45 pc 000000000009c530  /data/app/~~TcV1DinDEG0n-cMA5kXpVA==/com.xueersi.parentsmeeting-RiXa40JlAjdERFtbFTpWnw==/lib/arm64/libpag.so
+    #46 pc 000000000009d060  /data/app/~~TcV1DinDEG0n-cMA5kXpVA==/com.xueersi.parentsmeeting-RiXa40JlAjdERFtbFTpWnw==/lib/arm64/libpag.so
+    #47 pc 000000000014414c  /data/app/~~TcV1DinDEG0n-cMA5kXpVA==/com.xueersi.parentsmeeting-RiXa40JlAjdERFtbFTpWnw==/lib/arm64/libpag.so
+    #48 pc 0000000000144464  /data/app/~~TcV1DinDEG0n-cMA5kXpVA==/com.xueersi.parentsmeeting-RiXa40JlAjdERFtbFTpWnw==/lib/arm64/libpag.so
+    #49 pc 0000000000144bb8  /data/app/~~TcV1DinDEG0n-cMA5kXpVA==/com.xueersi.parentsmeeting-RiXa40JlAjdERFtbFTpWnw==/lib/arm64/libpag.so
+    #50 pc 00000000000fc938  /apex/com.android.runtime/lib64/bionic/libc.so (__pthread_start(void*)+176)
+    #51 pc 000000000009a840  /apex/com.android.runtime/lib64/bionic/libc.so (__start_thread+40)
+    </div>
+                                        </div>
+                                    
+                                </div>
+                            
+                        </div>
+                    </div>
+                    
+                    
+                    <div class="footer">
+                        <p>报告由 Baymax Chrome Extension 生成 | 数据来源: EMAS API</p>
+                    </div>
+                </div>
+                
+
+            </body>
+            </html>
+        
