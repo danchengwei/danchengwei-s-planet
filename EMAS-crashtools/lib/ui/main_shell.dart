@@ -3,14 +3,14 @@ import 'package:flutter/material.dart';
 import '../app_controller.dart';
 import 'app_wallpaper_backdrop.dart';
 import 'resizable_vertical_splitter.dart';
-import 'gitlab_settings_tab.dart';
-import 'mcp_settings_tab.dart';
 import 'settings_tab.dart';
 import 'wallpaper_top_bar.dart';
-import 'chat_tab.dart';
 import 'workbench_shell.dart';
+import 'unified_report_hub.dart';
+import 'html_report_analysis_tab.dart';
+import 'scheduled_background_tasks_tab.dart';
 
-/// 主导航：工作台 / 对话 / 配置 / GitLab / MCP。
+/// 主导航：工作台 / 报告 / HTML分析 / 后台定时任务 / 配置。
 class MainShell extends StatefulWidget {
   const MainShell({super.key, required this.controller});
 
@@ -45,9 +45,7 @@ class _MainShellState extends State<MainShell> {
 
   void _onControllerForChatTab() {
     if (!mounted) return;
-    if (widget.controller.consumeOpenChatTabRequest()) {
-      setState(() => _index = 1);
-    }
+    // Chat tab 已移除，保持兼容性
   }
 
   void _hydratePrimaryRailWidthOnce() {
@@ -71,20 +69,20 @@ class _MainShellState extends State<MainShell> {
       case 0:
         return WorkbenchShell(
           controller: widget.controller,
-          onOpenSettings: () => setState(() => _index = 2),
+          onOpenSettings: () => setState(() => _index = 4),
         );
       case 1:
-        return ChatTab(controller: widget.controller);
+        return UnifiedReportHub(controller: widget.controller);
       case 2:
-        return SettingsTab(controller: widget.controller);
+        return HtmlReportAnalysisTab(controller: widget.controller);
       case 3:
-        return GitLabSettingsTab(controller: widget.controller);
+        return ScheduledBackgroundTasksTab(controller: widget.controller);
       case 4:
-        return McpSettingsTab(controller: widget.controller);
+        return SettingsTab(controller: widget.controller);
       default:
         return WorkbenchShell(
           controller: widget.controller,
-          onOpenSettings: () => setState(() => _index = 2),
+          onOpenSettings: () => setState(() => _index = 4),
         );
     }
   }
@@ -146,30 +144,30 @@ class _MainShellState extends State<MainShell> {
                                 NavigationRailDestination(
                                   icon: Badge(
                                     isLabelVisible: needConfig,
-                                    child: const Icon(Icons.dashboard_customize_outlined),
+                                    child: Image.asset('lib/assets/border_collie.png', width: 24, height: 24),
                                   ),
-                                  selectedIcon: const Icon(Icons.dashboard_customize),
+                                  selectedIcon: Image.asset('lib/assets/border_collie.png', width: 24, height: 24),
                                   label: const Text('工作台'),
                                 ),
-                                const NavigationRailDestination(
-                                  icon: Icon(Icons.chat_bubble_outline_rounded),
-                                  selectedIcon: Icon(Icons.chat_bubble_rounded),
-                                  label: Text('对话'),
+                                NavigationRailDestination(
+                                  icon: Image.asset('lib/assets/orange_cat.png', width: 24, height: 24),
+                                  selectedIcon: Image.asset('lib/assets/orange_cat.png', width: 24, height: 24),
+                                  label: const Text('报告'),
                                 ),
-                                const NavigationRailDestination(
-                                  icon: Icon(Icons.tune_outlined),
-                                  selectedIcon: Icon(Icons.tune),
-                                  label: Text('配置'),
+                                NavigationRailDestination(
+                                  icon: Image.asset('lib/assets/shiba.png', width: 24, height: 24),
+                                  selectedIcon: Image.asset('lib/assets/shiba.png', width: 24, height: 24),
+                                  label: const Text('HTML分析'),
                                 ),
-                                const NavigationRailDestination(
-                                  icon: Icon(Icons.code_outlined),
-                                  selectedIcon: Icon(Icons.code_rounded),
-                                  label: Text('GitLab'),
+                                NavigationRailDestination(
+                                  icon: Image.asset('lib/assets/duck.png', width: 24, height: 24),
+                                  selectedIcon: Image.asset('lib/assets/duck.png', width: 24, height: 24),
+                                  label: const Text('定时任务'),
                                 ),
-                                const NavigationRailDestination(
-                                  icon: Icon(Icons.hub_outlined),
-                                  selectedIcon: Icon(Icons.hub_rounded),
-                                  label: Text('MCP'),
+                                NavigationRailDestination(
+                                  icon: Image.asset('lib/assets/hamster.png', width: 24, height: 24),
+                                  selectedIcon: Image.asset('lib/assets/hamster.png', width: 24, height: 24),
+                                  label: const Text('配置'),
                                 ),
                               ],
                             ),
