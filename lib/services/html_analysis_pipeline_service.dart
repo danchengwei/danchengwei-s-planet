@@ -51,6 +51,16 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
       debugPrint('[Pipeline] 崩溃哈希: ${session.selectedDigestHashes}');
       _currentSession = session;
       _isRunning = true;
+
+      // 初始化进度为 0%
+      _updateProgress(
+        AnalysisProgress(
+          status: AnalysisSessionStatus.sampling,
+          currentStep: 0,
+          totalSteps: 4,
+          message: '🚀 准备开始分析...',
+        ),
+      );
       notifyListeners();
 
       // Step 1: 解析 HTML 提取崩溃
