@@ -421,150 +421,200 @@ class _ScheduledBackgroundTasksTabState extends State<ScheduledBackgroundTasksTa
     final webhookCtrl = TextEditingController(text: existingTask?.webhookUrl ?? '');
     final selectedVersions = <String>{...(existingTask?.targetVersions ?? [])};
     String selectedModule = existingTask?.bizModule ?? 'crash';
-    int selectedInterval = existingTask?.checkIntervalSeconds ?? 30;
+    int selectedInterval = existingTask?.checkIntervalSeconds ?? 3600;
+    final intervalCtrl = TextEditingController(text: _formatInterval(selectedInterval));
+    bool showCustomInterval = false;
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(isEdit ? '编辑任务' : '创建新任务'),
-        content: SingleChildScrollView(
-          child: SizedBox(
-            width: 560,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // 任务名称
-                TextField(
-                  controller: nameCtrl,
-                  decoration: const InputDecoration(
-                    labelText: '任务名称',
-                    hintText: '如：v10.20 灰度监听',
-                    border: OutlineInputBorder(),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) => AlertDialog(
+          title: Text(isEdit ? '编辑任务' : '创建新任务'),
+          content: SingleChildScrollView(
+            child: SizedBox(
+              width: 560,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // 任务名称
+                  TextField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(
+                      labelText: '任务名称',
+                      hintText: '如：v10.20 灰度监听',
+                      border: OutlineInputBorder(),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 16),
+                  const SizedBox(height: 16),
 
-                // 业务模块
-                DropdownButtonFormField<String>(
-                  value: selectedModule,
-                  decoration: const InputDecoration(
-                    labelText: '业务模块',
-                    border: OutlineInputBorder(),
+                  // 业务模块
+                  DropdownButtonFormField<String>(
+                    value: selectedModule,
+                    decoration: const InputDecoration(
+                      labelText: '业务模块',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: ['crash', 'anr', 'lag', 'custom'].map((m) {
+                      return DropdownMenuItem(value: m, child: Text(m));
+                    }).toList(),
+                    onChanged: (v) {
+                      if (v != null) selectedModule = v;
+                    },
                   ),
-                  items: ['crash', 'anr', 'lag', 'custom'].map((m) {
-                    return DropdownMenuItem(value: m, child: Text(m));
-                  }).toList(),
-                  onChanged: (v) {
-                    if (v != null) selectedModule = v;
-                  },
-                ),
-                const SizedBox(height: 16),
+                  const SizedBox(height: 16),
 
-                // 检查间隔
-                DropdownButtonFormField<int>(
-                  value: selectedInterval,
-                  decoration: const InputDecoration(
-                    labelText: '检查间隔',
-                    border: OutlineInputBorder(),
+                  // 检查间隔 - 快捷选择按钮
+                  Text('检查间隔', style: Theme.of(ctx).textTheme.labelLarge),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      FilledButton(
+                        onPressed: () {
+                          setState(() {
+                            selectedInterval = 3600;
+                            intervalCtrl.text = _formatInterval(selectedInterval);
+                            showCustomInterval = false;
+                          });
+                        },
+                        child: const Text('1小时'),
+                      ),
+                      FilledButton(
+                        onPressed: () {
+                          setState(() {
+                            selectedInterval = 10800;
+                            intervalCtrl.text = _formatInterval(selectedInterval);
+                            showCustomInterval = false;
+                          });
+                        },
+                        child: const Text('3小时'),
+                      ),
+                      FilledButton(
+                        onPressed: () {
+                          setState(() {
+                            selectedInterval = 18000;
+                            intervalCtrl.text = _formatInterval(selectedInterval);
+                            showCustomInterval = false;
+                          });
+                        },
+                        child: const Text('5小时'),
+                      ),
+                      FilledButton.tonal(
+                        onPressed: () {
+                          setState(() {
+                            showCustomInterval = !showCustomInterval;
+                          });
+                        },
+                        child: Text(showCustomInterval ? '收起自定义' : '自定义'),
+                      ),
+                    ],
                   ),
-                  items: [10, 30, 60, 300].map((s) {
-                    return DropdownMenuItem(
-                      value: s,
-                      child: Text(_formatInterval(s)),
-                    );
-                  }).toList(),
-                  onChanged: (v) {
-                    if (v != null) selectedInterval = v;
-                  },
-                ),
-                const SizedBox(height: 16),
+                  const SizedBox(height: 8),
+                  if (showCustomInterval)
+                    TextField(
+                      controller: intervalCtrl,
+                      decoration: InputDecoration(
+                        labelText: '自定义间隔',
+                        hintText: '格式：数字 + 单位 (秒/分钟/小时) 如：30秒、5分钟、2小时',
+                        border: const OutlineInputBorder(),
+                      ),
+                      onChanged: (v) {
+                        final seconds = _parseIntervalString(v);
+                        if (seconds != null) {
+                          selectedInterval = seconds;
+                        }
+                      },
+                    ),
+                  const SizedBox(height: 16),
 
-                // 目标版本（简化版，后续可增强）
-                TextField(
-                  decoration: InputDecoration(
-                    labelText: '目标版本 (逗号分隔)',
-                    hintText: '如：10.20.01, 10.20.02',
-                    border: const OutlineInputBorder(),
-                    helperText: '当前: ${selectedVersions.join(", ")}',
+                  // 目标版本
+                  TextField(
+                    decoration: InputDecoration(
+                      labelText: '目标版本 (逗号分隔)',
+                      hintText: '如：10.20.01, 10.20.02',
+                      border: const OutlineInputBorder(),
+                      helperText: '当前: ${selectedVersions.join(", ")}',
+                    ),
+                    onChanged: (v) {
+                      selectedVersions
+                        ..clear()
+                        ..addAll(v.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty));
+                    },
                   ),
-                  onChanged: (v) {
-                    selectedVersions
-                      ..clear()
-                      ..addAll(v.split(',').map((s) => s.trim()).where((s) => s.isNotEmpty));
-                  },
-                ),
-                const SizedBox(height: 16),
+                  const SizedBox(height: 16),
 
-                // Webhook URL
-                TextField(
-                  controller: webhookCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Webhook URL (必填)',
-                    hintText: 'https://example.com/webhook',
-                    border: OutlineInputBorder(),
+                  // Webhook URL
+                  TextField(
+                    controller: webhookCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Webhook URL (必填)',
+                      hintText: 'https://example.com/webhook',
+                      border: OutlineInputBorder(),
+                    ),
+                    maxLines: 2,
                   ),
-                  maxLines: 2,
-                ),
-              ],
+                ],
+              ),
             ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final name = nameCtrl.text.trim();
+                final webhook = webhookCtrl.text.trim();
+
+                if (name.isEmpty || webhook.isEmpty || selectedVersions.isEmpty) {
+                  ScaffoldMessenger.of(ctx).showSnackBar(
+                    const SnackBar(content: Text('请填写所有必填项')),
+                  );
+                  return;
+                }
+
+                if (isEdit) {
+                  final updated = existingTask!.copyWith(
+                    name: name,
+                    webhookUrl: webhook,
+                    targetVersions: selectedVersions.toList(),
+                    bizModule: selectedModule,
+                    checkIntervalSeconds: selectedInterval,
+                  );
+                  final idx = _tasks.indexWhere((t) => t.id == updated.id);
+                  if (idx >= 0) {
+                    _tasks[idx] = updated;
+                  }
+                  if (_monitoringService != null) {
+                    await _monitoringService!.updateTask(updated);
+                  }
+                } else {
+                  final task = GraytestMonitoringTask(
+                    id: 'task_${DateTime.now().millisecondsSinceEpoch}',
+                    name: name,
+                    enabled: true,
+                    targetVersions: selectedVersions.toList(),
+                    webhookUrl: webhook,
+                    bizModule: selectedModule,
+                    checkIntervalSeconds: selectedInterval,
+                  );
+                  _tasks.add(task);
+                  if (_monitoringService != null) {
+                    await _monitoringService!.addTask(task);
+                  }
+                }
+
+                await widget.controller.saveConfig(widget.controller.config);
+                setState(() {});
+                if (ctx.mounted) Navigator.pop(ctx);
+              },
+              child: Text(isEdit ? '保存' : '创建'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              final name = nameCtrl.text.trim();
-              final webhook = webhookCtrl.text.trim();
-
-              if (name.isEmpty || webhook.isEmpty || selectedVersions.isEmpty) {
-                ScaffoldMessenger.of(ctx).showSnackBar(
-                  const SnackBar(content: Text('请填写所有必填项')),
-                );
-                return;
-              }
-
-              if (isEdit) {
-                final updated = existingTask!.copyWith(
-                  name: name,
-                  webhookUrl: webhook,
-                  targetVersions: selectedVersions.toList(),
-                  bizModule: selectedModule,
-                  checkIntervalSeconds: selectedInterval,
-                );
-                final idx = _tasks.indexWhere((t) => t.id == updated.id);
-                if (idx >= 0) {
-                  _tasks[idx] = updated;
-                }
-                if (_monitoringService != null) {
-                  await _monitoringService!.updateTask(updated);
-                }
-              } else {
-                final task = GraytestMonitoringTask(
-                  id: 'task_${DateTime.now().millisecondsSinceEpoch}',
-                  name: name,
-                  enabled: true,
-                  targetVersions: selectedVersions.toList(),
-                  webhookUrl: webhook,
-                  bizModule: selectedModule,
-                  checkIntervalSeconds: selectedInterval,
-                );
-                _tasks.add(task);
-                if (_monitoringService != null) {
-                  await _monitoringService!.addTask(task);
-                }
-              }
-
-              await widget.controller.saveConfig(widget.controller.config);
-              setState(() {});
-              if (ctx.mounted) Navigator.pop(ctx);
-            },
-            child: Text(isEdit ? '保存' : '创建'),
-          ),
-        ],
       ),
     );
   }
@@ -596,6 +646,30 @@ class _ScheduledBackgroundTasksTabState extends State<ScheduledBackgroundTasksTa
         ],
       ),
     );
+  }
+
+  /// 解析间隔字符串（如"30秒"、"5分钟"、"2小时"）
+  int? _parseIntervalString(String input) {
+    final trimmed = input.trim();
+    if (trimmed.isEmpty) return null;
+
+    // 秒
+    if (trimmed.endsWith('秒')) {
+      final num = int.tryParse(trimmed.replaceAll('秒', '').trim());
+      return num;
+    }
+    // 分钟
+    if (trimmed.endsWith('分钟')) {
+      final num = int.tryParse(trimmed.replaceAll('分钟', '').trim());
+      return num != null ? num * 60 : null;
+    }
+    // 小时
+    if (trimmed.endsWith('小时')) {
+      final num = int.tryParse(trimmed.replaceAll('小时', '').trim());
+      return num != null ? num * 3600 : null;
+    }
+    // 仅数字（默认为秒）
+    return int.tryParse(trimmed);
   }
 
   String _formatInterval(int seconds) {
