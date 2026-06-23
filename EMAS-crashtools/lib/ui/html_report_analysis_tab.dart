@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:file_selector/file_selector.dart';
 
@@ -134,7 +135,10 @@ class _HtmlReportAnalysisTabState extends State<HtmlReportAnalysisTab> with Sing
   }
 
   Future<void> _startAnalysis() async {
+    debugPrint('[UI] 点击开始分析按钮');
+
     if (_selectedJavaCrashes.isEmpty && _selectedNativeCrashes.isEmpty) {
+      debugPrint('[UI] 错误: 未选择任何崩溃');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('请至少选择一个崩溃问题')),
       );
@@ -142,6 +146,7 @@ class _HtmlReportAnalysisTabState extends State<HtmlReportAnalysisTab> with Sing
     }
 
     final selectedHashes = {..._selectedJavaCrashes, ..._selectedNativeCrashes}.toList();
+    debugPrint('[UI] 已选择 ${selectedHashes.length} 个崩溃: $selectedHashes');
 
     _currentSession = AnalysisSession(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -149,25 +154,40 @@ class _HtmlReportAnalysisTabState extends State<HtmlReportAnalysisTab> with Sing
       selectedDigestHashes: selectedHashes,
       createdAt: DateTime.now(),
     );
+    debugPrint('[UI] 创建分析会话: ${_currentSession!.id}');
 
+    debugPrint('[UI] 更新 UI 状态为 analyzing');
     setState(() {
       _currentPhase = AnalysisPhase.analyzing;
       _isAnalyzing = true;
       _showNavigationWarning = false;
     });
 
-    await _pipelineService.startAnalysis(_currentSession!);
-
-    if (mounted) {
-      final logFiles = await _logsManager.getSessionLogFiles(_currentSession!.id);
-      setState(() {
-        _sessionLogFiles = logFiles;
-        _isAnalyzing = false;
-        if (_pipelineService.currentProgress?.status == AnalysisSessionStatus.done) {
-          _currentPhase = AnalysisPhase.results;
-        }
-      });
-    }
+    debugPrint('[UI] 开始异步分析流程');
+    // 异步运行分析，不阻塞 UI
+    _pipelineService.startAnalysis(_currentSession!).then((_) async {
+      debugPrint('[UI] 分析流程完成');
+      if (mounted) {
+        debugPrint('[UI] 获取会话日志文件');
+        final logFiles = await _logsManager.getSessionLogFiles(_currentSession!.id);
+        debugPrint('[UI] 收到 ${logFiles.length} 个日志文件');
+        setState(() {
+          _sessionLogFiles = logFiles;
+          _isAnalyzing = false;
+          if (_pipelineService.currentProgress?.status == AnalysisSessionStatus.done) {
+            _currentPhase = AnalysisPhase.results;
+            debugPrint('[UI] 转换到 results 阶段');
+          }
+        });
+      }
+    }).catchError((e) {
+      debugPrint('[UI] 分析失败: $e');
+      if (mounted) {
+        setState(() {
+          _isAnalyzing = false;
+        });
+      }
+    });
   }
 
   Future<void> _previewLogFile(String filePath) async {
@@ -759,109 +779,117 @@ class _HtmlReportAnalysisTabState extends State<HtmlReportAnalysisTab> with Sing
 
   /// 构建已下载日志的对话框
   Widget _buildDownloadedLogsDialog(ThemeData theme, ColorScheme cs, BuildContext ctx) {
-    return AlertDialog(
-      title: Row(
-        children: [
-          const Icon(Icons.download_outlined),
-          const SizedBox(width: 8),
-          Text('已下载的日志文件 (${_allDownloadedLogs.length})'),
-        ],
-      ),
-      content: SizedBox(
-        width: 700,
-        height: 500,
-        child: _allDownloadedLogs.isEmpty
-            ? Center(
-                child: Text('暂无下载的日志文件', style: theme.textTheme.bodyMedium),
-              )
-            : Column(
-                children: [
-                  // 日志列表
-                  Expanded(
-                    child: SingleChildScrollView(
-                      child: Column(
-                        children: List.generate(_allDownloadedLogs.length, (index) {
-                          final file = _allDownloadedLogs[index];
-                          final isSelected = _selectedLogPaths.contains(file.path);
+    return StatefulBuilder(
+      builder: (dialogCtx, setDialogState) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.download_outlined),
+            const SizedBox(width: 8),
+            Text('已下载的日志文件 (${_allDownloadedLogs.length})'),
+          ],
+        ),
+        content: SizedBox(
+          width: 700,
+          height: 500,
+          child: _allDownloadedLogs.isEmpty
+              ? Center(
+                  child: Text('暂无下载的日志文件', style: theme.textTheme.bodyMedium),
+                )
+              : Column(
+                  children: [
+                    // 日志列表
+                    Expanded(
+                      child: SingleChildScrollView(
+                        child: Column(
+                          children: List.generate(_allDownloadedLogs.length, (index) {
+                            final file = _allDownloadedLogs[index];
+                            final isSelected = _selectedLogPaths.contains(file.path);
 
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: Card(
-                              child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Row(
-                                  children: [
-                                    Checkbox(
-                                      value: isSelected,
-                                      onChanged: (v) {
-                                        setState(() {
-                                          if (v == true) {
-                                            _selectedLogPaths.add(file.path);
-                                          } else {
-                                            _selectedLogPaths.remove(file.path);
-                                          }
-                                        });
-                                      },
-                                    ),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(file.name, style: theme.textTheme.labelMedium),
-                                          Text(
-                                            '${file.formattedSize} | ${file.formattedTime}',
-                                            style: theme.textTheme.labelSmall?.copyWith(color: cs.onSurfaceVariant),
-                                          ),
-                                        ],
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Card(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Row(
+                                    children: [
+                                      Checkbox(
+                                        value: isSelected,
+                                        onChanged: (v) {
+                                          setDialogState(() {
+                                            setState(() {
+                                              if (v == true) {
+                                                _selectedLogPaths.add(file.path);
+                                              } else {
+                                                _selectedLogPaths.remove(file.path);
+                                              }
+                                            });
+                                          });
+                                        },
                                       ),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.preview, size: 20),
-                                      tooltip: '预览',
-                                      onPressed: () => _previewLogFile(file.path),
-                                    ),
-                                  ],
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(file.name, style: theme.textTheme.labelMedium),
+                                            Text(
+                                              '${file.formattedSize} | ${file.formattedTime}',
+                                              style: theme.textTheme.labelSmall?.copyWith(color: cs.onSurfaceVariant),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.preview, size: 20),
+                                        tooltip: '预览',
+                                        onPressed: () => _previewLogFile(file.path),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
-                            ),
-                          );
-                        }),
+                            );
+                          }),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  // 信息栏
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: cs.primaryContainer.withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(8),
+                    const SizedBox(height: 12),
+                    // 信息栏
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: cs.primaryContainer.withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        '已选择 ${_selectedLogPaths.length} 个文件',
+                        style: theme.textTheme.labelSmall,
+                      ),
                     ),
-                    child: Text(
-                      '已选择 ${_selectedLogPaths.length} 个文件',
-                      style: theme.textTheme.labelSmall,
-                    ),
-                  ),
-                ],
-              ),
-      ),
-      actions: [
-        // 取消按钮
-        TextButton(
-          onPressed: () => Navigator.pop(ctx),
-          child: const Text('取消'),
+                  ],
+                ),
         ),
-        // 删除按钮
-        if (_selectedLogPaths.isNotEmpty)
-          FilledButton.icon(
-            onPressed: () {
-              _deleteSelectedLogs();
-              Navigator.pop(ctx);
-            },
-            icon: const Icon(Icons.delete_outline),
-            label: const Text('删除选中'),
+        actions: [
+          // 取消按钮
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
           ),
-      ],
+          // 删除按钮
+          if (_selectedLogPaths.isNotEmpty)
+            FilledButton.icon(
+              onPressed: () async {
+                await _deleteSelectedLogs();
+                if (mounted) {
+                  _loadAllDownloadedLogs();
+                  setDialogState(() {});
+                  Navigator.pop(ctx);
+                }
+              },
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('删除选中'),
+            ),
+        ],
+      ),
     );
   }
 }

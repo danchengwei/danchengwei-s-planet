@@ -6,9 +6,9 @@ class AnalysisSession {
     required this.selectedDigestHashes,
     required this.createdAt,
     this.analysisReportContent,
-    this.logFilesPaths = const [],
+    List<String>? logFilesPaths,
     this.status = AnalysisSessionStatus.pending,
-  });
+  }) : logFilesPaths = logFilesPaths ?? [];
 
   /// 会话 ID（时间戳）
   final String id;

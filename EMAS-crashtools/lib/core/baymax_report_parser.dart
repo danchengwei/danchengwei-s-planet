@@ -1,5 +1,8 @@
 import 'dart:io';
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
+import 'package:html/parser.dart' as html_parser;
+import 'package:html/dom.dart' as html_dom;
 
 /// Baymax HTML 报告中单个崩溃项（对齐 skills 中 parse_html_fast.py 的输出格式）
 class BaymaxCrashItem {
@@ -77,53 +80,20 @@ class BaymaxReportSummary {
   String toString() => 'BaymaxReportSummary(java=$javaCrashPercent%, native=$nativeCrashPercent%, items=$totalCrashItems)';
 }
 
-/// Baymax HTML 报告解析器 - 严格遵循 skills 中 parse_html_fast.py 的规范
+/// Baymax HTML 报告解析器 - 使用 Dart html 包进行解析
 class BaymaxReportParser {
-  /// 通过调用 skills 中的 parse_html_fast.py 脚本来解析 HTML（第一步：快速解析）
-  /// 输出：crash_list.json 结构化数据
-  /// 注：仅做快速预览，不调用 API，完整分析需要后续调用 batch_full_analysis.py
   static Future<BaymaxReportSummary> parseFile(String filePath) async {
     try {
-      // 获取 skills 目录（严格按照 skills SKILL.md 规范：emas-tools-upgrade）
-      final skillsDir = '.claude/skills/emas-tools-upgrade';
-      final scriptPath = '$skillsDir/scripts/parse_html_fast.py';
-
-      // 验证脚本存在
-      final scriptFile = File(scriptPath);
-      if (!scriptFile.existsSync()) {
-        throw Exception('脚本不存在: $scriptPath（应在 $skillsDir 目录下）');
+      final file = File(filePath);
+      if (!await file.exists()) {
+        throw Exception('HTML 文件不存在: $filePath');
       }
 
-      // 临时输出文件（存放 crash_list.json）
-      final tmpDir = Directory.systemTemp;
-      final outputJson = '${tmpDir.path}/crash_list_${DateTime.now().millisecondsSinceEpoch}.json';
+      final htmlContent = await file.readAsString();
+      final document = html_parser.parse(htmlContent);
 
-      // 执行 Python 脚本（parse_html_fast.py）— 严格遵循 skills SKILL.md 8.1 节规范
-      final result = await Process.run(
-        'python3',
-        [scriptPath, filePath, outputJson],
-        runInShell: true,
-      );
-
-      if (result.exitCode != 0) {
-        throw Exception('脚本执行失败: ${result.stderr}');
-      }
-
-      // 读取脚本输出的 JSON 文件
-      final outputFile = File(outputJson);
-      if (!outputFile.existsSync()) {
-        throw Exception('脚本未生成输出文件: $outputJson');
-      }
-
-      final jsonContent = await outputFile.readAsString();
-      final parsed = jsonDecode(jsonContent) as Map<String, dynamic>;
-
-      // 解析 JSON 为 BaymaxCrashItem 列表（与 parse_html_fast.py 输出格式对齐）
-      final javaCrashes = _parseCrashesFromJson(parsed['java'] ?? [], 'java');
-      final nativeCrashes = _parseCrashesFromJson(parsed['native'] ?? [], 'native');
-
-      // 清理临时文件
-      await outputFile.delete();
+      final javaCrashes = _parseJavaCrashes(document);
+      final nativeCrashes = _parseNativeCrashes(document);
 
       return BaymaxReportSummary(
         javaCrashes: javaCrashes,
@@ -131,16 +101,133 @@ class BaymaxReportParser {
         sourceFilePath: filePath,
       );
     } catch (e) {
-      throw Exception('HTML 报告解析失败（对齐 skills 规范）: $e');
+      throw Exception('HTML 报告解析失败: $e');
     }
   }
 
-  /// 从 JSON 格式解析崩溃项列表（对齐 parse_html_fast.py 输出格式）
+  /// 解析 Java 崩溃（按照 parse_html_fast.py 的逻辑）
+  static List<BaymaxCrashItem> _parseJavaCrashes(html_dom.Document document) {
+    return _extractCrashSection(document.outerHtml, 'java');
+  }
+
+  /// 解析 Native 崩溃（按照 parse_html_fast.py 的逻辑）
+  static List<BaymaxCrashItem> _parseNativeCrashes(html_dom.Document document) {
+    return _extractCrashSection(document.outerHtml, 'native');
+  }
+
+  /// 从 HTML 中提取指定类型的崩溃信息
+  static List<BaymaxCrashItem> _extractCrashSection(String htmlContent, String crashType) {
+    final crashes = <BaymaxCrashItem>[];
+
+    final javaH2 = '<h2>☕ Java Crash详情</h2>';
+    final nativeH2 = '<h2>⚙️ Native Crash详情</h2>';
+
+    final javaStart = htmlContent.indexOf(javaH2);
+    final nativeStart = htmlContent.indexOf(nativeH2);
+
+    String section = '';
+    if (crashType == 'java' && javaStart >= 0) {
+      section = htmlContent.substring(
+        javaStart,
+        nativeStart >= 0 ? nativeStart : htmlContent.length,
+      );
+    } else if (crashType == 'native' && nativeStart >= 0) {
+      section = htmlContent.substring(nativeStart);
+    } else {
+      return crashes;
+    }
+
+    // 正则表达式（按照 Python 脚本）
+    final digestHashRegex = RegExp(r'digestId=([^&"]+)');
+    final titleRegex = RegExp(r'<a[^>]*class="crash-title-link"[^>]*>(.*?)</a>', dotAll: true);
+    final devicesRegex = RegExp(r'影响设备:</strong>\s*(\d+)');
+    final errorsRegex = RegExp(r'错误次数:</strong>\s*(\d+)');
+    final rateRegex = RegExp(r'崩溃率:</strong>\s*([\d.]+%)');
+    final versionRegex = RegExp(r'版本:</strong>\s*([^<]+)');
+    final stackRegex = RegExp(r'<div class=[^>]*stack-trace[^>]*>(.*?)</div>', dotAll: true);
+
+    // 分割 crash-item
+    final parts = section.split('<div class="crash-item">');
+
+    for (int i = 1; i < parts.length; i++) {
+      final item = parts[i];
+      final crash = <String, dynamic>{};
+
+      // 提取 digest hash
+      final digestMatch = digestHashRegex.firstMatch(item);
+      if (digestMatch != null) {
+        crash['digest_hash'] = digestMatch.group(1)!;
+      } else {
+        continue; // 必须有 digest_hash
+      }
+
+      // 提取标题
+      final titleMatch = titleRegex.firstMatch(item);
+      if (titleMatch != null) {
+        var title = titleMatch.group(1)!;
+        title = title.replaceAll(RegExp(r'<[^>]+>'), '').trim();
+        crash['title'] = title;
+      }
+
+      // 提取影响设备数
+      final devicesMatch = devicesRegex.firstMatch(item);
+      if (devicesMatch != null) {
+        crash['affected_devices'] = int.tryParse(devicesMatch.group(1)!) ?? 0;
+      }
+
+      // 提取错误次数
+      final errorsMatch = errorsRegex.firstMatch(item);
+      if (errorsMatch != null) {
+        crash['error_count'] = int.tryParse(errorsMatch.group(1)!) ?? 0;
+      }
+
+      // 提取崩溃率
+      final rateMatch = rateRegex.firstMatch(item);
+      if (rateMatch != null) {
+        crash['error_rate'] = double.tryParse(
+          rateMatch.group(1)!.replaceAll('%', '').trim(),
+        ) ?? 0.0;
+      }
+
+      // 提取版本
+      final versionMatch = versionRegex.firstMatch(item);
+      if (versionMatch != null) {
+        crash['version'] = versionMatch.group(1)!.trim();
+      }
+
+      // 提取堆栈
+      var stackTop = '';
+      final stackMatch = stackRegex.firstMatch(item);
+      if (stackMatch != null) {
+        var stackRaw = stackMatch.group(1)!;
+        stackRaw = stackRaw.replaceAll(RegExp(r'<[^>]+>'), '').trim();
+        final stackLines = stackRaw
+            .split('\n')
+            .map((line) => line.trim())
+            .where((line) => line.isNotEmpty)
+            .toList();
+        stackTop = stackLines.take(3).join('\n');
+      }
+
+      crashes.add(BaymaxCrashItem(
+        digestHash: crash['digest_hash'] as String? ?? '',
+        title: crash['title'] as String? ?? '',
+        affectedDevices: crash['affected_devices'] as int? ?? 0,
+        errorCount: crash['error_count'] as int? ?? 0,
+        errorRate: crash['error_rate'] as double? ?? 0.0,
+        appVersion: crash['version'] as String? ?? 'unknown',
+        stackTop: stackTop.isNotEmpty ? [stackTop] : [],
+        crashType: crashType,
+      ));
+    }
+
+    return crashes;
+  }
+
   static List<BaymaxCrashItem> _parseCrashesFromJson(List<dynamic> crashes, String type) {
     return crashes.map((item) {
       final map = item as Map<String, dynamic>;
 
-      // stack_top 可能是字符串（多行）或已分割的列表，统一转为 List<String>
       List<String> stackTopList = [];
       final stackTop = map['stack_top'];
       if (stackTop != null) {
@@ -151,7 +238,6 @@ class BaymaxReportParser {
         }
       }
 
-      // error_rate 可能是字符串（如 "5.2%"），需要提取数字
       double errorRate = 0.0;
       final rateValue = map['error_rate'];
       if (rateValue != null) {

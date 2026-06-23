@@ -54,13 +54,17 @@ class AnalysisLogsManager {
 
       for (final entity in files) {
         if (entity is File) {
-          final stat = await entity.stat();
-          logFiles.add(FileInfo(
-            name: entity.path.split('/').last,
-            path: entity.path,
-            size: stat.size,
-            modified: stat.modified,
-          ));
+          final fileName = entity.path.split('/').last;
+          // 只显示原始的华佗日志压缩包（.tar.gz 和 .zip）
+          if (fileName.endsWith('.tar.gz') || fileName.endsWith('.zip')) {
+            final stat = await entity.stat();
+            logFiles.add(FileInfo(
+              name: fileName,
+              path: entity.path,
+              size: stat.size,
+              modified: stat.modified,
+            ));
+          }
         }
       }
 
@@ -153,13 +157,17 @@ class AnalysisLogsManager {
 
       for (final entity in entities) {
         if (entity is File) {
-          final stat = await entity.stat();
-          allFiles.add(FileInfo(
-            name: entity.path.split('/').last,
-            path: entity.path,
-            size: stat.size,
-            modified: stat.modified,
-          ));
+          final fileName = entity.path.split('/').last;
+          // 只显示原始的华佗日志压缩包（.tar.gz 和 .zip）
+          if (fileName.endsWith('.tar.gz') || fileName.endsWith('.zip')) {
+            final stat = await entity.stat();
+            allFiles.add(FileInfo(
+              name: fileName,
+              path: entity.path,
+              size: stat.size,
+              modified: stat.modified,
+            ));
+          }
         }
       }
 
