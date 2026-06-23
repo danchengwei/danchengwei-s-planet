@@ -128,7 +128,7 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
     }
   }
 
-  /// Step 2: 使用阿里云 CLI 直接查询用户样本（已迁移到 Dart，无需调用 Python）
+  /// Step 2: 使用 batch_get_samples.py 脚本查询用户样本
   Future<void> _step2_getUnfortunatelySamples(AnalysisSession session) async {
     _updateProgress(
       AnalysisProgress(
@@ -143,53 +143,74 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
       session.status = AnalysisSessionStatus.sampling;
 
       final outputDir = (await _logsManager.initializeSessionDirectory(session.id)).path;
+      final scriptPath = _getScriptPath('batch_get_samples.py');
 
-      // 直接使用 AliyunCliService 查询样本，无需调用 Python 脚本
-      final samples = <dynamic>[];
-      final samplesLog = {
-        'timestamp': DateTime.now().toIso8601String(),
-        'method': 'AliyunCliService.getErrors',
-        'app_key': config.appKey,
-        'selected_hashes': session.selectedDigestHashes,
-        'samples': samples,
+      // 为脚本创建输入的崩溃列表（从 HTML 报告提取的 hash）
+      final inputCrashes = {
+        'java': session.selectedDigestHashes
+            .map((hash) => {'type': 'java', 'digest_hash': hash})
+            .toList(),
+        'native': <dynamic>[],
       };
 
-      // 获取时间范围（默认最近 90 天）
-      final endTimeMs = DateTime.now().millisecondsSinceEpoch;
-      final startTimeMs = endTimeMs - (90 * 24 * 60 * 60 * 1000); // 90 天
+      final inputJsonPath = '$outputDir/input_crashes.json';
+      final outputJsonPath = '$outputDir/crashes_with_samples.json';
 
-      // 并行查询所有样本
-      final futures = <Future<Map<String, dynamic>>>[];
-      for (int i = 0; i < session.selectedDigestHashes.length; i++) {
-        final hash = session.selectedDigestHashes[i];
-        futures.add(
-          _querySampleViaCliAsync(
-            hash,
-            startTimeMs,
-            endTimeMs,
-            i,
-            session.selectedDigestHashes.length,
-          ),
-        );
-      }
+      // 保存输入文件
+      final inputFile = File(inputJsonPath);
+      await inputFile.writeAsString(jsonEncode(inputCrashes));
 
-      // 等待所有查询完成
-      final results = await Future.wait(futures, eagerError: false);
-      samples.addAll(results.whereType<Map<String, dynamic>>());
-
-      samplesLog['status'] = 'completed';
-      samplesLog['time_range'] = {
-        'start': DateTime.fromMillisecondsSinceEpoch(startTimeMs).toIso8601String(),
-        'end': DateTime.fromMillisecondsSinceEpoch(endTimeMs).toIso8601String(),
-      };
-
-      await _logsManager.saveLogFile(
-        sessionId: session.id,
-        fileName: '02_aliyun_samples.json',
-        content: jsonEncode(samplesLog),
+      _updateProgress(
+        AnalysisProgress(
+          status: AnalysisSessionStatus.sampling,
+          currentStep: 2,
+          totalSteps: 4,
+          message: '🔍 Step 2: 执行 batch_get_samples.py 查询用户样本...',
+        ),
       );
 
-      session.addLogFile('02_aliyun_samples.json');
+      // 调用 batch_get_samples.py 脚本
+      final result = await Process.run(
+        'python3',
+        [
+          scriptPath,
+          inputJsonPath,
+          outputJsonPath,
+          config.appKey,
+          config.os,
+        ],
+        runInShell: true,
+      ).timeout(const Duration(minutes: 5));
+
+      if (result.exitCode != 0) {
+        debugPrint('batch_get_samples.py 执行失败: ${result.stderr}');
+        throw Exception('样本查询脚本执行失败: ${result.stderr}');
+      }
+
+      // 读取脚本输出的结果
+      final outputFile = File(outputJsonPath);
+      if (await outputFile.exists()) {
+        final outputContent = await outputFile.readAsString();
+        final samplesData = jsonDecode(outputContent) as Map<String, dynamic>;
+
+        // 保存日志
+        final samplesLog = {
+          'timestamp': DateTime.now().toIso8601String(),
+          'script': 'batch_get_samples.py',
+          'app_key': config.appKey,
+          'selected_hashes': session.selectedDigestHashes,
+          'output': samplesData,
+          'status': 'completed',
+        };
+
+        await _logsManager.saveLogFile(
+          sessionId: session.id,
+          fileName: '02_batch_get_samples.json',
+          content: jsonEncode(samplesLog),
+        );
+
+        session.addLogFile('02_batch_get_samples.json');
+      }
     } catch (e) {
       debugPrint('样本查询失败: $e');
       rethrow;
@@ -439,70 +460,6 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 异步查询单个样本（直接调用阿里云 CLI，无需 Python）
-  Future<Map<String, dynamic>> _querySampleViaCliAsync(
-    String hash,
-    int startTimeMs,
-    int endTimeMs,
-    int index,
-    int total,
-  ) async {
-    _updateProgress(
-      AnalysisProgress(
-        status: AnalysisSessionStatus.sampling,
-        currentStep: 2,
-        totalSteps: 4,
-        message: '🔍 Step 2: 查询最新样本 (${index + 1}/$total - 并行中)\nHash: $hash',
-      ),
-    );
-
-    try {
-      // 直接调用 AliyunCliService 获取错误样本
-      final errorsResponse = await _cliService.getErrors(
-        bizModule: config.bizModule,
-        digestHash: hash,
-        startTimeMs: startTimeMs,
-        endTimeMs: endTimeMs,
-        os: config.os,
-        pageSize: 5, // 只获取最新的 5 个样本
-      ).timeout(const Duration(seconds: 30));
-
-      // 从响应中提取样本信息
-      final model = errorsResponse['Model'] as Map<String, dynamic>?;
-      final items = model?['Items'] as List<dynamic>? ?? [];
-
-      if (items.isNotEmpty) {
-        // 提取最新的样本信息
-        final latestSample = items.first as Map<String, dynamic>;
-        return {
-          'hash': hash,
-          'status': 'success',
-          'sample_count': items.length,
-          'latest_sample': {
-            'uuid': latestSample['Uuid'],
-            'did': latestSample['Did'],
-            'client_time': latestSample['ClientTime'],
-            'device_model': latestSample['DeviceModel'],
-            'os_version': latestSample['OsVersion'],
-            'app_version': latestSample['AppVersion'],
-          },
-        };
-      } else {
-        return {
-          'hash': hash,
-          'status': 'no_samples',
-          'message': '没有找到最近的样本',
-        };
-      }
-    } catch (e) {
-      debugPrint('阿里云 API 查询异常: $e');
-      return {
-        'hash': hash,
-        'status': 'error',
-        'error': e.toString(),
-      };
-    }
-  }
 
   /// 异步查询单个华佗日志
   Future<Map<String, dynamic>> _queryHuatuoAsync(
