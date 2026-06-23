@@ -193,13 +193,28 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
         final outputContent = await outputFile.readAsString();
         final samplesData = jsonDecode(outputContent) as Map<String, dynamic>;
 
+        // 提取用户信息摘要（digest_hash -> 最新用户ID）
+        final userMap = <String, String>{};
+        final javaCrashes = samplesData['java'] as List<dynamic>? ?? [];
+        final nativeCrashes = samplesData['native'] as List<dynamic>? ?? [];
+
+        for (final crash in [...javaCrashes, ...nativeCrashes]) {
+          final crashMap = crash as Map<String, dynamic>;
+          final hash = crashMap['digest_hash'] as String?;
+          final latestSample = crashMap['latest_user_sample'] as Map<String, dynamic>?;
+          if (hash != null && latestSample != null) {
+            userMap[hash] = latestSample['user_id']?.toString() ?? 'unknown';
+          }
+        }
+
         // 保存日志
         final samplesLog = {
           'timestamp': DateTime.now().toIso8601String(),
           'script': 'batch_get_samples.py',
           'app_key': config.appKey,
           'selected_hashes': session.selectedDigestHashes,
-          'output': samplesData,
+          'user_map': userMap, // digest_hash -> user_id 的映射
+          'full_output': samplesData,
           'status': 'completed',
         };
 
