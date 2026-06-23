@@ -155,51 +155,16 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
         'samples': samples,
       };
 
+      // 并行查询所有样本（大幅提升速度）
+      final futures = <Future<Map<String, dynamic>>>[];
       for (int i = 0; i < session.selectedDigestHashes.length; i++) {
         final hash = session.selectedDigestHashes[i];
-
-        _updateProgress(
-          AnalysisProgress(
-            status: AnalysisSessionStatus.sampling,
-            currentStep: 2,
-            totalSteps: 4,
-            message: '🔍 Step 2: 查询样本 (${i + 1}/${session.selectedDigestHashes.length})\nHash: $hash',
-          ),
-        );
-
-        try {
-          // 调用脚本获取样本
-          final result = await Process.run(
-            'python3',
-            [scriptPath, '--app-key', config.appKey, '--digest-hash', hash, '--output-dir', outputDir],
-            runInShell: true,
-          ).timeout(const Duration(seconds: 30));
-
-          if (result.exitCode == 0) {
-            samples.add({
-              'hash': hash,
-              'status': 'success',
-              'script_output': result.stdout.toString().substring(0, 200), // 前200字
-            });
-          } else {
-            debugPrint('batch_get_samples 失败: ${result.stderr}');
-            samples.add({
-              'hash': hash,
-              'status': 'error',
-              'error': result.stderr.toString().substring(0, 200),
-            });
-          }
-        } catch (e) {
-          debugPrint('调用 batch_get_samples 异常: $e');
-          samples.add({
-            'hash': hash,
-            'status': 'error',
-            'error': e.toString(),
-          });
-        }
-
-        await Future.delayed(const Duration(milliseconds: 500));
+        futures.add(_querySampleAsync(hash, scriptPath, outputDir, i, session.selectedDigestHashes.length));
       }
+
+      // 等待所有查询完成，同时更新进度
+      final results = await Future.wait(futures, eagerError: false);
+      samples.addAll(results.whereType<Map<String, dynamic>>());
 
       samplesLog['status'] = 'completed';
 
@@ -242,56 +207,22 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
       };
 
       // 为每个崩溃调用 huatuo_analyzer.py 下载日志
+      // 并行下载所有华佗日志（大幅提升速度）
+      final futures = <Future<Map<String, dynamic>>>[];
       for (int i = 0; i < session.selectedDigestHashes.length; i++) {
         final hash = session.selectedDigestHashes[i];
+        futures.add(_queryHuatuoAsync(hash, scriptPath, outputDir, i, session.selectedDigestHashes.length));
+      }
 
-        _updateProgress(
-          AnalysisProgress(
-            status: AnalysisSessionStatus.huatuo,
-            currentStep: 3,
-            totalSteps: 4,
-            message: '📥 Step 3: 下载华佗日志 (${i + 1}/${session.selectedDigestHashes.length})\nHash: $hash',
-          ),
-        );
+      // 等待所有下载完成
+      final results = await Future.wait(futures, eagerError: false);
+      downloads.addAll(results.whereType<Map<String, dynamic>>());
 
-        try {
-          // 调用脚本下载华佗日志
-          final result = await Process.run(
-            'python3',
-            [scriptPath, '--digest-hash', hash, '--output-dir', outputDir],
-            runInShell: true,
-          ).timeout(const Duration(seconds: 60));
-
-          if (result.exitCode == 0) {
-            // 日志下载成功
-            final logFile = File('$outputDir/huatuo_$hash.log');
-            if (await logFile.exists()) {
-              session.addLogFile('huatuo_$hash.log');
-              downloads.add({
-                'hash': hash,
-                'status': 'success',
-                'log_file': 'huatuo_$hash.log',
-                'size': (await logFile.length()).toString(),
-              });
-            }
-          } else {
-            debugPrint('huatuo_analyzer 失败: ${result.stderr}');
-            downloads.add({
-              'hash': hash,
-              'status': 'error',
-              'error': result.stderr.toString().substring(0, 200),
-            });
-          }
-        } catch (e) {
-          debugPrint('调用 huatuo_analyzer 异常: $e');
-          downloads.add({
-            'hash': hash,
-            'status': 'error',
-            'error': e.toString(),
-          });
+      // 为所有成功的日志添加到 session
+      for (final result in results.whereType<Map<String, dynamic>>()) {
+        if (result['status'] == 'success' && result['log_file'] != null) {
+          session.addLogFile(result['log_file'] as String);
         }
-
-        await Future.delayed(const Duration(milliseconds: 500));
       }
 
       huatuoLog['status'] = 'completed';
@@ -491,6 +422,105 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
     _cancelRequested = true;
     _currentSession?.status = AnalysisSessionStatus.cancelled;
     notifyListeners();
+  }
+
+  /// 异步查询单个样本
+  Future<Map<String, dynamic>> _querySampleAsync(
+    String hash,
+    String scriptPath,
+    String outputDir,
+    int index,
+    int total,
+  ) async {
+    _updateProgress(
+      AnalysisProgress(
+        status: AnalysisSessionStatus.sampling,
+        currentStep: 2,
+        totalSteps: 4,
+        message: '🔍 Step 2: 查询样本 (${index + 1}/$total - 并行中)\nHash: $hash',
+      ),
+    );
+
+    try {
+      final result = await Process.run(
+        'python3',
+        [scriptPath, '--app-key', config.appKey, '--digest-hash', hash, '--output-dir', outputDir],
+        runInShell: true,
+      ).timeout(const Duration(seconds: 30));
+
+      if (result.exitCode == 0) {
+        return {
+          'hash': hash,
+          'status': 'success',
+          'script_output': result.stdout.toString().substring(0, 200),
+        };
+      } else {
+        debugPrint('batch_get_samples 失败: ${result.stderr}');
+        return {
+          'hash': hash,
+          'status': 'error',
+          'error': result.stderr.toString().substring(0, 200),
+        };
+      }
+    } catch (e) {
+      debugPrint('调用 batch_get_samples 异常: $e');
+      return {
+        'hash': hash,
+        'status': 'error',
+        'error': e.toString(),
+      };
+    }
+  }
+
+  /// 异步查询单个华佗日志
+  Future<Map<String, dynamic>> _queryHuatuoAsync(
+    String hash,
+    String scriptPath,
+    String outputDir,
+    int index,
+    int total,
+  ) async {
+    _updateProgress(
+      AnalysisProgress(
+        status: AnalysisSessionStatus.huatuo,
+        currentStep: 3,
+        totalSteps: 4,
+        message: '📥 Step 3: 下载华佗日志 (${index + 1}/$total - 并行中)\nHash: $hash',
+      ),
+    );
+
+    try {
+      final result = await Process.run(
+        'python3',
+        [scriptPath, '--digest-hash', hash, '--output-dir', outputDir],
+        runInShell: true,
+      ).timeout(const Duration(seconds: 60));
+
+      if (result.exitCode == 0) {
+        final logFile = File('$outputDir/huatuo_$hash.log');
+        if (await logFile.exists()) {
+          return {
+            'hash': hash,
+            'status': 'success',
+            'log_file': 'huatuo_$hash.log',
+            'size': (await logFile.length()).toString(),
+          };
+        }
+      }
+      debugPrint('huatuo_analyzer 失败: ${result.stderr}');
+      return {
+        'hash': hash,
+        'status': 'error',
+        'error': result.stderr.toString().substring(0, 200),
+      };
+    } catch (e) {
+      debugPrint('华佗查询异常: $e');
+      return {
+        'hash': hash,
+        'status': 'error',
+        'error': e.toString(),
+      };
+    }
   }
 
   void reset() {
