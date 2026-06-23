@@ -18,6 +18,14 @@ class LlmAnalyzer {
     required Map<String, dynamic> userSample,
   }) async {
     try {
+      // 检查 LLM 配置是否完整
+      if (config.llmBaseUrl.trim().isEmpty ||
+          config.llmApiKey.trim().isEmpty ||
+          config.llmModel.trim().isEmpty) {
+        debugPrint('[LLM] LLM 未配置，使用默认分析');
+        return _getDefaultAnalysis();
+      }
+
       // 构建分析提示
       final prompt = _buildAnalysisPrompt(
         crashTitle: crashTitle,
@@ -96,75 +104,73 @@ class LlmAnalyzer {
   }) {
     final buffer = StringBuffer();
 
-    buffer.writeln('你是一个 Android 应用崩溃分析专家。');
-    buffer.writeln('请根据以下信息进行根因分析，输出 JSON 格式的结果。');
+    buffer.writeln('你是一个 Android 应用崩溃分析专家。请根据以下完整的崩溃信息和实时日志数据进行深入的根因分析。');
     buffer.writeln('');
 
-    // 崩溃基本信息
-    buffer.writeln('【崩溃信息】');
-    buffer.writeln('标题: $crashTitle');
-    buffer.writeln('堆栈信息:');
-    buffer.writeln(stackInfo.split('\n').take(20).join('\n'));
+    // 1. 崩溃堆栈信息
+    buffer.writeln('## 1. 崩溃堆栈');
+    buffer.writeln(stackInfo);
     buffer.writeln('');
 
-    // 用户样本信息
-    buffer.writeln('【用户设备信息】');
-    buffer.writeln('用户 ID: ${userSample['user_id'] ?? ''}');
-    buffer.writeln('设备型号: ${userSample['device_model'] ?? ''}');
-    buffer.writeln('应用版本: ${userSample['app_version'] ?? ''}');
-    buffer.writeln('系统版本: ${userSample['system_version'] ?? ''}');
-    buffer.writeln('国家/地区: ${userSample['country'] ?? ''}/${userSample['province'] ?? ''}');
+    // 2. 设备和应用信息
+    buffer.writeln('## 2. 设备和应用信息');
+    buffer.writeln('- 用户 ID: ${userSample['user_id'] ?? ''}');
+    buffer.writeln('- 设备型号: ${userSample['device_model'] ?? ''}');
+    buffer.writeln('- 应用版本: ${userSample['app_version'] ?? ''}');
+    buffer.writeln('- 系统版本: ${userSample['system_version'] ?? ''}');
+    buffer.writeln('- 启动时间: ${userSample['startup_time'] ?? ''}');
     buffer.writeln('');
 
-    // 华佗日志分析
-    buffer.writeln('【华佗日志分析】');
-    buffer.writeln('总事件数: ${huatuoAnalysis['total_events'] ?? 0}');
-    buffer.writeln('错误事件: ${(huatuoAnalysis['error_events'] as List?)?.length ?? 0}');
-    buffer.writeln('警告事件: ${(huatuoAnalysis['warning_events'] as List?)?.length ?? 0}');
-
-    final pageHistory = huatuoAnalysis['page_history'] as List? ?? [];
-    if (pageHistory.isNotEmpty) {
-      buffer.writeln('页面访问序列: ${pageHistory.map((p) => p['page']).join(' -> ')}');
-    }
-
-    final errorEvents = huatuoAnalysis['error_events'] as List? ?? [];
-    if (errorEvents.isNotEmpty) {
-      buffer.writeln('关键错误事件（最多 5 个）:');
-      for (final evt in errorEvents.take(5)) {
-        buffer.writeln('  - [${evt['date']}] ${evt['eventid']}: ${evt['message']}');
+    // 3. 原始日志数据
+    buffer.writeln('## 3. 原始日志数据');
+    final dataItems = huatuoAnalysis['data_items'] as List<dynamic>? ?? [];
+    if (dataItems.isNotEmpty) {
+      for (int i = 0; i < dataItems.take(20).length; i++) {
+        final item = dataItems[i] as Map<String, dynamic>?;
+        if (item != null) {
+          buffer.writeln('日志 ${i + 1}: ${jsonEncode(item)}');
+        }
       }
+    } else {
+      buffer.writeln('无日志数据');
     }
-
-    final httpRequests = huatuoAnalysis['http_requests'] as List? ?? [];
-    if (httpRequests.isNotEmpty) {
-      buffer.writeln('HTTP 请求（最多 3 个）:');
-      for (final req in httpRequests.take(3)) {
-        buffer.writeln('  - ${req['logtype']}: ${req['url']}');
-      }
-    }
-
     buffer.writeln('');
-    buffer.writeln('【分析要求】');
-    buffer.writeln('请分析上述信息，输出以下 JSON 格式的结果:');
+
+    // 4. 分析指导
+    buffer.writeln('## 4. 分析要求');
+    buffer.writeln('基于堆栈信息和原始日志数据，请进行以下分析:');
+    buffer.writeln('1. 根据 Exception 类型和堆栈追踪确定直接崩溃原因');
+    buffer.writeln('2. 从日志中寻找触发崩溃的操作（如 API 调用、资源操作等）');
+    buffer.writeln('3. 分析是否存在内存/资源泄漏或兼容性问题');
+    buffer.writeln('4. 评估问题严重性和影响范围');
+    buffer.writeln('5. 提供具体的修复方案和代码级建议');
+    buffer.writeln('');
+
+    buffer.writeln('## 5. 输出格式（必须是有效 JSON）');
     buffer.writeln('{');
-    buffer.writeln('  "summary": "崩溃原因摘要（一句话）",');
+    buffer.writeln('  "summary": "用一句话总结崩溃原因（要具体，不要宽泛）",');
     buffer.writeln('  "possible_causes": [');
     buffer.writeln('    {');
-    buffer.writeln('      "cause": "原因名称",');
-    buffer.writeln('      "detail": "详细说明（2-3 句话）",');
-    buffer.writeln('      "evidence": ["证据1", "证据2"]');
+    buffer.writeln('      "cause": "直接崩溃原因",');
+    buffer.writeln('      "detail": "详细解释这个原因如何导致崩溃（3-5 句话，基于堆栈和日志）",');
+    buffer.writeln('      "evidence": ["日志中的关键证据1", "堆栈中的关键信息2", "设备特征3"]');
+    buffer.writeln('    },');
+    buffer.writeln('    {');
+    buffer.writeln('      "cause": "根本原因或触发因素",');
+    buffer.writeln('      "detail": "为什么会出现这种情况，与用户操作或应用状态的关系",');
+    buffer.writeln('      "evidence": ["关键日志数据", "操作序列"]');
     buffer.writeln('    }');
     buffer.writeln('  ],');
     buffer.writeln('  "fix_suggestions": [');
     buffer.writeln('    {');
-    buffer.writeln('      "suggestion": "修复建议",');
+    buffer.writeln('      "suggestion": "具体的修复方案",');
     buffer.writeln('      "priority": "high|medium|low",');
-    buffer.writeln('      "implementation": "实现方式（简要说明）"');
+    buffer.writeln('      "implementation": "代码级或架构级的实现建议（包括具体的类/方法）"');
     buffer.writeln('    }');
     buffer.writeln('  ]');
     buffer.writeln('}');
     buffer.writeln('');
-    buffer.writeln('请只返回 JSON，不要包含其他文本。');
+    buffer.writeln('重要：只返回 JSON 对象，不要返回其他文本。');
 
     return buffer.toString();
   }

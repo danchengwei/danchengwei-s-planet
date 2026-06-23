@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:file_selector/file_selector.dart';
@@ -171,8 +172,28 @@ class _HtmlReportAnalysisTabState extends State<HtmlReportAnalysisTab> with Sing
         debugPrint('[UI] 获取会话日志文件');
         final logFiles = await _logsManager.getSessionLogFiles(_currentSession!.id);
         debugPrint('[UI] 收到 ${logFiles.length} 个日志文件');
+
+        // 加载分析报告内容
+        debugPrint('[UI] 尝试加载分析报告内容');
+        String? reportContent;
+        try {
+          final sessionDir = await _logsManager.initializeSessionDirectory(_currentSession!.id);
+          final reportFile = File('${sessionDir.path}/analysis_report.md');
+          if (await reportFile.exists()) {
+            reportContent = await reportFile.readAsString();
+            debugPrint('[UI] 成功读取报告文件: ${reportContent.length} 字符');
+          } else {
+            debugPrint('[UI] 报告文件不存在: ${reportFile.path}');
+          }
+        } catch (e) {
+          debugPrint('[UI] 读取报告文件失败: $e');
+        }
+
         setState(() {
           _sessionLogFiles = logFiles;
+          if (reportContent != null) {
+            _currentSession!.analysisReportContent = reportContent;
+          }
           _isAnalyzing = false;
           if (_pipelineService.currentProgress?.status == AnalysisSessionStatus.done) {
             _currentPhase = AnalysisPhase.results;

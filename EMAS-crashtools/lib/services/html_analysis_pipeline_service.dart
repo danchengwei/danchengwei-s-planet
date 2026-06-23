@@ -859,18 +859,67 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
           if (llmAnalysis.isNotEmpty) {
             buffer.writeln('**🤖 智能根因分析**:');
             buffer.writeln();
-            final rootCause = llmAnalysis['root_cause'] as String? ?? '分析中...';
-            final suggestion = llmAnalysis['suggestion'] as String? ?? '';
-            buffer.writeln(rootCause);
-            if (suggestion.isNotEmpty) {
+
+            final summary = llmAnalysis['summary'] as String? ?? '';
+            if (summary.isNotEmpty) {
+              buffer.writeln('**分析摘要**: $summary');
               buffer.writeln();
-              buffer.writeln('**建议方案**:');
-              buffer.writeln(suggestion);
             }
-            buffer.writeln();
+
+            final possibleCauses = llmAnalysis['possible_causes'] as List<dynamic>? ?? [];
+            if (possibleCauses.isNotEmpty) {
+              buffer.writeln('**可能原因**:');
+              buffer.writeln();
+              for (final cause in possibleCauses) {
+                final causeMap = cause as Map<String, dynamic>?;
+                if (causeMap != null) {
+                  final causeTitle = causeMap['cause'] as String? ?? '';
+                  final detail = causeMap['detail'] as String? ?? '';
+                  final evidence = causeMap['evidence'] as List<dynamic>? ?? [];
+
+                  if (causeTitle.isNotEmpty) {
+                    buffer.writeln('- **$causeTitle**');
+                    if (detail.isNotEmpty) {
+                      buffer.writeln('  $detail');
+                    }
+                    if (evidence.isNotEmpty) {
+                      buffer.writeln('  证据: ${evidence.join(", ")}');
+                    }
+                  }
+                }
+              }
+              buffer.writeln();
+            }
+
+            final fixSuggestions = llmAnalysis['fix_suggestions'] as List<dynamic>? ?? [];
+            if (fixSuggestions.isNotEmpty) {
+              buffer.writeln('**修复建议**:');
+              buffer.writeln();
+              for (final suggestion in fixSuggestions) {
+                final suggestionMap = suggestion as Map<String, dynamic>?;
+                if (suggestionMap != null) {
+                  final suggestionTitle = suggestionMap['suggestion'] as String? ?? '';
+                  final priority = suggestionMap['priority'] as String? ?? 'medium';
+                  final implementation = suggestionMap['implementation'] as String? ?? '';
+
+                  if (suggestionTitle.isNotEmpty) {
+                    final priorityIcon = priority == 'high' ? '🔴' : priority == 'medium' ? '🟡' : '🟢';
+                    buffer.writeln('- **$suggestionTitle** $priorityIcon');
+                    if (implementation.isNotEmpty) {
+                      buffer.writeln('  实现: $implementation');
+                    }
+                  }
+                }
+              }
+              buffer.writeln();
+            }
           }
         } catch (e) {
           debugPrint('[Step4] LLM 分析失败: $e');
+          buffer.writeln('**🤖 智能根因分析**:');
+          buffer.writeln();
+          buffer.writeln('分析中...');
+          buffer.writeln();
         }
 
         buffer.writeln('---');
@@ -994,18 +1043,67 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
           if (llmAnalysis.isNotEmpty) {
             buffer.writeln('**🤖 智能根因分析**:');
             buffer.writeln();
-            final rootCause = llmAnalysis['root_cause'] as String? ?? '分析中...';
-            final suggestion = llmAnalysis['suggestion'] as String? ?? '';
-            buffer.writeln(rootCause);
-            if (suggestion.isNotEmpty) {
+
+            final summary = llmAnalysis['summary'] as String? ?? '';
+            if (summary.isNotEmpty) {
+              buffer.writeln('**分析摘要**: $summary');
               buffer.writeln();
-              buffer.writeln('**建议方案**:');
-              buffer.writeln(suggestion);
             }
-            buffer.writeln();
+
+            final possibleCauses = llmAnalysis['possible_causes'] as List<dynamic>? ?? [];
+            if (possibleCauses.isNotEmpty) {
+              buffer.writeln('**可能原因**:');
+              buffer.writeln();
+              for (final cause in possibleCauses) {
+                final causeMap = cause as Map<String, dynamic>?;
+                if (causeMap != null) {
+                  final causeTitle = causeMap['cause'] as String? ?? '';
+                  final detail = causeMap['detail'] as String? ?? '';
+                  final evidence = causeMap['evidence'] as List<dynamic>? ?? [];
+
+                  if (causeTitle.isNotEmpty) {
+                    buffer.writeln('- **$causeTitle**');
+                    if (detail.isNotEmpty) {
+                      buffer.writeln('  $detail');
+                    }
+                    if (evidence.isNotEmpty) {
+                      buffer.writeln('  证据: ${evidence.join(", ")}');
+                    }
+                  }
+                }
+              }
+              buffer.writeln();
+            }
+
+            final fixSuggestions = llmAnalysis['fix_suggestions'] as List<dynamic>? ?? [];
+            if (fixSuggestions.isNotEmpty) {
+              buffer.writeln('**修复建议**:');
+              buffer.writeln();
+              for (final suggestion in fixSuggestions) {
+                final suggestionMap = suggestion as Map<String, dynamic>?;
+                if (suggestionMap != null) {
+                  final suggestionTitle = suggestionMap['suggestion'] as String? ?? '';
+                  final priority = suggestionMap['priority'] as String? ?? 'medium';
+                  final implementation = suggestionMap['implementation'] as String? ?? '';
+
+                  if (suggestionTitle.isNotEmpty) {
+                    final priorityIcon = priority == 'high' ? '🔴' : priority == 'medium' ? '🟡' : '🟢';
+                    buffer.writeln('- **$suggestionTitle** $priorityIcon');
+                    if (implementation.isNotEmpty) {
+                      buffer.writeln('  实现: $implementation');
+                    }
+                  }
+                }
+              }
+              buffer.writeln();
+            }
           }
         } catch (e) {
           debugPrint('[Step4] LLM 分析失败: $e');
+          buffer.writeln('**🤖 智能根因分析**:');
+          buffer.writeln();
+          buffer.writeln('分析中...');
+          buffer.writeln();
         }
 
         buffer.writeln('---');

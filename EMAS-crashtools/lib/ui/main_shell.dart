@@ -7,6 +7,7 @@ import 'settings_tab.dart';
 import 'wallpaper_top_bar.dart';
 import 'workbench_shell.dart';
 import 'unified_report_hub.dart';
+import 'analysis_report_tab.dart';
 import 'html_report_analysis_tab.dart';
 import 'scheduled_background_tasks_tab.dart';
 
@@ -72,7 +73,7 @@ class _MainShellState extends State<MainShell> {
           onOpenSettings: () => setState(() => _index = 4),
         );
       case 1:
-        return UnifiedReportHub(controller: widget.controller);
+        return AnalysisReportTab(controller: widget.controller);
       case 2:
         return HtmlReportAnalysisTab(controller: widget.controller);
       case 3:
