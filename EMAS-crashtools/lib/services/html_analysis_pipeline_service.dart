@@ -128,53 +128,68 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
     }
   }
 
-  /// Step 2: 使用 batch_get_samples.py 查询用户样本
+  /// Step 2: 使用阿里云 CLI 直接查询用户样本（已迁移到 Dart，无需调用 Python）
   Future<void> _step2_getUnfortunatelySamples(AnalysisSession session) async {
     _updateProgress(
       AnalysisProgress(
         status: AnalysisSessionStatus.sampling,
         currentStep: 2,
         totalSteps: 4,
-        message: '🔍 Step 2: 从阿里云 API 查询用户样本...\n准备调用 batch_get_samples.py',
+        message: '🔍 Step 2: 从阿里云 API 查询最新用户信息...',
       ),
     );
 
     try {
       session.status = AnalysisSessionStatus.sampling;
 
-      final scriptPath = _getScriptPath('batch_get_samples.py');
       final outputDir = (await _logsManager.initializeSessionDirectory(session.id)).path;
 
-      // 为每个选中的崩溃调用 batch_get_samples.py
+      // 直接使用 AliyunCliService 查询样本，无需调用 Python 脚本
       final samples = <dynamic>[];
       final samplesLog = {
         'timestamp': DateTime.now().toIso8601String(),
-        'script': 'batch_get_samples.py',
+        'method': 'AliyunCliService.getErrors',
         'app_key': config.appKey,
         'selected_hashes': session.selectedDigestHashes,
         'samples': samples,
       };
 
-      // 并行查询所有样本（大幅提升速度）
+      // 获取时间范围（默认最近 90 天）
+      final endTimeMs = DateTime.now().millisecondsSinceEpoch;
+      final startTimeMs = endTimeMs - (90 * 24 * 60 * 60 * 1000); // 90 天
+
+      // 并行查询所有样本
       final futures = <Future<Map<String, dynamic>>>[];
       for (int i = 0; i < session.selectedDigestHashes.length; i++) {
         final hash = session.selectedDigestHashes[i];
-        futures.add(_querySampleAsync(hash, scriptPath, outputDir, i, session.selectedDigestHashes.length));
+        futures.add(
+          _querySampleViaCliAsync(
+            hash,
+            startTimeMs,
+            endTimeMs,
+            i,
+            session.selectedDigestHashes.length,
+          ),
+        );
       }
 
-      // 等待所有查询完成，同时更新进度
+      // 等待所有查询完成
       final results = await Future.wait(futures, eagerError: false);
       samples.addAll(results.whereType<Map<String, dynamic>>());
 
       samplesLog['status'] = 'completed';
+      samplesLog['time_range'] = {
+        'start': DateTime.fromMillisecondsSinceEpoch(startTimeMs).toIso8601String(),
+        'end': DateTime.fromMillisecondsSinceEpoch(endTimeMs).toIso8601String(),
+      };
 
       await _logsManager.saveLogFile(
         sessionId: session.id,
-        fileName: '02_batch_get_samples.json',
+        fileName: '02_aliyun_samples.json',
         content: jsonEncode(samplesLog),
       );
 
-      session.addLogFile('02_batch_get_samples.json');
+      session.addLogFile('02_aliyun_samples.json');
     } catch (e) {
       debugPrint('样本查询失败: $e');
       rethrow;
@@ -424,11 +439,11 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 异步查询单个样本
-  Future<Map<String, dynamic>> _querySampleAsync(
+  /// 异步查询单个样本（直接调用阿里云 CLI，无需 Python）
+  Future<Map<String, dynamic>> _querySampleViaCliAsync(
     String hash,
-    String scriptPath,
-    String outputDir,
+    int startTimeMs,
+    int endTimeMs,
     int index,
     int total,
   ) async {
@@ -437,33 +452,50 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
         status: AnalysisSessionStatus.sampling,
         currentStep: 2,
         totalSteps: 4,
-        message: '🔍 Step 2: 查询样本 (${index + 1}/$total - 并行中)\nHash: $hash',
+        message: '🔍 Step 2: 查询最新样本 (${index + 1}/$total - 并行中)\nHash: $hash',
       ),
     );
 
     try {
-      final result = await Process.run(
-        'python3',
-        [scriptPath, '--app-key', config.appKey, '--digest-hash', hash, '--output-dir', outputDir],
-        runInShell: true,
+      // 直接调用 AliyunCliService 获取错误样本
+      final errorsResponse = await _cliService.getErrors(
+        bizModule: config.bizModule,
+        digestHash: hash,
+        startTimeMs: startTimeMs,
+        endTimeMs: endTimeMs,
+        os: config.os,
+        pageSize: 5, // 只获取最新的 5 个样本
       ).timeout(const Duration(seconds: 30));
 
-      if (result.exitCode == 0) {
+      // 从响应中提取样本信息
+      final model = errorsResponse['Model'] as Map<String, dynamic>?;
+      final items = model?['Items'] as List<dynamic>? ?? [];
+
+      if (items.isNotEmpty) {
+        // 提取最新的样本信息
+        final latestSample = items.first as Map<String, dynamic>;
         return {
           'hash': hash,
           'status': 'success',
-          'script_output': result.stdout.toString().substring(0, 200),
+          'sample_count': items.length,
+          'latest_sample': {
+            'uuid': latestSample['Uuid'],
+            'did': latestSample['Did'],
+            'client_time': latestSample['ClientTime'],
+            'device_model': latestSample['DeviceModel'],
+            'os_version': latestSample['OsVersion'],
+            'app_version': latestSample['AppVersion'],
+          },
         };
       } else {
-        debugPrint('batch_get_samples 失败: ${result.stderr}');
         return {
           'hash': hash,
-          'status': 'error',
-          'error': result.stderr.toString().substring(0, 200),
+          'status': 'no_samples',
+          'message': '没有找到最近的样本',
         };
       }
     } catch (e) {
-      debugPrint('调用 batch_get_samples 异常: $e');
+      debugPrint('阿里云 API 查询异常: $e');
       return {
         'hash': hash,
         'status': 'error',
