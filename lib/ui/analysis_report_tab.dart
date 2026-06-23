@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 
 import '../app_controller.dart';
-import '../services/analysis_report_generator.dart';
-import '../constants/app_constants.dart';
+import '../services/analysis_logs_manager.dart';
 
-/// 分析报告生成页面：聚合分析数据，生成完整报告
+/// 分析报告查看页面：查看历史分析会话
 class AnalysisReportTab extends StatefulWidget {
   const AnalysisReportTab({super.key, required this.controller});
 
@@ -16,96 +16,130 @@ class AnalysisReportTab extends StatefulWidget {
 }
 
 class _AnalysisReportTabState extends State<AnalysisReportTab> {
-  late final TextEditingController _reportTitleController;
-  late final TextEditingController _reportDescController;
+  final _logsManager = AnalysisLogsManager();
+  List<_SessionInfo> _sessions = [];
+  bool _isLoadingSessions = true;
+  _SessionInfo? _selectedSession;
+  String? _selectedReportContent;
 
   @override
   void initState() {
     super.initState();
-    _reportTitleController = TextEditingController();
-    _reportDescController = TextEditingController();
+    _loadSessions();
   }
 
-  bool _isGenerating = false;
-  String? _lastReportPath;
-  String? _successMessage;
-  String? _errorMessage;
-
-  bool _includeTopCrashes = true;
-  bool _includeTopAnrs = true;
-  bool _includeStackAnalysis = true;
-  bool _includeSuggestions = true;
-  int _topItemsCount = 10;
-
-  @override
-  void dispose() {
-    _reportTitleController.dispose();
-    _reportDescController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _generateReport() async {
-    if (_reportTitleController.text.isEmpty) {
-      setState(() => _errorMessage = '请输入报告标题');
-      return;
-    }
-
+  /// 加载所有分析会话
+  Future<void> _loadSessions() async {
     try {
-      setState(() {
-        _isGenerating = true;
-        _errorMessage = null;
-        _successMessage = null;
-      });
+      final appSupportDir = await getApplicationSupportDirectory();
+      final analysisLogsDir = Directory('${appSupportDir.path}/analysis_logs');
 
-      final generator = AnalysisReportGenerator();
-      final reportPath = await generator.generateReport(
-        title: _reportTitleController.text,
-        description: _reportDescController.text,
-        includeTopCrashes: _includeTopCrashes,
-        includeTopAnrs: _includeTopAnrs,
-        includeStackAnalysis: _includeStackAnalysis,
-        includeSuggestions: _includeSuggestions,
-        topItemsCount: _topItemsCount,
-      );
+      debugPrint('[LoadSessions] 查询目录: ${analysisLogsDir.path}');
 
-      setState(() {
-        _lastReportPath = reportPath;
-        _successMessage = '报告已生成：${reportPath.split('/').last}';
-        _isGenerating = false;
-      });
+      if (!await analysisLogsDir.exists()) {
+        debugPrint('[LoadSessions] 目录不存在');
+        setState(() => _isLoadingSessions = false);
+        return;
+      }
 
-      // 3秒后清除成功消息
-      await Future.delayed(const Duration(seconds: 3));
+      final sessions = <_SessionInfo>[];
+      final entities = analysisLogsDir.listSync();
+      debugPrint('[LoadSessions] 找到 ${entities.length} 个项目');
+
+      for (final entity in entities) {
+        if (entity is Directory) {
+          final sessionId = entity.path.split('/').last;
+          final reportFile = File('${entity.path}/analysis_report.md');
+
+          if (await reportFile.exists()) {
+            final stat = await reportFile.stat();
+            final content = await reportFile.readAsString();
+            debugPrint('[LoadSessions] 加载会话: $sessionId (${stat.size} bytes)');
+            sessions.add(_SessionInfo(
+              id: sessionId,
+              reportPath: reportFile.path,
+              fileSize: stat.size,
+              modified: stat.modified,
+              content: content,
+            ));
+          }
+        }
+      }
+
+      debugPrint('[LoadSessions] 成功加载 ${sessions.length} 个会话');
+
+      // 按修改时间降序排列
+      sessions.sort((a, b) => b.modified.compareTo(a.modified));
+
       if (mounted) {
-        setState(() => _successMessage = null);
+        setState(() {
+          _sessions = sessions;
+          _isLoadingSessions = false;
+        });
       }
     } catch (e) {
-      setState(() {
-        _errorMessage = '生成失败：$e';
-        _isGenerating = false;
-      });
-    }
-  }
-
-  void _openReportFile() {
-    final path = _lastReportPath;
-    if (path != null) {
-      if (Platform.isMacOS) {
-        Process.run('open', [path]);
-      } else if (Platform.isWindows) {
-        Process.run('explorer', [path]);
-      } else if (Platform.isLinux) {
-        Process.run('xdg-open', [path]);
+      debugPrint('加载会话失败: $e');
+      if (mounted) {
+        setState(() => _isLoadingSessions = false);
       }
     }
   }
 
-  void _copyReportPath() {
-    if (_lastReportPath != null) {
-      // 这里可以集成剪贴板功能
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已复制：$_lastReportPath')),
-      );
+  /// 查看会话报告
+  void _viewSession(_SessionInfo session) {
+    setState(() {
+      _selectedSession = session;
+      _selectedReportContent = session.content;
+    });
+  }
+
+  /// 删除会话
+  Future<void> _deleteSession(_SessionInfo session) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('确认删除'),
+        content: Text('确定要删除此分析会话吗？\n会话 ID: ${session.id}'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      try {
+        // 解析出父目录
+        final parentPath = session.reportPath.split('/').take(session.reportPath.split('/').length - 1).join('/');
+        final sessionDirToDelete = Directory(parentPath);
+
+        if (await sessionDirToDelete.exists()) {
+          await sessionDirToDelete.delete(recursive: true);
+        }
+
+        if (mounted) {
+          setState(() {
+            _sessions.removeWhere((s) => s.id == session.id);
+            if (_selectedSession?.id == session.id) {
+              _selectedSession = null;
+              _selectedReportContent = null;
+            }
+          });
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('已删除分析会话')),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('删除失败: $e')),
+          );
+        }
+      }
     }
   }
 
@@ -114,263 +148,145 @@ class _AnalysisReportTabState extends State<AnalysisReportTab> {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
 
-    return Column(
-      children: [
-        // 顶部标题栏
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: cs.surfaceContainer,
-            border: Border(bottom: BorderSide(color: cs.outlineVariant)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('分析报告生成', style: theme.textTheme.titleLarge),
-              const SizedBox(height: 4),
-              Text(
-                '聚合 EMAS 数据，生成完整的崩溃/ANR 分析报告',
-                style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-              ),
-            ],
-          ),
-        ),
+    if (_isLoadingSessions) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
-        Expanded(
-          child: _isGenerating
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      CircularProgressIndicator(color: cs.primary),
-                      const SizedBox(height: 16),
-                      const Text('正在生成报告...'),
-                    ],
-                  ),
-                )
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
+    if (_selectedReportContent != null) {
+      // 显示报告内容
+      return Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            color: cs.surfaceContainer,
+            child: Row(
+              children: [
+                Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // 成功消息
-                      if (_successMessage != null) ...[
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: cs.tertiaryContainer,
-                            borderRadius: AppBorderRadius.xs,
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(Icons.check_circle, color: cs.tertiary),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  _successMessage!,
-                                  style: theme.textTheme.labelSmall?.copyWith(color: cs.onTertiaryContainer),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                      ],
-
-                      // 错误消息
-                      if (_errorMessage != null) ...[
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: cs.errorContainer,
-                            borderRadius: AppBorderRadius.xs,
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(Icons.error_outline, color: cs.error),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  _errorMessage!,
-                                  style: theme.textTheme.labelSmall?.copyWith(color: cs.onErrorContainer),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                      ],
-
-                      // 报告基本信息
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('报告信息', style: theme.textTheme.titleSmall),
-                              const SizedBox(height: 16),
-                              TextField(
-                                controller: _reportTitleController,
-                                decoration: InputDecoration(
-                                  labelText: '报告标题 *',
-                                  hintText: '例如：2024-06-18 崩溃分析报告',
-                                  border: OutlineInputBorder(
-                                    borderRadius: AppBorderRadius.xs,
-                                  ),
-                                  prefixIcon: const Icon(Icons.title),
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              TextField(
-                                controller: _reportDescController,
-                                maxLines: 3,
-                                decoration: InputDecoration(
-                                  labelText: '报告描述',
-                                  hintText: '可选：添加报告摘要或备注',
-                                  border: OutlineInputBorder(
-                                    borderRadius: AppBorderRadius.xs,
-                                  ),
-                                  prefixIcon: const Icon(Icons.description),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                      Text('会话: ${_selectedSession!.id}', style: theme.textTheme.labelSmall),
+                      Text(
+                        '修改: ${_selectedSession!.modified.toString().split('.')[0]}',
+                        style: theme.textTheme.labelSmall?.copyWith(color: cs.onSurfaceVariant),
                       ),
-                      const SizedBox(height: 16),
-
-                      // 生成选项
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('生成选项', style: theme.textTheme.titleSmall),
-                              const SizedBox(height: 12),
-                              CheckboxListTile(
-                                title: const Text('包含 Top 崩溃'),
-                                subtitle: const Text('从 EMAS 获取排名前 N 的崩溃'),
-                                value: _includeTopCrashes,
-                                onChanged: (v) => setState(() => _includeTopCrashes = v ?? true),
-                              ),
-                              CheckboxListTile(
-                                title: const Text('包含 Top ANR'),
-                                subtitle: const Text('从 EMAS 获取排名前 N 的 ANR'),
-                                value: _includeTopAnrs,
-                                onChanged: (v) => setState(() => _includeTopAnrs = v ?? true),
-                              ),
-                              CheckboxListTile(
-                                title: const Text('包含堆栈分析'),
-                                subtitle: const Text('对关键异常进行代码级分析'),
-                                value: _includeStackAnalysis,
-                                onChanged: (v) => setState(() => _includeStackAnalysis = v ?? true),
-                              ),
-                              CheckboxListTile(
-                                title: const Text('包含修复建议'),
-                                subtitle: const Text('基于堆栈和源码生成修复建议'),
-                                value: _includeSuggestions,
-                                onChanged: (v) => setState(() => _includeSuggestions = v ?? true),
-                              ),
-                              const SizedBox(height: 12),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        const Text('显示项数'),
-                                        const SizedBox(height: 8),
-                                        Slider(
-                                          value: _topItemsCount.toDouble(),
-                                          min: 5,
-                                          max: 50,
-                                          divisions: 9,
-                                          label: _topItemsCount.toString(),
-                                          onChanged: (v) {
-                                            setState(() => _topItemsCount = v.toInt());
-                                          },
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  SizedBox(
-                                    width: 80,
-                                    child: Align(
-                                      alignment: Alignment.center,
-                                      child: Text(
-                                        '最多 $_topItemsCount 项',
-                                        style: theme.textTheme.labelSmall,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-
-                      // 生成按钮
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          onPressed: _isGenerating ? null : _generateReport,
-                          icon: const Icon(Icons.assessment),
-                          label: const Text('生成报告'),
-                        ),
-                      ),
-
-                      // 之前生成的报告操作
-                      if (_lastReportPath != null) ...[
-                        const SizedBox(height: 16),
-                        Card(
-                          color: cs.tertiaryContainer.withValues(alpha: 0.3),
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('最新报告', style: theme.textTheme.labelSmall),
-                                const SizedBox(height: 8),
-                                Text(
-                                  _lastReportPath!.split('/').last,
-                                  style: theme.textTheme.bodySmall,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                const SizedBox(height: 12),
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: OutlinedButton.icon(
-                                        onPressed: _openReportFile,
-                                        icon: const Icon(Icons.open_in_new_rounded),
-                                        label: const Text('打开文件'),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: OutlinedButton.icon(
-                                        onPressed: _copyReportPath,
-                                        icon: const Icon(Icons.content_copy),
-                                        label: const Text('复制路径'),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
                     ],
                   ),
                 ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => setState(() {
+                    _selectedReportContent = null;
+                    _selectedSession = null;
+                  }),
+                  tooltip: '关闭',
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: SelectableText(
+                _selectedReportContent!,
+                style: const TextStyle(fontFamily: 'monospace', fontSize: 13, height: 1.6),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    if (_sessions.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.folder_open, size: 64, color: cs.outline),
+            const SizedBox(height: 16),
+            Text('暂无分析报告', style: theme.textTheme.bodyLarge),
+            const SizedBox(height: 8),
+            Text(
+              '完成 HTML 分析后报告将显示在这里',
+              style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+            ),
+          ],
         ),
-      ],
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: _sessions.length,
+      itemBuilder: (ctx, idx) {
+        final session = _sessions[idx];
+        return Card(
+          child: InkWell(
+            onTap: () => _viewSession(session),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          session.id,
+                          style: theme.textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(Icons.calendar_today, size: 12, color: cs.outline),
+                            const SizedBox(width: 4),
+                            Text(
+                              session.modified.toString().split('.')[0],
+                              style: theme.textTheme.labelSmall?.copyWith(color: cs.onSurfaceVariant),
+                            ),
+                            const SizedBox(width: 12),
+                            Icon(Icons.storage, size: 12, color: cs.outline),
+                            const SizedBox(width: 4),
+                            Text(
+                              '${(session.fileSize / 1024).toStringAsFixed(1)} KB',
+                              style: theme.textTheme.labelSmall?.copyWith(color: cs.onSurfaceVariant),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: () => _deleteSession(session),
+                    tooltip: '删除',
+                    color: cs.error,
+                    iconSize: 20,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
+}
+
+class _SessionInfo {
+  final String id;
+  final String reportPath;
+  final int fileSize;
+  final DateTime modified;
+  final String content;
+
+  _SessionInfo({
+    required this.id,
+    required this.reportPath,
+    required this.fileSize,
+    required this.modified,
+    required this.content,
+  });
 }

@@ -335,6 +335,6 @@ class AliyunCliService {
     }
 
     final json = await _runCliCommand(args);
-    return json['Model'] ?? json;
+    return (json['Model'] ?? json) as Map<String, dynamic>;
   }
 }

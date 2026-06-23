@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:file_selector/file_selector.dart';
 
@@ -46,12 +48,37 @@ class _HtmlReportAnalysisTabState extends State<HtmlReportAnalysisTab> with Sing
   List<FileInfo> _allDownloadedLogs = [];
   final Set<String> _selectedLogPaths = {};
 
+  // 标签页导航拦截
+  bool _isAnalyzing = false;
+  bool _showNavigationWarning = false;
+
   @override
   void initState() {
     super.initState();
     _pipelineService = HtmlAnalysisPipelineService(config: widget.controller.config);
     _pipelineService.addListener(_onPipelineProgress);
     _resultTabController = TabController(length: 2, vsync: this);
+    _checkOngoingAnalysis();
+  }
+
+  /// 检查是否有正在进行的分析，并恢复 UI 状态
+  void _checkOngoingAnalysis() {
+    // 如果 Pipeline 还在运行，恢复 UI 到分析中状态
+    if (_pipelineService.isRunning) {
+      debugPrint('检测到正在进行的分析，恢复 UI 状态');
+      setState(() {
+        _currentPhase = AnalysisPhase.analyzing;
+        _isAnalyzing = true;
+      });
+    } else if (_currentSession != null &&
+               _pipelineService.currentProgress?.status == AnalysisSessionStatus.done) {
+      // 如果分析已完成，切换到结果页面
+      debugPrint('分析已完成，切换到结果页面');
+      setState(() {
+        _currentPhase = AnalysisPhase.results;
+        _isAnalyzing = false;
+      });
+    }
   }
 
   @override
@@ -66,6 +93,13 @@ class _HtmlReportAnalysisTabState extends State<HtmlReportAnalysisTab> with Sing
     if (mounted) {
       setState(() {});
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 当此 widget 重新获得焦点时（如从其他标签返回），检查分析状态
+    _checkOngoingAnalysis();
   }
 
   Future<void> _selectAndParseFile() async {
@@ -102,7 +136,10 @@ class _HtmlReportAnalysisTabState extends State<HtmlReportAnalysisTab> with Sing
   }
 
   Future<void> _startAnalysis() async {
+    debugPrint('[UI] 点击开始分析按钮');
+
     if (_selectedJavaCrashes.isEmpty && _selectedNativeCrashes.isEmpty) {
+      debugPrint('[UI] 错误: 未选择任何崩溃');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('请至少选择一个崩溃问题')),
       );
@@ -110,6 +147,7 @@ class _HtmlReportAnalysisTabState extends State<HtmlReportAnalysisTab> with Sing
     }
 
     final selectedHashes = {..._selectedJavaCrashes, ..._selectedNativeCrashes}.toList();
+    debugPrint('[UI] 已选择 ${selectedHashes.length} 个崩溃: $selectedHashes');
 
     _currentSession = AnalysisSession(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -117,20 +155,60 @@ class _HtmlReportAnalysisTabState extends State<HtmlReportAnalysisTab> with Sing
       selectedDigestHashes: selectedHashes,
       createdAt: DateTime.now(),
     );
+    debugPrint('[UI] 创建分析会话: ${_currentSession!.id}');
 
-    setState(() => _currentPhase = AnalysisPhase.analyzing);
+    debugPrint('[UI] 更新 UI 状态为 analyzing');
+    setState(() {
+      _currentPhase = AnalysisPhase.analyzing;
+      _isAnalyzing = true;
+      _showNavigationWarning = false;
+    });
 
-    await _pipelineService.startAnalysis(_currentSession!);
+    debugPrint('[UI] 开始异步分析流程');
+    // 异步运行分析，不阻塞 UI
+    _pipelineService.startAnalysis(_currentSession!).then((_) async {
+      debugPrint('[UI] 分析流程完成');
+      if (mounted) {
+        debugPrint('[UI] 获取会话日志文件');
+        final logFiles = await _logsManager.getSessionLogFiles(_currentSession!.id);
+        debugPrint('[UI] 收到 ${logFiles.length} 个日志文件');
 
-    if (mounted) {
-      final logFiles = await _logsManager.getSessionLogFiles(_currentSession!.id);
-      setState(() {
-        _sessionLogFiles = logFiles;
-        if (_pipelineService.currentProgress?.status == AnalysisSessionStatus.done) {
-          _currentPhase = AnalysisPhase.results;
+        // 加载分析报告内容
+        debugPrint('[UI] 尝试加载分析报告内容');
+        String? reportContent;
+        try {
+          final sessionDir = await _logsManager.initializeSessionDirectory(_currentSession!.id);
+          final reportFile = File('${sessionDir.path}/analysis_report.md');
+          if (await reportFile.exists()) {
+            reportContent = await reportFile.readAsString();
+            debugPrint('[UI] 成功读取报告文件: ${reportContent.length} 字符');
+          } else {
+            debugPrint('[UI] 报告文件不存在: ${reportFile.path}');
+          }
+        } catch (e) {
+          debugPrint('[UI] 读取报告文件失败: $e');
         }
-      });
-    }
+
+        setState(() {
+          _sessionLogFiles = logFiles;
+          if (reportContent != null) {
+            _currentSession!.analysisReportContent = reportContent;
+          }
+          _isAnalyzing = false;
+          if (_pipelineService.currentProgress?.status == AnalysisSessionStatus.done) {
+            _currentPhase = AnalysisPhase.results;
+            debugPrint('[UI] 转换到 results 阶段');
+          }
+        });
+      }
+    }).catchError((e) {
+      debugPrint('[UI] 分析失败: $e');
+      if (mounted) {
+        setState(() {
+          _isAnalyzing = false;
+        });
+      }
+    });
   }
 
   Future<void> _previewLogFile(String filePath) async {
@@ -464,6 +542,44 @@ class _HtmlReportAnalysisTabState extends State<HtmlReportAnalysisTab> with Sing
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ⚠️ 警告：不要离开此页面
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: cs.errorContainer,
+              border: Border.all(color: cs.error),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.warning_rounded, color: cs.error, size: 20),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '分析进行中',
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: cs.error,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '请勿切换页面，否则分析进度会丢失',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: cs.onErrorContainer,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
           Text('分析进度', style: theme.textTheme.titleMedium),
           const SizedBox(height: 16),
 
@@ -684,109 +800,117 @@ class _HtmlReportAnalysisTabState extends State<HtmlReportAnalysisTab> with Sing
 
   /// 构建已下载日志的对话框
   Widget _buildDownloadedLogsDialog(ThemeData theme, ColorScheme cs, BuildContext ctx) {
-    return AlertDialog(
-      title: Row(
-        children: [
-          const Icon(Icons.download_outlined),
-          const SizedBox(width: 8),
-          Text('已下载的日志文件 (${_allDownloadedLogs.length})'),
-        ],
-      ),
-      content: SizedBox(
-        width: 700,
-        height: 500,
-        child: _allDownloadedLogs.isEmpty
-            ? Center(
-                child: Text('暂无下载的日志文件', style: theme.textTheme.bodyMedium),
-              )
-            : Column(
-                children: [
-                  // 日志列表
-                  Expanded(
-                    child: SingleChildScrollView(
-                      child: Column(
-                        children: List.generate(_allDownloadedLogs.length, (index) {
-                          final file = _allDownloadedLogs[index];
-                          final isSelected = _selectedLogPaths.contains(file.path);
+    return StatefulBuilder(
+      builder: (dialogCtx, setDialogState) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.download_outlined),
+            const SizedBox(width: 8),
+            Text('已下载的日志文件 (${_allDownloadedLogs.length})'),
+          ],
+        ),
+        content: SizedBox(
+          width: 700,
+          height: 500,
+          child: _allDownloadedLogs.isEmpty
+              ? Center(
+                  child: Text('暂无下载的日志文件', style: theme.textTheme.bodyMedium),
+                )
+              : Column(
+                  children: [
+                    // 日志列表
+                    Expanded(
+                      child: SingleChildScrollView(
+                        child: Column(
+                          children: List.generate(_allDownloadedLogs.length, (index) {
+                            final file = _allDownloadedLogs[index];
+                            final isSelected = _selectedLogPaths.contains(file.path);
 
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: Card(
-                              child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Row(
-                                  children: [
-                                    Checkbox(
-                                      value: isSelected,
-                                      onChanged: (v) {
-                                        setState(() {
-                                          if (v == true) {
-                                            _selectedLogPaths.add(file.path);
-                                          } else {
-                                            _selectedLogPaths.remove(file.path);
-                                          }
-                                        });
-                                      },
-                                    ),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(file.name, style: theme.textTheme.labelMedium),
-                                          Text(
-                                            '${file.formattedSize} | ${file.formattedTime}',
-                                            style: theme.textTheme.labelSmall?.copyWith(color: cs.onSurfaceVariant),
-                                          ),
-                                        ],
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Card(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12),
+                                  child: Row(
+                                    children: [
+                                      Checkbox(
+                                        value: isSelected,
+                                        onChanged: (v) {
+                                          setDialogState(() {
+                                            setState(() {
+                                              if (v == true) {
+                                                _selectedLogPaths.add(file.path);
+                                              } else {
+                                                _selectedLogPaths.remove(file.path);
+                                              }
+                                            });
+                                          });
+                                        },
                                       ),
-                                    ),
-                                    IconButton(
-                                      icon: const Icon(Icons.preview, size: 20),
-                                      tooltip: '预览',
-                                      onPressed: () => _previewLogFile(file.path),
-                                    ),
-                                  ],
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(file.name, style: theme.textTheme.labelMedium),
+                                            Text(
+                                              '${file.formattedSize} | ${file.formattedTime}',
+                                              style: theme.textTheme.labelSmall?.copyWith(color: cs.onSurfaceVariant),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.preview, size: 20),
+                                        tooltip: '预览',
+                                        onPressed: () => _previewLogFile(file.path),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
-                            ),
-                          );
-                        }),
+                            );
+                          }),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  // 信息栏
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: cs.primaryContainer.withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(8),
+                    const SizedBox(height: 12),
+                    // 信息栏
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: cs.primaryContainer.withValues(alpha: 0.3),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        '已选择 ${_selectedLogPaths.length} 个文件',
+                        style: theme.textTheme.labelSmall,
+                      ),
                     ),
-                    child: Text(
-                      '已选择 ${_selectedLogPaths.length} 个文件',
-                      style: theme.textTheme.labelSmall,
-                    ),
-                  ),
-                ],
-              ),
-      ),
-      actions: [
-        // 取消按钮
-        TextButton(
-          onPressed: () => Navigator.pop(ctx),
-          child: const Text('取消'),
+                  ],
+                ),
         ),
-        // 删除按钮
-        if (_selectedLogPaths.isNotEmpty)
-          FilledButton.icon(
-            onPressed: () {
-              _deleteSelectedLogs();
-              Navigator.pop(ctx);
-            },
-            icon: const Icon(Icons.delete_outline),
-            label: const Text('删除选中'),
+        actions: [
+          // 取消按钮
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
           ),
-      ],
+          // 删除按钮
+          if (_selectedLogPaths.isNotEmpty)
+            FilledButton.icon(
+              onPressed: () async {
+                await _deleteSelectedLogs();
+                if (mounted) {
+                  _loadAllDownloadedLogs();
+                  setDialogState(() {});
+                  Navigator.pop(ctx);
+                }
+              },
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('删除选中'),
+            ),
+        ],
+      ),
     );
   }
 }

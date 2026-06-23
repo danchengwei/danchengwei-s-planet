@@ -187,6 +187,22 @@ class _SettingsTabState extends State<SettingsTab> {
     _agentPreset = 'custom';
   }
 
+  /// 打开目录选择器，选择项目源码路径
+  Future<void> _selectProjectDirectory() async {
+    try {
+      final String? result = await getDirectoryPath(
+        initialDirectory: _localProjectPath.text.isNotEmpty ? _localProjectPath.text : null,
+      );
+      if (result != null && mounted) {
+        setState(() {
+          _localProjectPath.text = result;
+        });
+      }
+    } catch (e) {
+      debugPrint('选择目录失败: $e');
+    }
+  }
+
   void _applyAgentPreset(String preset) {
     switch (preset) {
       case 'clipboard':
@@ -614,12 +630,36 @@ class _SettingsTabState extends State<SettingsTab> {
                   icon: Icons.code_outlined,
                   title: '源码分析',
                   children: [
-                    _fieldOpt(
-                      _localProjectPath,
-                      '项目源码路径',
-                      hintText: '/path/to/your/project',
-                      helperText: '智能分析时会结合该路径的源码进行代码检索和分析。',
-                      maxLines: 2,
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          TextField(
+                            controller: _localProjectPath,
+                            minLines: 2,
+                            maxLines: 4,
+                            decoration: InputDecoration(
+                              labelText: '项目源码路径（可选）',
+                              prefixIcon: Icon(
+                                Icons.folder_copy_outlined,
+                                size: 22,
+                                color: cs.primary.withValues(alpha: kOpacityHeavy),
+                              ),
+                              suffixIcon: IconButton(
+                                icon: const Icon(Icons.folder_open_outlined),
+                                onPressed: () => _selectProjectDirectory(),
+                                tooltip: '选择项目目录',
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                              border: OutlineInputBorder(
+                                borderRadius: AppBorderRadius.xs,
+                              ),
+                              helperText: '智能分析时会结合该路径的源码进行代码检索和分析。',
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
