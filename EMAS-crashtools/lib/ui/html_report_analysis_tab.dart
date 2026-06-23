@@ -46,12 +46,37 @@ class _HtmlReportAnalysisTabState extends State<HtmlReportAnalysisTab> with Sing
   List<FileInfo> _allDownloadedLogs = [];
   final Set<String> _selectedLogPaths = {};
 
+  // 标签页导航拦截
+  bool _isAnalyzing = false;
+  bool _showNavigationWarning = false;
+
   @override
   void initState() {
     super.initState();
     _pipelineService = HtmlAnalysisPipelineService(config: widget.controller.config);
     _pipelineService.addListener(_onPipelineProgress);
     _resultTabController = TabController(length: 2, vsync: this);
+    _checkOngoingAnalysis();
+  }
+
+  /// 检查是否有正在进行的分析，并恢复 UI 状态
+  void _checkOngoingAnalysis() {
+    // 如果 Pipeline 还在运行，恢复 UI 到分析中状态
+    if (_pipelineService.isRunning) {
+      debugPrint('检测到正在进行的分析，恢复 UI 状态');
+      setState(() {
+        _currentPhase = AnalysisPhase.analyzing;
+        _isAnalyzing = true;
+      });
+    } else if (_currentSession != null &&
+               _pipelineService.currentProgress?.status == AnalysisSessionStatus.done) {
+      // 如果分析已完成，切换到结果页面
+      debugPrint('分析已完成，切换到结果页面');
+      setState(() {
+        _currentPhase = AnalysisPhase.results;
+        _isAnalyzing = false;
+      });
+    }
   }
 
   @override
@@ -66,6 +91,13 @@ class _HtmlReportAnalysisTabState extends State<HtmlReportAnalysisTab> with Sing
     if (mounted) {
       setState(() {});
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 当此 widget 重新获得焦点时（如从其他标签返回），检查分析状态
+    _checkOngoingAnalysis();
   }
 
   Future<void> _selectAndParseFile() async {
@@ -118,7 +150,11 @@ class _HtmlReportAnalysisTabState extends State<HtmlReportAnalysisTab> with Sing
       createdAt: DateTime.now(),
     );
 
-    setState(() => _currentPhase = AnalysisPhase.analyzing);
+    setState(() {
+      _currentPhase = AnalysisPhase.analyzing;
+      _isAnalyzing = true;
+      _showNavigationWarning = false;
+    });
 
     await _pipelineService.startAnalysis(_currentSession!);
 
@@ -126,6 +162,7 @@ class _HtmlReportAnalysisTabState extends State<HtmlReportAnalysisTab> with Sing
       final logFiles = await _logsManager.getSessionLogFiles(_currentSession!.id);
       setState(() {
         _sessionLogFiles = logFiles;
+        _isAnalyzing = false;
         if (_pipelineService.currentProgress?.status == AnalysisSessionStatus.done) {
           _currentPhase = AnalysisPhase.results;
         }
@@ -464,6 +501,44 @@ class _HtmlReportAnalysisTabState extends State<HtmlReportAnalysisTab> with Sing
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ⚠️ 警告：不要离开此页面
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: cs.errorContainer,
+              border: Border.all(color: cs.error),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.warning_rounded, color: cs.error, size: 20),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '分析进行中',
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: cs.error,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '请勿切换页面，否则分析进度会丢失',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: cs.onErrorContainer,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
           Text('分析进度', style: theme.textTheme.titleMedium),
           const SizedBox(height: 16),
 

@@ -25,9 +25,11 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
 
   AnalysisProgress? _currentProgress;
   AnalysisSession? _currentSession;
+  bool _isRunning = false;
 
   AnalysisProgress? get currentProgress => _currentProgress;
   AnalysisSession? get currentSession => _currentSession;
+  bool get isRunning => _isRunning;
 
   /// 获取 skills 目录路径
   String get _skillsDir => '.claude/skills/emas-tools-upgrade';
@@ -38,6 +40,8 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
   Future<void> startAnalysis(AnalysisSession session) async {
     try {
       _currentSession = session;
+      _isRunning = true;
+      notifyListeners();
 
       // Step 1: 解析 HTML 提取崩溃
       await _step1_parseHtml(session);
@@ -64,6 +68,7 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
       );
 
       session.status = AnalysisSessionStatus.done;
+      _isRunning = false;
     } catch (e) {
       debugPrint('分析失败: $e');
       _updateProgress(
@@ -76,6 +81,9 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
       );
       session.status = AnalysisSessionStatus.error;
       session.errorMessage = e.toString();
+      _isRunning = false;
+    } finally {
+      notifyListeners();
     }
 
     _currentSession = null;
