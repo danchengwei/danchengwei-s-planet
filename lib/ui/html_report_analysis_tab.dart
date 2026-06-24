@@ -212,21 +212,21 @@ class _HtmlReportAnalysisTabState extends State<HtmlReportAnalysisTab> with Sing
   }
 
   Future<void> _previewLogFile(String filePath) async {
-    final content = await _logsManager.previewLogFile(filePath);
-    if (!mounted) return;
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(filePath.split('/').last),
-        content: SingleChildScrollView(
-          child: SelectableText(content, style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('关闭')),
-        ],
-      ),
-    );
+    // 直接用系统默认应用打开文件
+    try {
+      final process = await Process.run('open', [filePath]);
+      if (process.exitCode != 0) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('无法打开文件: ${process.stderr}')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('打开文件失败: $e')),
+      );
+    }
   }
 
   /// 加载所有下载的日志文件
