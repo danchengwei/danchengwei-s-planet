@@ -612,6 +612,7 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
 
       // 添加解压后的日志文件到会话（而非压缩包）
       session.addLogFile('03_${hash}_logs');
+      session.addLogFile(huatuoLogsFileName);
 
       debugPrint('[Step3] [$index/$total] 完成：$hash');
     } catch (e) {
