@@ -121,8 +121,8 @@ class LlmAnalyzer {
     buffer.writeln('- 启动时间: ${userSample['startup_time'] ?? ''}');
     buffer.writeln('');
 
-    // 3. 原始日志数据
-    buffer.writeln('## 3. 原始日志数据');
+    // 3. API 原始日志数据（来自华佗 API）
+    buffer.writeln('## 3. API 原始日志数据（华佗平台）');
     final dataItems = huatuoAnalysis['data_items'] as List<dynamic>? ?? [];
     if (dataItems.isNotEmpty) {
       for (int i = 0; i < dataItems.take(20).length; i++) {
@@ -132,21 +132,53 @@ class LlmAnalyzer {
         }
       }
     } else {
-      buffer.writeln('无日志数据');
+      buffer.writeln('无 API 日志数据');
     }
     buffer.writeln('');
 
-    // 4. 分析指导
-    buffer.writeln('## 4. 分析要求');
-    buffer.writeln('基于堆栈信息和原始日志数据，请进行以下分析:');
-    buffer.writeln('1. 根据 Exception 类型和堆栈追踪确定直接崩溃原因');
-    buffer.writeln('2. 从日志中寻找触发崩溃的操作（如 API 调用、资源操作等）');
-    buffer.writeln('3. 分析是否存在内存/资源泄漏或兼容性问题');
-    buffer.writeln('4. 评估问题严重性和影响范围');
-    buffer.writeln('5. 提供具体的修复方案和代码级建议');
+    // 4. 解压后的日志文件内容（关键日志）
+    buffer.writeln('## 4. 解压后的关键日志文件');
+    final extractedLogs = huatuoAnalysis['extracted_logs'] as Map<String, dynamic>? ?? {};
+    final extractedFiles = extractedLogs['extracted_files'] as List<dynamic>? ?? [];
+    final fileContents = extractedLogs['file_contents'] as Map<String, dynamic>? ?? {};
+
+    if (extractedFiles.isNotEmpty) {
+      buffer.writeln('提取的文件列表 (${extractedFiles.length} 个):');
+      for (final fileName in extractedFiles) {
+        buffer.writeln('- $fileName');
+      }
+      buffer.writeln('');
+
+      buffer.writeln('关键日志内容:');
+      for (final fileName in extractedFiles.take(10)) {
+        final content = fileContents[fileName] as String?;
+        if (content != null && content.isNotEmpty) {
+          buffer.writeln('');
+          buffer.writeln('### 文件: $fileName');
+          buffer.writeln('```');
+          // 限制每个文件显示的内容长度
+          final displayContent = content.length > 2000 ? '${content.substring(0, 2000)}\n...[已截断]' : content;
+          buffer.writeln(displayContent);
+          buffer.writeln('```');
+        }
+      }
+    } else {
+      buffer.writeln('无解压后的日志文件');
+    }
     buffer.writeln('');
 
-    buffer.writeln('## 5. 输出格式（必须是有效 JSON）');
+    // 5. 分析指导
+    buffer.writeln('## 5. 分析要求');
+    buffer.writeln('基于崩溃堆栈、API 日志数据和解压后的日志文件，请进行以下分析:');
+    buffer.writeln('1. 根据 Exception 类型和堆栈追踪确定直接崩溃原因');
+    buffer.writeln('2. 从 API 日志和解压后的日志文件中寻找触发崩溃的操作序列');
+    buffer.writeln('3. 对比两种日志来源，找出不一致的地方或关键事件');
+    buffer.writeln('4. 分析是否存在内存/资源泄漏或兼容性问题');
+    buffer.writeln('5. 评估问题严重性和影响范围');
+    buffer.writeln('6. 提供具体的修复方案和代码级建议');
+    buffer.writeln('');
+
+    buffer.writeln('## 6. 输出格式（必须是有效 JSON）');
     buffer.writeln('{');
     buffer.writeln('  "summary": "用一句话总结崩溃原因（要具体，不要宽泛）",');
     buffer.writeln('  "possible_causes": [');
