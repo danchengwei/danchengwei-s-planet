@@ -574,10 +574,7 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
         debugPrint('[Step3] [$index/$total] 删除压缩包失败: $e');
       }
 
-      // 从解压后的文件中提取关键日志信息
-      final extractedLogContent = await _extractKeyLogsFromDecompressed(extractDir, hash);
-
-      // 保存华佗日志数据分析（同时包含 API 的 dataList 和解压后的关键日志）
+      // 保存华佗 API 数据（用于 Step 4 生成报告时使用）
       final huatuoLogsFileName = '03_${hash}_huatuo_logs_analysis.json';
       final huatuoLogsData = {
         'hash': hash,
@@ -589,9 +586,7 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
         'archive_size': archiveResponse.bodyBytes.length,
         'logs_count': dataList.length,
         'timestamp': DateTime.now().toIso8601String(),
-        // 解压后的关键日志（用于 AI 分析）
-        'extracted_logs': extractedLogContent,
-        // 保留 API 的 dataList 以备后用
+        // 保留 API 的 dataList 用于报告和 LLM 分析
         'data_items': dataList.map((item) {
           final itemMap = item as Map<String, dynamic>;
           return {
@@ -610,9 +605,8 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
         content: jsonEncode(huatuoLogsData),
       );
 
-      // 添加解压后的日志文件到会话（而非压缩包）
+      // 添加解压后的日志目录到会话
       session.addLogFile('03_${hash}_logs');
-      session.addLogFile(huatuoLogsFileName);
 
       debugPrint('[Step3] [$index/$total] 完成：$hash');
     } catch (e) {
@@ -686,6 +680,20 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
       );
 
       session.addLogFile('04_generate_report.json');
+
+      // 删除 Step 3 的 JSON 分析数据文件（只保留解压后的原始日志目录）
+      for (final hash in session.selectedDigestHashes) {
+        final huatuoJsonPath = '$outputDir/03_${hash}_huatuo_logs_analysis.json';
+        try {
+          final jsonFile = File(huatuoJsonPath);
+          if (await jsonFile.exists()) {
+            await jsonFile.delete();
+            debugPrint('[Step4] 已删除 JSON 文件: $huatuoJsonPath');
+          }
+        } catch (e) {
+          debugPrint('[Step4] 删除 JSON 文件失败 ($huatuoJsonPath): $e');
+        }
+      }
 
       debugPrint('[Step4] ========== 报告生成完成 ==========');
     } catch (e) {
