@@ -882,8 +882,15 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
         try {
           debugPrint('[Step4] 调用 LLM 分析 Java 崩溃: $hash');
 
-          // 获取对应的华佗日志数据
+          // 获取对应的华佗日志数据和解压后的原始日志文件
           final huatuoAnalysis = (step3Data[hash] ?? {}) as Map<String, dynamic>;
+
+          // 读取解压后的原始日志文件内容，供 LLM 分析使用
+          final extractDir = '$outputDir/03_${hash}_logs';
+          final extractedLogsData = await _getExtractedLogsForLLM(extractDir);
+          if (extractedLogsData.isNotEmpty) {
+            huatuoAnalysis['extracted_logs'] = extractedLogsData;
+          }
 
           final llmAnalysis = await _llmAnalyzer.generateRootCauseAnalysis(
             digestHash: hash,
@@ -1066,8 +1073,15 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
         try {
           debugPrint('[Step4] 调用 LLM 分析 Native 崩溃: $hash');
 
-          // 获取对应的华佗日志数据
+          // 获取对应的华佗日志数据和解压后的原始日志文件
           final huatuoAnalysis = (step3Data[hash] ?? {}) as Map<String, dynamic>;
+
+          // 读取解压后的原始日志文件内容，供 LLM 分析使用
+          final extractDir = '$outputDir/03_${hash}_logs';
+          final extractedLogsData = await _getExtractedLogsForLLM(extractDir);
+          if (extractedLogsData.isNotEmpty) {
+            huatuoAnalysis['extracted_logs'] = extractedLogsData;
+          }
 
           final llmAnalysis = await _llmAnalyzer.generateRootCauseAnalysis(
             digestHash: hash,
@@ -1280,6 +1294,46 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
         lower.contains('error') ||
         lower.contains('exception') ||
         lower.contains('stack');
+  }
+
+  /// 从解压目录读取原始日志文件供 LLM 分析
+  Future<Map<String, dynamic>> _getExtractedLogsForLLM(String extractDir) async {
+    try {
+      final dir = Directory(extractDir);
+      if (!await dir.exists()) {
+        return {};
+      }
+
+      final List<String> files = [];
+      final Map<String, String> fileContents = {};
+
+      // 读取目录中的所有文件
+      final entities = dir.listSync(recursive: true, followLinks: false);
+      for (final entity in entities) {
+        if (entity is File) {
+          final fileName = entity.path.split('/').last;
+          final relativePath = entity.path.replaceFirst('$extractDir/', '');
+
+          files.add(relativePath);
+
+          try {
+            // 读取文件内容
+            final bytes = await entity.readAsBytes();
+            fileContents[relativePath] = String.fromCharCodes(bytes);
+          } catch (e) {
+            debugPrint('[getExtractedLogs] 读取文件失败 $relativePath: $e');
+          }
+        }
+      }
+
+      return {
+        'extracted_files': files,
+        'file_contents': fileContents,
+      };
+    } catch (e) {
+      debugPrint('[getExtractedLogs] 读取解压日志失败: $e');
+      return {};
+    }
   }
 
   void _updateProgress(AnalysisProgress progress) {
