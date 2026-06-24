@@ -57,26 +57,14 @@ class AnalysisLogsManager {
         final fileName = entity.path.split('/').last;
 
         if (entity is Directory) {
-          // 显示解压后的日志目录（03_*_logs）
+          // 只显示解压后的日志目录（03_*_logs）
           if (fileName.startsWith('03_') && fileName.endsWith('_logs')) {
             final stat = await entity.stat();
-            // 目录大小设为 0，因为 stat().size 对目录返回 0
             final size = await _getDirectorySize(entity.path);
             logFiles.add(FileInfo(
               name: fileName,
               path: entity.path,
               size: size,
-              modified: stat.modified,
-            ));
-          }
-        } else if (entity is File) {
-          // 显示分析数据文件（03_*_huatuo_logs_analysis.json）
-          if (fileName.startsWith('03_') && fileName.endsWith('_huatuo_logs_analysis.json')) {
-            final stat = await entity.stat();
-            logFiles.add(FileInfo(
-              name: fileName,
-              path: entity.path,
-              size: stat.size,
               modified: stat.modified,
             ));
           }
@@ -211,7 +199,7 @@ class AnalysisLogsManager {
     }
   }
 
-  /// 获取所有下载的日志文件（显示解压后的目录和分析数据文件）
+  /// 获取所有下载的日志文件（只显示解压后的日志目录）
   Future<List<FileInfo>> getAllDownloadedLogFiles() async {
     try {
       final baseDir = await getApplicationSupportDirectory();
@@ -228,7 +216,7 @@ class AnalysisLogsManager {
         final fileName = entity.path.split('/').last;
 
         if (entity is Directory) {
-          // 显示解压后的日志目录（03_*_logs）
+          // 只显示解压后的日志目录（03_*_logs），用户可直接查看原始日志文件
           if (fileName.startsWith('03_') && fileName.endsWith('_logs')) {
             final stat = await entity.stat();
             final size = await _getDirectorySize(entity.path);
@@ -236,17 +224,6 @@ class AnalysisLogsManager {
               name: fileName,
               path: entity.path,
               size: size,
-              modified: stat.modified,
-            ));
-          }
-        } else if (entity is File) {
-          // 显示分析数据文件（03_*_huatuo_logs_analysis.json）
-          if (fileName.startsWith('03_') && fileName.endsWith('_huatuo_logs_analysis.json')) {
-            final stat = await entity.stat();
-            allFiles.add(FileInfo(
-              name: fileName,
-              path: entity.path,
-              size: stat.size,
               modified: stat.modified,
             ));
           }

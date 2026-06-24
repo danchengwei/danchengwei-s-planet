@@ -887,7 +887,7 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
 
           // 读取解压后的原始日志文件内容，供 LLM 分析使用
           final extractDir = '$outputDir/03_${hash}_logs';
-          final extractedLogsData = await _getExtractedLogsForLLM(extractDir);
+          final extractedLogsData = await _getExtractedLogsForLLM(extractDir, stackInfo: stackStr);
           if (extractedLogsData.isNotEmpty) {
             huatuoAnalysis['extracted_logs'] = extractedLogsData;
           }
@@ -1078,7 +1078,7 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
 
           // 读取解压后的原始日志文件内容，供 LLM 分析使用
           final extractDir = '$outputDir/03_${hash}_logs';
-          final extractedLogsData = await _getExtractedLogsForLLM(extractDir);
+          final extractedLogsData = await _getExtractedLogsForLLM(extractDir, stackInfo: stackStr);
           if (extractedLogsData.isNotEmpty) {
             huatuoAnalysis['extracted_logs'] = extractedLogsData;
           }
@@ -1296,8 +1296,8 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
         lower.contains('stack');
   }
 
-  /// 从解压目录读取原始日志文件供 LLM 分析
-  Future<Map<String, dynamic>> _getExtractedLogsForLLM(String extractDir) async {
+  /// 从解压目录读取原始日志文件供 LLM 分析，根据堆栈关键词智能截取
+  Future<Map<String, dynamic>> _getExtractedLogsForLLM(String extractDir, {String stackInfo = ''}) async {
     try {
       final dir = Directory(extractDir);
       if (!await dir.exists()) {
@@ -1306,6 +1306,10 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
 
       final List<String> files = [];
       final Map<String, String> fileContents = {};
+
+      // 从堆栈中提取关键词用于日志过滤
+      final keywords = _extractKeywordsFromStack(stackInfo);
+      debugPrint('[getExtractedLogs] 从堆栈提取关键词: $keywords');
 
       // 读取目录中的所有文件
       final entities = dir.listSync(recursive: true, followLinks: false);
@@ -1319,7 +1323,11 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
           try {
             // 读取文件内容
             final bytes = await entity.readAsBytes();
-            fileContents[relativePath] = String.fromCharCodes(bytes);
+            final fullContent = String.fromCharCodes(bytes);
+
+            // 根据关键词智能截取相关日志行
+            final relevantContent = _filterLogContentByKeywords(fullContent, keywords);
+            fileContents[relativePath] = relevantContent.isEmpty ? fullContent : relevantContent;
           } catch (e) {
             debugPrint('[getExtractedLogs] 读取文件失败 $relativePath: $e');
           }
@@ -1334,6 +1342,86 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
       debugPrint('[getExtractedLogs] 读取解压日志失败: $e');
       return {};
     }
+  }
+
+  /// 从堆栈信息中提取关键词
+  List<String> _extractKeywordsFromStack(String stackInfo) {
+    final keywords = <String>{};
+
+    if (stackInfo.isEmpty) return [];
+
+    // 提取异常类型
+    final exceptionMatch = RegExp(r'(Exception|Error|Throwable|RuntimeException|NullPointerException|IndexOutOfBoundsException|IllegalArgumentException|IOException|FileNotFoundException)\b').allMatches(stackInfo);
+    for (final match in exceptionMatch) {
+      keywords.add(match.group(1)!);
+    }
+
+    // 提取关键类名（通常在 at 行中）
+    final classMatches = RegExp(r'at\s+([\w.]+)').allMatches(stackInfo);
+    for (final match in classMatches) {
+      final className = match.group(1)!;
+      // 只提取应用相关的类，不要 framework 类
+      if (!className.startsWith('java.') && !className.startsWith('android.') && !className.startsWith('com.android.')) {
+        final simpleName = className.split('.').last;
+        if (simpleName.length > 3) {
+          keywords.add(simpleName);
+        }
+      }
+    }
+
+    // 提取方法名
+    final methodMatches = RegExp(r'at\s+[\w.]+\.([\w<>$]+)\(').allMatches(stackInfo);
+    for (final match in methodMatches) {
+      keywords.add(match.group(1)!);
+    }
+
+    return keywords.toList();
+  }
+
+  /// 根据关键词过滤日志内容，返回相关行
+  String _filterLogContentByKeywords(String content, List<String> keywords) {
+    if (keywords.isEmpty) {
+      // 如果没有关键词，返回前 3000 个字符
+      return content.length > 3000 ? content.substring(0, 3000) : content;
+    }
+
+    final lines = content.split('\n');
+    final relevantLines = <String>[];
+    const contextLines = 2; // 匹配行前后各保留 2 行
+
+    for (int i = 0; i < lines.length; i++) {
+      final line = lines[i].toLowerCase();
+      bool isRelevant = false;
+
+      // 检查该行是否包含任何关键词
+      for (final keyword in keywords) {
+        if (line.contains(keyword.toLowerCase())) {
+          isRelevant = true;
+          break;
+        }
+      }
+
+      if (isRelevant) {
+        // 加入前文和后文
+        final startIdx = (i - contextLines).clamp(0, lines.length - 1);
+        final endIdx = (i + contextLines + 1).clamp(0, lines.length);
+
+        for (int j = startIdx; j < endIdx; j++) {
+          if (!relevantLines.contains(lines[j])) {
+            relevantLines.add(lines[j]);
+          }
+        }
+      }
+    }
+
+    if (relevantLines.isEmpty) {
+      // 如果没有找到相关行，返回前 3000 个字符
+      return content.length > 3000 ? content.substring(0, 3000) : content;
+    }
+
+    final result = relevantLines.join('\n');
+    // 限制最大字符数为 5000
+    return result.length > 5000 ? '${result.substring(0, 5000)}\n...[已截断，共 ${lines.length} 行]' : result;
   }
 
   void _updateProgress(AnalysisProgress progress) {
