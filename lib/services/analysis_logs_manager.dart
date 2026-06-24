@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 /// 分析会话日志文件管理器
@@ -53,10 +54,24 @@ class AnalysisLogsManager {
       final logFiles = <FileInfo>[];
 
       for (final entity in files) {
-        if (entity is File) {
-          final fileName = entity.path.split('/').last;
-          // 只显示原始的华佗日志压缩包（.tar.gz 和 .zip）
-          if (fileName.endsWith('.tar.gz') || fileName.endsWith('.zip')) {
+        final fileName = entity.path.split('/').last;
+
+        if (entity is Directory) {
+          // 显示解压后的日志目录（03_*_logs）
+          if (fileName.startsWith('03_') && fileName.endsWith('_logs')) {
+            final stat = await entity.stat();
+            // 目录大小设为 0，因为 stat().size 对目录返回 0
+            final size = await _getDirectorySize(entity.path);
+            logFiles.add(FileInfo(
+              name: fileName,
+              path: entity.path,
+              size: size,
+              modified: stat.modified,
+            ));
+          }
+        } else if (entity is File) {
+          // 显示分析数据文件（03_*_huatuo_logs_analysis.json）
+          if (fileName.startsWith('03_') && fileName.endsWith('_huatuo_logs_analysis.json')) {
             final stat = await entity.stat();
             logFiles.add(FileInfo(
               name: fileName,
@@ -74,12 +89,59 @@ class AnalysisLogsManager {
     }
   }
 
-  /// 预览日志文件（读取内容）
+  /// 计算目录总大小
+  Future<int> _getDirectorySize(String dirPath) async {
+    int totalSize = 0;
+    try {
+      final dir = Directory(dirPath);
+      final files = dir.listSync(recursive: true, followLinks: false);
+      for (final entity in files) {
+        if (entity is File) {
+          totalSize += await entity.length();
+        }
+      }
+    } catch (e) {
+      debugPrint('[AnalysisLogsManager] 计算目录大小失败: $e');
+    }
+    return totalSize;
+  }
+
+  /// 预览日志文件或目录
+  /// 如果是文件，读取文件内容；如果是目录，列出目录内的文件及其大小
   Future<String> previewLogFile(String filePath) async {
     try {
+      final dir = Directory(filePath);
+      if (await dir.exists()) {
+        // 这是一个目录，列出其中的文件
+        final buffer = StringBuffer();
+        buffer.writeln('📁 目录：${filePath.split('/').last}');
+        buffer.writeln('═' * 80);
+
+        final files = dir.listSync(recursive: true, followLinks: false);
+        final fileEntries = files.whereType<File>().toList();
+
+        if (fileEntries.isEmpty) {
+          buffer.writeln('(目录为空)');
+        } else {
+          buffer.writeln('共 ${fileEntries.length} 个文件：\n');
+          for (final file in fileEntries) {
+            final relativePath = file.path.replaceFirst('$filePath/', '');
+            final size = await file.length();
+            final formattedSize = formatFileSize(size);
+            buffer.writeln('📄 $relativePath ($formattedSize)');
+          }
+        }
+        return buffer.toString();
+      }
+
       final file = File(filePath);
       if (await file.exists()) {
-        return await file.readAsString();
+        final content = await file.readAsString();
+        // 限制预览大小
+        if (content.length > 500 * 1024) {
+          return '${content.substring(0, 500 * 1024)}\n\n...[文件过大，已截断，总大小: ${formatFileSize(content.length)}]';
+        }
+        return content;
       }
       return '文件不存在';
     } catch (e) {
@@ -87,9 +149,15 @@ class AnalysisLogsManager {
     }
   }
 
-  /// 删除单个日志文件
+  /// 删除单个日志文件或目录
   Future<bool> deleteLogFile(String filePath) async {
     try {
+      final dir = Directory(filePath);
+      if (await dir.exists()) {
+        await dir.delete(recursive: true);
+        return true;
+      }
+
       final file = File(filePath);
       if (await file.exists()) {
         await file.delete();
@@ -97,6 +165,7 @@ class AnalysisLogsManager {
       }
       return false;
     } catch (e) {
+      debugPrint('[AnalysisLogsManager] 删除文件/目录失败: $e');
       return false;
     }
   }
@@ -142,7 +211,7 @@ class AnalysisLogsManager {
     }
   }
 
-  /// 获取所有下载的日志文件（递归遍历analysis_logs下的所有文件）
+  /// 获取所有下载的日志文件（显示解压后的目录和分析数据文件）
   Future<List<FileInfo>> getAllDownloadedLogFiles() async {
     try {
       final baseDir = await getApplicationSupportDirectory();
@@ -156,10 +225,23 @@ class AnalysisLogsManager {
       final entities = logsDir.listSync(recursive: true);
 
       for (final entity in entities) {
-        if (entity is File) {
-          final fileName = entity.path.split('/').last;
-          // 只显示原始的华佗日志压缩包（.tar.gz 和 .zip）
-          if (fileName.endsWith('.tar.gz') || fileName.endsWith('.zip')) {
+        final fileName = entity.path.split('/').last;
+
+        if (entity is Directory) {
+          // 显示解压后的日志目录（03_*_logs）
+          if (fileName.startsWith('03_') && fileName.endsWith('_logs')) {
+            final stat = await entity.stat();
+            final size = await _getDirectorySize(entity.path);
+            allFiles.add(FileInfo(
+              name: fileName,
+              path: entity.path,
+              size: size,
+              modified: stat.modified,
+            ));
+          }
+        } else if (entity is File) {
+          // 显示分析数据文件（03_*_huatuo_logs_analysis.json）
+          if (fileName.startsWith('03_') && fileName.endsWith('_huatuo_logs_analysis.json')) {
             final stat = await entity.stat();
             allFiles.add(FileInfo(
               name: fileName,
@@ -176,6 +258,7 @@ class AnalysisLogsManager {
 
       return allFiles;
     } catch (e) {
+      debugPrint('[AnalysisLogsManager] 获取所有下载文件失败: $e');
       return [];
     }
   }

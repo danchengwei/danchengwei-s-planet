@@ -8,6 +8,7 @@ import '../models/analysis_session.dart';
 import '../models/tool_config.dart';
 import 'analysis_logs_manager.dart';
 import 'aliyun_cli_service.dart';
+import 'archive_manager.dart';
 import 'huatuo_log_analyzer.dart';
 import 'llm_analyzer.dart';
 
@@ -546,28 +547,51 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
         return;
       }
 
-      // 保存压缩包
+      // 临时保存压缩包用于解压
+      final tempArchivePath = '$outputDir/$archiveFileName';
       await _logsManager.saveBinaryLogFile(
         sessionId: session.id,
         fileName: archiveFileName,
         bytes: archiveResponse.bodyBytes,
       );
       debugPrint('[Step3] [$index/$total] 压缩包已保存，大小: ${archiveResponse.bodyBytes.length} 字节');
-      session.addLogFile(archiveFileName);
 
-      // 保存华佗日志数据分析（提取 dataList 中的 data 字段进行后续 LLM 分析）
+      // 解压压缩包
+      final extractDir = '$outputDir/03_${hash}_logs';
+      final success = await ArchiveManager.extractArchive(tempArchivePath, extractDir);
+
+      if (!success) {
+        debugPrint('[Step3] [$index/$total] 解压失败');
+        return;
+      }
+      debugPrint('[Step3] [$index/$total] 解压成功: $extractDir');
+
+      // 删除压缩包，只保留解压内容
+      try {
+        await File(tempArchivePath).delete();
+        debugPrint('[Step3] [$index/$total] 已删除压缩包');
+      } catch (e) {
+        debugPrint('[Step3] [$index/$total] 删除压缩包失败: $e');
+      }
+
+      // 从解压后的文件中提取关键日志信息
+      final extractedLogContent = await _extractKeyLogsFromDecompressed(extractDir, hash);
+
+      // 保存华佗日志数据分析（同时包含 API 的 dataList 和解压后的关键日志）
       final huatuoLogsFileName = '03_${hash}_huatuo_logs_analysis.json';
       final huatuoLogsData = {
         'hash': hash,
         'uuid': uuid,
         'user_id': userId,
         'did': did,
-        'archive_file': archiveFileName,
+        'extract_dir': extractDir,
         'download_url': downloadUrl,
         'archive_size': archiveResponse.bodyBytes.length,
         'logs_count': dataList.length,
         'timestamp': DateTime.now().toIso8601String(),
-        // 提取 dataList 中的 data 字段用于 AI 分析
+        // 解压后的关键日志（用于 AI 分析）
+        'extracted_logs': extractedLogContent,
+        // 保留 API 的 dataList 以备后用
         'data_items': dataList.map((item) {
           final itemMap = item as Map<String, dynamic>;
           return {
@@ -585,7 +609,9 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
         fileName: huatuoLogsFileName,
         content: jsonEncode(huatuoLogsData),
       );
-      session.addLogFile(huatuoLogsFileName);
+
+      // 添加解压后的日志文件到会话（而非压缩包）
+      session.addLogFile('03_${hash}_logs');
 
       debugPrint('[Step3] [$index/$total] 完成：$hash');
     } catch (e) {
@@ -1182,6 +1208,77 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
     buffer.writeln();
 
     return buffer.toString();
+  }
+
+  /// 从解压后的目录中提取关键日志信息
+  Future<Map<String, dynamic>> _extractKeyLogsFromDecompressed(
+    String extractDir,
+    String hash,
+  ) async {
+    try {
+      final dir = Directory(extractDir);
+      if (!await dir.exists()) {
+        debugPrint('[extractKeyLogs] 解压目录不存在: $extractDir');
+        return {};
+      }
+
+      final List<String> extractedFiles = [];
+      final Map<String, String> fileContents = {};
+
+      // 递归查找所有日志文件
+      final files = dir.listSync(recursive: true, followLinks: false);
+
+      for (final entity in files) {
+        if (entity is File) {
+          final fileName = entity.path.split('/').last;
+          final relativePath = entity.path.replaceFirst('$extractDir/', '');
+
+          // 筛选关键日志文件：.log, .txt, .json 等
+          if (_isKeyLogFile(fileName)) {
+            extractedFiles.add(relativePath);
+
+            try {
+              // 读取文件内容，限制大小防止过大
+              final bytes = await entity.readAsBytes();
+              if (bytes.length > 10 * 1024 * 1024) {
+                // 如果文件过大，只读取前 100KB
+                fileContents[relativePath] =
+                    '${String.fromCharCodes(bytes.sublist(0, 100 * 1024))}\n...[truncated]';
+              } else {
+                fileContents[relativePath] = String.fromCharCodes(bytes);
+              }
+            } catch (e) {
+              debugPrint('[extractKeyLogs] 读取文件失败 $relativePath: $e');
+              fileContents[relativePath] = '[Error reading file: $e]';
+            }
+          }
+        }
+      }
+
+      final result = {
+        'extracted_files': extractedFiles,
+        'file_contents': fileContents,
+      };
+
+      debugPrint('[extractKeyLogs] 提取了 ${extractedFiles.length} 个关键日志文件');
+      return result;
+    } catch (e) {
+      debugPrint('[extractKeyLogs] 提取关键日志失败: $e');
+      return {};
+    }
+  }
+
+  /// 判断是否是关键日志文件
+  bool _isKeyLogFile(String fileName) {
+    final lower = fileName.toLowerCase();
+    return lower.endsWith('.log') ||
+        lower.endsWith('.txt') ||
+        lower.endsWith('.json') ||
+        lower.endsWith('.out') ||
+        lower.contains('crash') ||
+        lower.contains('error') ||
+        lower.contains('exception') ||
+        lower.contains('stack');
   }
 
   void _updateProgress(AnalysisProgress progress) {
