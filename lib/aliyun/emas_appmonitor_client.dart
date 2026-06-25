@@ -303,6 +303,7 @@ class EmasAppMonitorClient {
     int? granularity,  // 可选：粒度
     String? granularityUnit,  // 可选：hour/day/minute
     String? packageName,
+    Map<String, dynamic>? filter,  // 可选：筛选条件（如 crashType）
     Map<String, dynamic>? extraBody,
   }) {
     final body = <String, dynamic>{
@@ -313,7 +314,7 @@ class EmasAppMonitorClient {
         'EndTime': endTimeMs,
       },
     };
-    
+
     // TimeRange 可选参数
     if (granularity != null) {
       body['TimeRange']['Granularity'] = granularity;
@@ -321,7 +322,7 @@ class EmasAppMonitorClient {
     if (granularityUnit != null && granularityUnit.isNotEmpty) {
       body['TimeRange']['GranularityUnit'] = granularityUnit;
     }
-    
+
     // 可选参数
     if (os != null && os.isNotEmpty) {
       body['Os'] = os;
@@ -347,6 +348,9 @@ class EmasAppMonitorClient {
     if (packageName != null && packageName.isNotEmpty) {
       body['PackageName'] = packageName;
     }
+    if (filter != null && filter.isNotEmpty) {
+      body['Filter'] = filter;
+    }
     if (extraBody != null && extraBody.isNotEmpty) {
       body.addAll(extraBody);
     }
@@ -369,6 +373,7 @@ class EmasAppMonitorClient {
     int? granularity,
     String? granularityUnit,
     String? packageName,
+    Map<String, dynamic>? filter,
     Map<String, dynamic>? extraBody,
   }) {
     return _call(
@@ -388,6 +393,7 @@ class EmasAppMonitorClient {
         granularity: granularity,
         granularityUnit: granularityUnit,
         packageName: packageName,
+        filter: filter,
         extraBody: extraBody,
       ),
     );
@@ -398,6 +404,7 @@ class EmasAppMonitorClient {
   /// [name] 一般对应控制台「应用版本」筛选（OpenAPI `Name`）。
   /// [packageName] 对应应用包名（OpenAPI `PackageName`）；若服务端报错或无效，请以阿里云文档为准改键名。
   /// [os] 可选：OS 类型（harmony/iphoneos/android/h5）
+  /// [filter] 可选：筛选条件（如 crashType）
   Future<GetIssuesResult> getIssues({
     required int appKey,
     required String bizModule,
@@ -413,6 +420,7 @@ class EmasAppMonitorClient {
     int? granularity,
     String? granularityUnit,
     String? packageName,
+    Map<String, dynamic>? filter,
     Map<String, dynamic>? extraBody,
   }) async {
     final json = await getIssuesRaw(
@@ -430,6 +438,7 @@ class EmasAppMonitorClient {
       granularity: granularity,
       granularityUnit: granularityUnit,
       packageName: packageName,
+      filter: filter,
       extraBody: extraBody,
     );
     return GetIssuesResult.fromJson(json);

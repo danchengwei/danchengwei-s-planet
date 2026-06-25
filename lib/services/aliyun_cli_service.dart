@@ -174,6 +174,7 @@ class AliyunCliService {
     int? status,
     String? firstVersion,
     String? appVersion,
+    Map<String, dynamic>? filter,
   }) async {
     final args = _buildBaseArgs('get-issues', bizModule: bizModule, os: os);
 
@@ -194,10 +195,15 @@ class AliyunCliService {
       args.addAll(['--status', status.toString()]);
     }
 
-    // 版本筛选（FirstVersion 和 AppVersion）
+    // 构建筛选条件：支持 filter 参数（crashType 等）+ 版本筛选
+    Map<String, dynamic>? finalFilter = filter;
     if ((firstVersion != null && firstVersion.isNotEmpty) ||
         (appVersion != null && appVersion.isNotEmpty)) {
       final filters = <Map<String, dynamic>>[];
+
+      if (filter != null) {
+        filters.add(filter);
+      }
 
       if (firstVersion != null && firstVersion.isNotEmpty) {
         filters.add({
@@ -217,15 +223,17 @@ class AliyunCliService {
         print('[CLI] AppVersion 筛选: $appVersion');
       }
 
-      // 如果只有一个过滤条件，直接使用；如果两个都有，使用 AND 组合
-      final filter = filters.length == 1
+      // 如果只有一个过滤条件，直接使用；如果多个，使用 AND 组合
+      finalFilter = filters.length == 1
           ? filters[0]
           : {
               'Operator': 'and',
               'SubFilters': filters,
             };
+    }
 
-      args.addAll(['--filter', jsonEncode(filter)]);
+    if (finalFilter != null) {
+      args.addAll(['--filter', jsonEncode(finalFilter)]);
     }
 
     final json = await _runCliCommand(args);

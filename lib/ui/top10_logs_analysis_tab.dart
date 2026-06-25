@@ -58,6 +58,9 @@ class _Top10LogsAnalysisTabState extends State<Top10LogsAnalysisTab> with Single
     _errorMessage = null;
 
     _tabController = TabController(length: 4, vsync: this);
+    _tabController.addListener(() {
+      setState(() {}); // 当tab变化时刷新UI
+    });
 
     // 初始化加载版本列表
     Future.microtask(() => _initializeVersions());
@@ -230,6 +233,7 @@ class _Top10LogsAnalysisTabState extends State<Top10LogsAnalysisTab> with Single
         pageSize: 10, // 只获取前10条
         orderBy: 'ErrorCount',
         orderType: 'DESC',
+        filter: finalFilter,
       );
 
       return result.items.take(10).toList();
@@ -306,7 +310,7 @@ class _Top10LogsAnalysisTabState extends State<Top10LogsAnalysisTab> with Single
               ),
             ),
           ),
-          SizedBox(height: kSpacing16),
+          SliverToBoxAdapter(child: SizedBox(height: kSpacing16)),
           // 错误提示
           if (_errorMessage != null)
             SliverPadding(
@@ -343,8 +347,8 @@ class _Top10LogsAnalysisTabState extends State<Top10LogsAnalysisTab> with Single
             SliverToBoxAdapter(
               child: SizedBox(
                 height: MediaQuery.of(context).size.height - 400,
-                child: TabBarView(
-                  controller: _tabController,
+                child: IndexedStack(
+                  index: _tabController.index,
                   children: [
                     _buildTop10List(context, 'ANR', _top10Anr, theme, cs),
                     _buildTop10List(context, 'Native Crash', _top10NativeCrash, theme, cs),
@@ -420,7 +424,7 @@ class _Top10LogsAnalysisTabState extends State<Top10LogsAnalysisTab> with Single
             ),
           ),
         ),
-        SizedBox(height: kSpacing12),
+        SliverToBoxAdapter(child: SizedBox(height: kSpacing12)),
         // 列表内容
         if (items.isEmpty)
           SliverFillRemaining(
@@ -555,7 +559,7 @@ class _Top10LogsAnalysisTabState extends State<Top10LogsAnalysisTab> with Single
               ),
             ),
           ),
-        SizedBox(height: kSpacing24),
+        SliverToBoxAdapter(child: SizedBox(height: kSpacing24)),
       ],
     );
   }
