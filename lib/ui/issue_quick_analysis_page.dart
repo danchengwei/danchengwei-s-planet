@@ -303,6 +303,52 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
     }
   }
 
+  Widget _buildAliyunConsoleLink(BuildContext context, ColorScheme cs) {
+    final consoleLink = consoleLinkForIssue(
+      _cfg,
+      widget.digestHash,
+      bizModuleForConsole: widget.bizModule,
+    );
+
+    if (consoleLink == null) {
+      return const SizedBox.shrink();
+    }
+
+    return Material(
+      color: cs.surfaceContainerHigh,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: () async {
+          final uri = Uri.tryParse(consoleLink);
+          if (uri != null && await canLaunchUrl(uri)) {
+            await launchUrl(uri, mode: LaunchMode.externalApplication);
+          }
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              Icon(Icons.link, size: 18, color: cs.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '阿里云控制台 - 快速访问',
+                  style: TextStyle(
+                    color: cs.primary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              Icon(Icons.arrow_outward, size: 16, color: cs.primary),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -359,6 +405,8 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
                             deviceCount: widget.errorDeviceCount,
                             model: _modelMap(),
                           ),
+                          const SizedBox(height: 12),
+                          _buildAliyunConsoleLink(context, cs),
                           const SizedBox(height: 12),
                           Card(
                             elevation: 0,

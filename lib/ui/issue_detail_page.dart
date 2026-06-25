@@ -243,6 +243,11 @@ class _IssueDetailPageState extends State<IssueDetailPage> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final consoleLink = consoleLinkForIssue(
+      _cfg,
+      widget.digestHash,
+      bizModuleForConsole: widget.controller.activeBizModule,
+    );
 
     return Scaffold(
       body: _loading
@@ -261,6 +266,45 @@ class _IssueDetailPageState extends State<IssueDetailPage> {
                         ),
                       ],
                     ),
+                    if (consoleLink != null)
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+                        sliver: SliverToBoxAdapter(
+                          child: Material(
+                            color: cs.surfaceContainerHigh,
+                            borderRadius: BorderRadius.circular(8),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(8),
+                              onTap: () async {
+                                final uri = Uri.tryParse(consoleLink);
+                                if (uri != null && await canLaunchUrl(uri)) {
+                                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                                }
+                              },
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.link, size: 18, color: cs.primary),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        '阿里云控制台 - 快速访问',
+                                        style: TextStyle(
+                                          color: cs.primary,
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ),
+                                    Icon(Icons.arrow_outward, size: 16, color: cs.primary),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                     SliverPadding(
                       padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
                       sliver: SliverToBoxAdapter(
