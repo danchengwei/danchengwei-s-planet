@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../aliyun/emas_appmonitor_client.dart';
 import '../app_controller.dart';
 import '../constants/app_constants.dart';
+import 'batch_analysis_page.dart';
 import 'issue_detail_page.dart';
 import 'issue_quick_analysis_page.dart';
 import 'widgets/version_filter_widget.dart';
@@ -178,31 +179,19 @@ class IssuesTab extends StatelessWidget {
                           const SizedBox(width: 12),
                           FilledButton.icon(
                             onPressed: () {
-                              // 批量分析：打开第一个选中问题的分析页面
                               final hashes = controller.selectedDigestHashes.toList();
                               if (hashes.isEmpty) return;
-
-                              final firstHash = hashes[0];
-                              final items = controller.lastIssues?.items ?? [];
-                              final item = items.cast<IssueListItem?>().firstWhere(
-                                (i) => i?.digestHash == firstHash,
-                                orElse: () => null,
-                              );
-
-                              if (item case final IssueListItem item when item.digestHash != null) {
-                                Navigator.of(context).push<void>(
-                                  MaterialPageRoute<void>(
-                                    builder: (ctx) => IssueQuickAnalysisPage(
-                                      controller: controller,
-                                      digestHash: item.digestHash!,
-                                      title: item.displayTitles().$1,
-                                      listStack: item.stack,
-                                      errorCount: item.errorCount,
-                                      errorDeviceCount: item.errorDeviceCount,
-                                    ),
+                              Navigator.of(context).push<void>(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => BatchAnalysisPage(
+                                    controller: controller,
+                                    digestHashes: hashes,
+                                    bizModule: controller.activeBizModule,
+                                    startTimeMs: controller.rangeStartMs,
+                                    endTimeMs: controller.rangeEndMs,
                                   ),
-                                );
-                              }
+                                ),
+                              );
                             },
                             icon: const Icon(Icons.psychology_rounded, size: 18),
                             label: const Text('智能分析'),
@@ -852,6 +841,7 @@ class _IssueEmasListCard extends StatelessWidget {
             listStack: item.stack,
             errorCount: item.errorCount,
             errorDeviceCount: item.errorDeviceCount,
+            bizModule: controller.activeBizModule,
           ),
         ),
       );

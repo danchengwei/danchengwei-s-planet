@@ -5,23 +5,18 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../app_controller.dart';
 import '../constants/app_constants.dart';
-import '../models/agent_payload.dart';
 import '../models/tool_config.dart';
-import '../services/agent_launcher.dart';
 import '../services/ai_source_code_analyzer.dart';
 import '../services/analysis_prompt_builder.dart';
 import '../services/console_links.dart';
-import '../services/gitlab_client.dart';
-import '../services/gitlab_stack_search.dart';
 import '../services/llm_client.dart';
 import '../services/outbound_http_client_for_config.dart';
 import '../services/report_manager.dart';
 import '../services/security_redaction.dart';
 import '../services/stack_clarity.dart';
-import '../services/stack_keywords.dart';
 import 'llm_output_sections.dart';
 
-/// 单条问题：信息总览、堆栈、原始 JSON、AI 分块、GitLab、去修改（Agent / 协议）。
+/// 单条问题：信息总览、堆栈、原始 JSON、AI 分析。
 class IssueDetailPage extends StatefulWidget {
   const IssueDetailPage({
     super.key,
@@ -51,10 +46,6 @@ class _IssueDetailPageState extends State<IssueDetailPage> {
 
   final _llmOut = StringBuffer();
   bool _llmBusy = false;
-  List<GitLabBlobHit> _blobHits = const [];
-  List<GitLabCommitInfo> _commits = const [];
-  bool _gitlabBusy = false;
-  String? _gitlabErr;
 
   @override
   void initState() {
@@ -124,47 +115,11 @@ class _IssueDetailPageState extends State<IssueDetailPage> {
     return widget.listStack ?? '';
   }
 
-  Future<void> _runGitlab() async {
-    final miss = _cfg.validateGitlab();
-    if (miss.isNotEmpty) {
-      setState(() => _gitlabErr = '请先在配置中填写：${miss.join('、')}');
-      return;
-    }
-    setState(() {
-      _gitlabBusy = true;
-      _gitlabErr = null;
-      _blobHits = const [];
-      _commits = const [];
-    });
-    try {
-      final kw = extractStackKeywords(_stackText());
-      if (kw.isEmpty) {
-        setState(() {
-          _gitlabBusy = false;
-          _gitlabErr = '未能从堆栈提取关键词';
-        });
-        return;
-      }
-      final q = kw.first;
-      final out = await searchGitlabMergedForKeyword(
-        config: _cfg,
-        searchKeyword: q,
-        maxTotalHits: 16,
-        perProjectLimit: 8,
-      );
-      if (!mounted) return;
-      setState(() {
-        _blobHits = out.hits;
-        _commits = out.commits;
-        _gitlabBusy = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _gitlabErr = userFacingNetworkError(e);
-        _gitlabBusy = false;
-      });
-    }
+  Map<String, dynamic> _modelMap() {
+    final j = _issueJson;
+    if (j == null) return const {};
+    if (j['Model'] is Map) return Map<String, dynamic>.from(j['Model'] as Map);
+    return j;
   }
 
   Future<void> _runLlm() async {
@@ -176,37 +131,7 @@ class _IssueDetailPageState extends State<IssueDetailPage> {
     final stackFull = widget.listStack ?? _stackText();
     final clarity = analyzeStackClarity(stackFull);
 
-    var gh = _blobHits;
-    var gc = _commits;
-    final tryAutoGitlab = clarity.level == StackClarityLevel.businessLikely &&
-        _cfg.validateGitlab().isEmpty &&
-        extractStackKeywords(stackFull).isNotEmpty;
-
     setState(() => _llmBusy = true);
-    if (tryAutoGitlab) {
-      setState(() {
-        _gitlabBusy = true;
-        _gitlabErr = null;
-      });
-      try {
-        final r = await searchGitlabForStack(config: _cfg, stack: stackFull);
-        if (!mounted) return;
-        gh = r.hits;
-        gc = r.commits;
-        setState(() {
-          _blobHits = gh;
-          _commits = gc;
-          if (r.skippedReason != null && gh.isEmpty) {
-            _gitlabErr = r.skippedReason;
-          }
-        });
-      } catch (e) {
-        if (mounted) setState(() => _gitlabErr = userFacingNetworkError(e));
-      } finally {
-        if (mounted) setState(() => _gitlabBusy = false);
-      }
-    }
-
     final client = LlmClient(
       baseUrl: _cfg.llmBaseUrl.trim(),
       apiKey: _cfg.llmApiKey.trim(),
@@ -221,8 +146,8 @@ class _IssueDetailPageState extends State<IssueDetailPage> {
         listTitle: widget.title,
         listStack: stackFull,
         clarity: clarity,
-        gitlabHits: gh,
-        gitlabCommits: gc,
+        gitlabHits: const [],
+        gitlabCommits: const [],
       );
       final reply = await client.chat([
         {'role': 'system', 'content': _cfg.effectiveLlmSystemPrompt},
@@ -288,9 +213,7 @@ class _IssueDetailPageState extends State<IssueDetailPage> {
         _llmBusy = false;
       });
 
-      // 显示报告预览对话框
       if (mounted) {
-        // 报告已移至统一报告中心，此处预留扩展点
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('分析报告已保存到报告中心')),
         );
@@ -302,64 +225,6 @@ class _IssueDetailPageState extends State<IssueDetailPage> {
         _llmOut.writeln('本地源码AI分析失败：${userFacingNetworkError(e)}');
         _llmBusy = false;
       });
-    }
-  }
-
-  Future<void> _copyPrompt() async {
-    final stackFull = widget.listStack ?? _stackText();
-    final clarity = analyzeStackClarity(stackFull);
-    final prompt = buildAnalysisUserPrompt(
-      digestHash: widget.digestHash,
-      getIssueBody: _issueJson,
-      listTitle: widget.title,
-      listStack: stackFull,
-      clarity: clarity,
-      gitlabHits: _blobHits,
-      gitlabCommits: _commits,
-      prependGitlabMcpHint: true,
-    );
-    final p = AgentLauncher.payloadFromConfig(
-      config: _cfg,
-      digestHash: widget.digestHash,
-      prompt: prompt,
-    );
-    await AgentLauncher.runFromPayload(AgentPayload(
-      version: p.version,
-      digestHash: p.digestHash,
-      prompt: p.prompt,
-      workingDirectory: p.workingDirectory,
-      executable: p.executable,
-      mode: 'clipboard',
-      fixedArgs: p.fixedArgs,
-    ));
-  }
-
-  Future<void> _runAgentCli() async {
-    final cliErr = _cfg.validateAgentCliLaunch();
-    if (cliErr != null) {
-      return;
-    }
-    final stackFull = widget.listStack ?? _stackText();
-    final clarity = analyzeStackClarity(stackFull);
-    final prompt = buildAnalysisUserPrompt(
-      digestHash: widget.digestHash,
-      getIssueBody: _issueJson,
-      listTitle: widget.title,
-      listStack: stackFull,
-      clarity: clarity,
-      gitlabHits: _blobHits,
-      gitlabCommits: _commits,
-      prependGitlabMcpHint: true,
-    );
-    final p = AgentLauncher.payloadFromConfig(
-      config: _cfg,
-      digestHash: widget.digestHash,
-      prompt: prompt,
-    );
-    try {
-      await AgentLauncher.runFromPayload(p);
-    } catch (e) {
-      debugPrint('Agent: $e');
     }
   }
 
@@ -397,28 +262,18 @@ class _IssueDetailPageState extends State<IssueDetailPage> {
                       ],
                     ),
                     SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
                       sliver: SliverToBoxAdapter(
-                        child: _DigestSummaryCard(
+                        child: _IssueInfoCard(
+                          model: _modelMap(),
                           digest: widget.digestHash,
-                          errorCount: widget.errorCount,
-                          deviceCount: widget.errorDeviceCount,
+                          fallbackErrorCount: widget.errorCount,
+                          fallbackDeviceCount: widget.errorDeviceCount,
                         ),
                       ),
                     ),
                     SliverPadding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      sliver: SliverToBoxAdapter(
-                        child: _FixActionPanel(
-                          onCopyPrompt: _copyPrompt,
-                          onRunAgent: _runAgentCli,
-                          agentMode: _cfg.agentMode,
-                          agentConfigured: _cfg.agentMode.trim() == 'clipboard' || _cfg.agentExecutable.trim().isNotEmpty,
-                        ),
-                      ),
-                    ),
-                    SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
                       sliver: SliverToBoxAdapter(
                         child: Text('堆栈与原始数据', style: Theme.of(context).textTheme.titleMedium),
                       ),
@@ -428,7 +283,7 @@ class _IssueDetailPageState extends State<IssueDetailPage> {
                       sliver: SliverToBoxAdapter(
                         child: _ExpandableCodeCard(
                           title: '堆栈摘要',
-                          subtitle: '用于 GitLab 关键词与 AI 分析',
+                          subtitle: '用于 AI 分析',
                           child: SelectableText(
                             _stackText().isEmpty ? '（无）' : _stackText(),
                             style: const TextStyle(fontFamily: 'monospace', fontSize: 12, height: 1.4),
@@ -480,17 +335,6 @@ class _IssueDetailPageState extends State<IssueDetailPage> {
                                 shape: RoundedRectangleBorder(borderRadius: AppBorderRadius.md),
                               ),
                             ),
-                            Padding(
-                              padding: const EdgeInsets.only(top: 8),
-                              child: Text(
-                                '堆栈可识别业务代码时，将先尝试 GitLab 检索并把命中片段写入提示词；'
-                                '若仅为系统/框架栈，模型将侧重可能原因与修改思路，不臆造业务文件路径。',
-                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: cs.onSurfaceVariant,
-                                      height: 1.35,
-                                    ),
-                              ),
-                            ),
                             const SizedBox(height: 12),
                             FilledButton.tonalIcon(
                               onPressed: _llmBusy ? null : _runLocalAiAnalysis,
@@ -513,7 +357,7 @@ class _IssueDetailPageState extends State<IssueDetailPage> {
                             Padding(
                               padding: const EdgeInsets.only(top: 8),
                               child: Text(
-                                '结合配置的本地项目路径与堆栈信息，从源码中提取相关代码片段进行深度分析。',
+                                '本地源码 AI 分析会结合配置的本地项目路径与堆栈信息，从源码中提取相关代码片段进行深度分析。',
                                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                       color: cs.onSurfaceVariant,
                                       height: 1.35,
@@ -524,38 +368,6 @@ class _IssueDetailPageState extends State<IssueDetailPage> {
                             buildLlmSectionCards(context, _llmOut.toString()),
                           ],
                         ),
-                      ),
-                    ),
-                    SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(20, 24, 20, 12),
-                      sliver: SliverToBoxAdapter(
-                        child: Row(
-                          children: [
-                            Icon(Icons.integration_instructions_outlined, color: cs.tertiary, size: 22),
-                            const SizedBox(width: 8),
-                            Text('代码仓库（GitLab）', style: Theme.of(context).textTheme.titleMedium),
-                          ],
-                        ),
-                      ),
-                    ),
-                    SliverPadding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20),
-                      sliver: SliverToBoxAdapter(
-                        child: _GitlabSection(
-                          keywordsText: extractStackKeywords(_stackText()).join('、'),
-                          stackHint: analyzeStackClarity(_stackText()).summaryForPrompt,
-                          busy: _gitlabBusy,
-                          err: _gitlabErr,
-                          hits: _blobHits,
-                          commits: _commits,
-                          onSearch: _runGitlab,
-                        ),
-                      ),
-                    ),
-                    SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(20, 24, 20, 12),
-                      sliver: SliverToBoxAdapter(
-                        child: _ProtocolHintCard(),
                       ),
                     ),
                     const SliverPadding(padding: EdgeInsets.only(bottom: 32)),
@@ -576,20 +388,164 @@ class _IssueDetailPageState extends State<IssueDetailPage> {
   }
 }
 
-class _DigestSummaryCard extends StatelessWidget {
-  const _DigestSummaryCard({
+/// 崩溃信息总览卡片：展示 GetIssue 返回的所有字段，自动按类别分组。
+class _IssueInfoCard extends StatelessWidget {
+  const _IssueInfoCard({
+    required this.model,
     required this.digest,
-    required this.errorCount,
-    required this.deviceCount,
+    this.fallbackErrorCount,
+    this.fallbackDeviceCount,
   });
 
+  final Map<String, dynamic> model;
   final String digest;
-  final int? errorCount;
-  final int? deviceCount;
+  final int? fallbackErrorCount;
+  final int? fallbackDeviceCount;
+
+  static const _labelOverrides = <String, String>{
+    'DigestHash': 'Digest',
+    'ErrorName': '错误名称',
+    'Name': '错误名称',
+    'ErrorType': '错误类型',
+    'Type': '错误类型',
+    'ErrorCount': '上报次数',
+    'Count': '上报次数',
+    'ErrorDeviceCount': '影响设备',
+    'DeviceCount': '影响设备',
+    'AffectedDeviceCount': '影响设备',
+    'ErrorRate': '错误率',
+    'CrashRate': '错误率',
+    'Rate': '错误率',
+    'DeviceRate': '设备率',
+    'ErrorDeviceRate': '设备率',
+    'FirstVersion': '首现版本',
+    'FirstSeenVersion': '首现版本',
+    'LatestVersion': '最新版本',
+    'FirstTime': '首次时间',
+    'FirstSeenTime': '首次时间',
+    'LatestTime': '最近时间',
+    'EventTime': '发生时间',
+    'Os': '系统',
+    'OsVersion': '系统版本',
+    'BizModule': '业务模块',
+    'Status': '状态',
+    'IssueStatus': '状态',
+    'HandleStatus': '处理状态',
+    'AppVersion': '应用版本',
+    'Version': '版本',
+    'Brand': '品牌',
+    'DeviceModel': '机型',
+    'Model': '机型',
+    'ProcessName': '进程名',
+    'ThreadName': '线程名',
+    'PackageName': '包名',
+    'AppKey': 'AppKey',
+    'Channel': '渠道',
+  };
+
+  static const _countKeys = <String>{
+    'ErrorCount', 'Count', 'ErrorDeviceCount', 'DeviceCount',
+    'AffectedDeviceCount', 'ErrorVersionCount', 'VersionCount',
+  };
+
+  static const _rateKeys = <String>{
+    'ErrorRate', 'CrashRate', 'Rate', 'DeviceRate', 'ErrorDeviceRate',
+    'AffectedDeviceRate',
+  };
+
+  String _label(String key) {
+    final lower = key.trim();
+    return _labelOverrides[lower] ?? _labelOverrides[lower[0].toUpperCase() + lower.substring(1)] ?? key;
+  }
+
+  String _formatValue(String key, dynamic v) {
+    if (v == null) return '-';
+    if (v is List || v is Map) {
+      try {
+        return const JsonEncoder.withIndent('  ').convert(v);
+      } catch (_) {
+        return v.toString();
+      }
+    }
+    final s = v.toString().trim();
+    if (s.isEmpty) return '-';
+    if (_rateKeys.contains(key)) {
+      final d = double.tryParse(s);
+      if (d != null) {
+        if (d <= 1) return '${(d * 100).toStringAsFixed(3)}%';
+        return '${d.toStringAsFixed(3)}%';
+      }
+    }
+    if (key == 'ErrorCount' || key == 'Count' || key == 'ErrorDeviceCount' || key == 'DeviceCount' || key == 'AffectedDeviceCount') {
+      if (int.tryParse(s) != null) return s;
+    }
+    return s;
+  }
+
+  bool _isDisplayKey(String key) {
+    final lower = key.toLowerCase();
+    if (lower.contains('stack') || lower == 'stack') return false;
+    if (lower.contains('distribution') || lower == 'versions') return false;
+    return true;
+  }
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final entries = <MapEntry<String, dynamic>>[];
+    if (model.isNotEmpty) {
+      for (final e in model.entries) {
+        if (_isDisplayKey(e.key)) entries.add(e);
+      }
+    } else {
+      if (fallbackErrorCount != null) entries.add(MapEntry('ErrorCount', fallbackErrorCount));
+      if (fallbackDeviceCount != null) entries.add(MapEntry('ErrorDeviceCount', fallbackDeviceCount));
+    }
+
+    // 字段分组排序：核心指标在前，时间在后，其他按字母
+    final primaryKeys = <String>[
+      'DigestHash', 'ErrorName', 'Name', 'ErrorType', 'Type',
+      'ErrorCount', 'Count', 'ErrorDeviceCount', 'DeviceCount', 'AffectedDeviceCount',
+      'ErrorRate', 'CrashRate', 'Rate',
+      'FirstVersion', 'FirstSeenVersion', 'LatestVersion',
+    ];
+    final timeKeys = <String>[
+      'FirstTime', 'FirstSeenTime', 'LatestTime', 'EventTime', 'CreateTime', 'UpdateTime',
+    ];
+    final primary = <MapEntry<String, dynamic>>[];
+    final time = <MapEntry<String, dynamic>>[];
+    final other = <MapEntry<String, dynamic>>[];
+    for (final e in entries) {
+      if (primaryKeys.contains(e.key)) {
+        primary.add(e);
+      } else if (timeKeys.contains(e.key) || e.key.toLowerCase().contains('time') || e.key.toLowerCase().contains('date')) {
+        time.add(e);
+      } else {
+        other.add(e);
+      }
+    }
+    primary.sort((a, b) => primaryKeys.indexOf(a.key).compareTo(primaryKeys.indexOf(b.key)));
+    other.sort((a, b) => a.key.compareTo(b.key));
+    final sorted = [...primary, ...time, ...other];
+
+    // Digest 单独放第一行（全宽）
+    final digestEntry = sorted.firstWhere(
+      (e) => e.key == 'DigestHash',
+      orElse: () => MapEntry('DigestHash', digest),
+    );
+    final rest = sorted.where((e) => e.key != 'DigestHash').toList();
+
+    // 前 6 个核心字段做大 pill，其余做两列详情行
+    final topPills = <MapEntry<String, dynamic>>[];
+    final detailRows = <MapEntry<String, dynamic>>[];
+    for (final e in rest) {
+      if (topPills.length < 6 && (_countKeys.contains(e.key) || _rateKeys.contains(e.key) || e.key.contains('Version'))) {
+        topPills.add(e);
+      } else {
+        detailRows.add(e);
+      }
+    }
+
     return Card(
       elevation: 0,
       color: cs.surfaceContainerHighest.withValues(alpha: 0.7),
@@ -604,20 +560,72 @@ class _DigestSummaryCard extends StatelessWidget {
           children: [
             Text('Digest', style: Theme.of(context).textTheme.labelMedium?.copyWith(color: cs.onSurfaceVariant)),
             const SizedBox(height: 4),
-            SelectableText(digest, style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 10,
-              runSpacing: 8,
-              children: [
-                _StatPill(icon: Icons.repeat, label: '上报次数', value: '${errorCount ?? '-'}'),
-                _StatPill(icon: Icons.devices, label: '影响设备', value: '${deviceCount ?? '-'}'),
-              ],
-            ),
+            SelectableText(digestEntry.value.toString(), style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
+            if (topPills.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 10,
+                runSpacing: 8,
+                children: topPills.map((e) => _StatPill(
+                  icon: _iconForKey(e.key),
+                  label: _label(e.key),
+                  value: _formatValue(e.key, e.value),
+                )).toList(),
+              ),
+            ],
+            if (detailRows.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Divider(height: 1, color: cs.outlineVariant.withValues(alpha: kOpacityLight)),
+              const SizedBox(height: 12),
+              ...detailRows.map((e) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 110,
+                      child: Text(
+                        _label(e.key),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                      ),
+                    ),
+                    Expanded(
+                      child: _valueWidget(e.key, e.value),
+                    ),
+                  ],
+                ),
+              )),
+            ],
           ],
         ),
       ),
     );
+  }
+
+  Widget _valueWidget(String key, dynamic value) {
+    final formatted = _formatValue(key, value);
+    if (formatted.length > 80 || formatted.contains('\n')) {
+      return SelectableText(
+        formatted,
+        style: const TextStyle(fontFamily: 'monospace', fontSize: 12, height: 1.4),
+      );
+    }
+    return SelectableText(
+      formatted,
+      style: const TextStyle(fontSize: 13, height: 1.4),
+    );
+  }
+
+  IconData _iconForKey(String key) {
+    final k = key.toLowerCase();
+    if (k.contains('count')) return Icons.repeat;
+    if (k.contains('device') || k.contains('brand') || k.contains('model')) return Icons.devices;
+    if (k.contains('rate')) return Icons.trending_up;
+    if (k.contains('version')) return Icons.label_outline;
+    if (k.contains('time') || k.contains('date')) return Icons.schedule;
+    if (k.contains('type')) return Icons.category_outlined;
+    if (k.contains('name')) return Icons.short_text;
+    return Icons.info_outline;
   }
 }
 
@@ -649,100 +657,6 @@ class _StatPill extends StatelessWidget {
               Text(value, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
             ],
           ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 顶部强调：去修改（复制 / 唤醒 Agent）。
-class _FixActionPanel extends StatelessWidget {
-  const _FixActionPanel({
-    required this.onCopyPrompt,
-    required this.onRunAgent,
-    required this.agentMode,
-    required this.agentConfigured,
-  });
-
-  final VoidCallback onCopyPrompt;
-  final VoidCallback onRunAgent;
-  final String agentMode;
-  final bool agentConfigured;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: AppBorderRadius.lg,
-        gradient: LinearGradient(
-          colors: [
-            cs.primary.withValues(alpha: kOpacityLight),
-            cs.tertiary.withValues(alpha: 0.08),
-          ],
-        ),
-        border: Border.all(color: cs.primary.withValues(alpha: kOpacityLight)),
-      ),
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.edit_note_rounded, color: cs.primary, size: 26),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  '去修改',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '将本条崩溃上下文交给 Claude Code CLI 或剪贴板：请在「配置」填写工程目录并选择 Claude Code / 剪贴板。完整 HTML 报告里的「去处理」可通过 crash-tools:// 唤起本应用。',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: cs.onSurfaceVariant,
-                  height: 1.45,
-                ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: onCopyPrompt,
-                  icon: const Icon(Icons.content_copy),
-                  label: const Text('复制提示词'),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: AppBorderRadius.md),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: FilledButton.tonalIcon(
-                  onPressed: agentConfigured ? onRunAgent : null,
-                  icon: const Icon(Icons.terminal),
-                  label: Text('启动 Agent（$agentMode）'),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: AppBorderRadius.md),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          if (!agentConfigured && agentMode != 'clipboard')
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                '非 clipboard 模式需在配置中填写可执行文件路径',
-                style: TextStyle(fontSize: 12, color: cs.error),
-              ),
-            ),
         ],
       ),
     );
@@ -787,141 +701,6 @@ class _ExpandableCodeCard extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _GitlabSection extends StatelessWidget {
-  const _GitlabSection({
-    required this.keywordsText,
-    required this.stackHint,
-    required this.busy,
-    required this.err,
-    required this.hits,
-    required this.commits,
-    required this.onSearch,
-  });
-
-  final String keywordsText;
-  final String stackHint;
-  final bool busy;
-  final String? err;
-  final List<GitLabBlobHit> hits;
-  final List<GitLabCommitInfo> commits;
-  final VoidCallback onSearch;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Card(
-      elevation: 0,
-      color: cs.surfaceContainerHighest.withValues(alpha: kOpacityLight),
-      shape: RoundedRectangleBorder(borderRadius: AppBorderRadius.lg),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text('关键词：${keywordsText.isEmpty ? "（暂无）" : keywordsText}', style: Theme.of(context).textTheme.bodySmall),
-            const SizedBox(height: 8),
-            Text(
-              '堆栈解读：$stackHint',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: cs.onSurfaceVariant,
-                    height: 1.35,
-                  ),
-            ),
-            const SizedBox(height: 12),
-            FilledButton.tonalIcon(
-              onPressed: busy ? null : onSearch,
-              icon: busy
-                  ? SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary),
-                    )
-                  : const Icon(Icons.search),
-              label: Text(busy ? '搜索中…' : '搜索 Blob 并拉最近提交'),
-            ),
-            if (err != null) ...[
-              const SizedBox(height: 10),
-              Text(err!, style: TextStyle(color: cs.error, fontSize: 13)),
-            ],
-            if (hits.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Text('Blob 命中', style: Theme.of(context).textTheme.titleSmall),
-              const SizedBox(height: 8),
-              ...hits.map((h) {
-                final raw = (h.data ?? '').replaceAll('\n', ' ');
-                final sub = raw.length > 100 ? '${raw.substring(0, 100)}…' : raw;
-                final lab = h.configRepoLabel?.trim();
-                final titleText = lab != null && lab.isNotEmpty
-                    ? '[$lab] ${h.path ?? h.basename ?? '-'}'
-                    : (h.path ?? h.basename ?? '-');
-                return ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(titleText, style: const TextStyle(fontWeight: FontWeight.w500)),
-                  subtitle: Text(sub, maxLines: 2, overflow: TextOverflow.ellipsis),
-                );
-              }),
-            ],
-            if (commits.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text('最近提交', style: Theme.of(context).textTheme.titleSmall),
-              ...commits.map((c) {
-                return ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(c.title ?? '-', maxLines: 2, overflow: TextOverflow.ellipsis),
-                  subtitle: Text('${c.authorName ?? ''} ${c.committedDate ?? ''}'),
-                  trailing: c.webUrl != null
-                      ? IconButton(
-                          icon: const Icon(Icons.link),
-                          onPressed: () async {
-                            final u = Uri.tryParse(c.webUrl!);
-                            if (u != null && await canLaunchUrl(u)) {
-                              await launchUrl(u, mode: LaunchMode.externalApplication);
-                            }
-                          },
-                        )
-                      : null,
-                );
-              }),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ProtocolHintCard extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: AppBorderRadius.md,
-        side: BorderSide(color: cs.outlineVariant.withValues(alpha: kOpacityLight)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(Icons.info_outline, color: cs.primary, size: 22),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                '从工作台导出「完整报告包」后，HTML 内「去处理」会使用 crash-tools://open?path= 将 payload 交给本应用，从而复用上方「去修改」同一套 Agent 逻辑。',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.45, color: cs.onSurfaceVariant),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

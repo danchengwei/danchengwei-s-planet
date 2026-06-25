@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../app_controller.dart';
@@ -8,6 +11,7 @@ import '../models/tool_config.dart';
 import '../services/agent_launcher.dart';
 import '../services/analysis_prompt_builder.dart';
 import '../services/console_links.dart';
+import '../services/crash_analysis_report_generator.dart';
 import '../services/gitlab_client.dart';
 import '../services/gitlab_stack_search.dart';
 import '../services/llm_client.dart';
@@ -29,6 +33,7 @@ class IssueQuickAnalysisPage extends StatefulWidget {
     this.listStack,
     this.errorCount,
     this.errorDeviceCount,
+    this.bizModule = 'crash',
   });
 
   final AppController controller;
@@ -37,6 +42,8 @@ class IssueQuickAnalysisPage extends StatefulWidget {
   final String? listStack;
   final int? errorCount;
   final int? errorDeviceCount;
+  /// 业务类型：crash / lag / anr / exception / custom / network / pageload / startup / memory_leak / memory_alloc
+  final String bizModule;
 
   @override
   State<IssueQuickAnalysisPage> createState() => _IssueQuickAnalysisPageState();
@@ -54,6 +61,12 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
   List<GitLabCommitInfo> _commits = const [];
   bool _gitlabBusy = false;
   String? _gitlabErr;
+
+  /// 完整 Markdown 报告（业务模块 + 项目路径 + Git blame 三件套齐备时一次性生成）。
+  final StringBuffer _fullReport = StringBuffer();
+  bool _fullReportBusy = false;
+  String? _fullReportErr;
+  String? _fullReportPath;
 
   @override
   void initState() {
@@ -437,6 +450,74 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
     }
   }
 
+  /// 生成并保存「完整分析报告」（对应 skill 的 analyzeCrash 输出结构）。
+  ///
+  /// 入参：当前 issue 的 GetIssue 详情 + LLM 三段式（已有则复用，避免重复扣 LLM 配额）。
+  Future<void> _generateFullReport() async {
+    if (_issueJson == null) {
+      setState(() => _fullReportErr = '缺少 GetIssue 数据');
+      return;
+    }
+    setState(() {
+      _fullReportBusy = true;
+      _fullReportErr = null;
+    });
+    try {
+      final generator = CrashAnalysisReportGenerator(config: _cfg);
+      final input = ReportInput(
+        digestHash: widget.digestHash,
+        title: widget.title,
+        issueDetailJson: _issueJson!,
+        listStack: widget.listStack,
+      );
+      final result = await generator.generateForIssue(
+        input: input,
+        bizModule: widget.bizModule,
+        projectPath: _cfg.localProjectPath,
+        llmReply: _llmOut.toString(),
+      );
+      final path = await generator.saveReport(result);
+      if (!mounted) return;
+      setState(() {
+        _fullReport.clear();
+        _fullReport.writeln(result.markdown);
+        _fullReportPath = path;
+        _fullReportBusy = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _fullReportErr = userFacingNetworkError(e);
+        _fullReportBusy = false;
+      });
+    }
+  }
+
+  Future<void> _openFullReportInFinder() async {
+    final path = _fullReportPath;
+    if (path == null) return;
+    final file = File(path);
+    if (!await file.exists()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('报告文件不存在'), behavior: SnackBarBehavior.floating),
+        );
+      }
+      return;
+    }
+    // macOS: 用 `open -R` 在 Finder 中定位文件
+    try {
+      await Process.run('open', ['-R', path]);
+    } catch (_) {
+      await Clipboard.setData(ClipboardData(text: path));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('已复制报告路径到剪贴板'), behavior: SnackBarBehavior.floating),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -689,6 +770,11 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
                                             icon: const Icon(Icons.merge_type, size: 18),
                                             label: const Text('保存并打开对话'),
                                           ),
+                                          FilledButton.tonalIcon(
+                                            onPressed: (_llmBusy || _fullReportBusy) ? null : _generateFullReport,
+                                            icon: const Icon(Icons.assignment_outlined, size: 18),
+                                            label: const Text('生成完整报告'),
+                                          ),
                                         ],
                                       ),
                                     ],
@@ -697,6 +783,15 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
                               ),
                             ],
                           ],
+                          if (_fullReportBusy || _fullReportErr != null || _fullReport.isNotEmpty)
+                            _FullReportSection(
+                              busy: _fullReportBusy,
+                              err: _fullReportErr,
+                              markdown: _fullReport.toString(),
+                              path: _fullReportPath,
+                              onOpen: _openFullReportInFinder,
+                              onRegenerate: _generateFullReport,
+                            ),
                           const SizedBox(height: 80),
                         ],
                       ),
@@ -769,6 +864,156 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
                 ),
               ),
             ),
+    );
+  }
+}
+
+/// 完整分析报告展示区（对应 skill 输出的全部分析章节）。
+class _FullReportSection extends StatelessWidget {
+  const _FullReportSection({
+    required this.busy,
+    required this.err,
+    required this.markdown,
+    required this.path,
+    required this.onOpen,
+    required this.onRegenerate,
+  });
+
+  final bool busy;
+  final String? err;
+  final String markdown;
+  final String? path;
+  final VoidCallback onOpen;
+  final VoidCallback onRegenerate;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Card(
+      elevation: 0,
+      color: cs.surfaceContainerHigh.withValues(alpha: 0.6),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.4)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.assignment_outlined, size: 20, color: cs.primary),
+                const SizedBox(width: 8),
+                Text(
+                  '完整分析报告',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const Spacer(),
+                if (path != null)
+                  TextButton.icon(
+                    onPressed: onOpen,
+                    icon: const Icon(Icons.folder_open, size: 18),
+                    label: const Text('在 Finder 中查看'),
+                  ),
+                TextButton.icon(
+                  onPressed: busy ? null : onRegenerate,
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: const Text('重新生成'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '参照 emas-intelligent-analysis 技能输出，包含基本信息 / 分布 / 堆栈分析 / 源码分析（Git blame）/ 修复建议与代码示例。已保存到本机 Application Support 目录。',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: cs.onSurfaceVariant,
+                    height: 1.35,
+                  ),
+            ),
+            if (path != null) ...[
+              const SizedBox(height: 6),
+              SelectableText(
+                path!,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                  color: cs.onSurfaceVariant,
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            if (busy)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 32),
+                child: Center(
+                  child: Column(
+                    children: [
+                      SizedBox(
+                        width: 32,
+                        height: 32,
+                        child: CircularProgressIndicator(strokeWidth: 3, color: cs.primary),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        '正在生成完整报告（拉取分布 / 本地源码 / Git blame）…',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else if (err != null)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: cs.errorContainer.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  err!,
+                  style: TextStyle(color: cs.onErrorContainer, fontSize: 13),
+                ),
+              )
+            else if (markdown.trim().isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: Text(
+                    '点击「重新生成」开始',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+                  ),
+                ),
+              )
+            else
+              Container(
+                width: double.infinity,
+                constraints: const BoxConstraints(maxHeight: 480),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: cs.surfaceContainerHighest.withValues(alpha: 0.7),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
+                ),
+                child: Scrollbar(
+                  child: SingleChildScrollView(
+                    child: SelectableText(
+                      markdown,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                        height: 1.45,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }
