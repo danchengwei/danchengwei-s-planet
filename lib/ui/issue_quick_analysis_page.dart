@@ -8,7 +8,6 @@ import '../models/tool_config.dart';
 import '../services/agent_launcher.dart';
 import '../services/analysis_prompt_builder.dart';
 import '../services/console_links.dart';
-import '../services/crash_analysis_report_generator.dart';
 import '../services/gitlab_client.dart';
 import '../services/gitlab_stack_search.dart';
 import '../services/llm_client.dart';
@@ -56,12 +55,9 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
   bool _gitlabBusy = false;
   String? _gitlabErr;
 
-  late CrashAnalysisReportGenerator _reportGenerator;
-
   @override
   void initState() {
     super.initState();
-    _reportGenerator = CrashAnalysisReportGenerator(config: widget.controller.config);
     _loadThenAnalyze();
   }
 
@@ -354,30 +350,6 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
     return buf.toString().trim();
   }
 
-  /// 生成完整的分析报告（包含统计、堆栈分析、源码分析、LLM 分析）
-  Future<String> _generateFullAnalysisReport() async {
-    final issueDetail = _issueJson?['Model'] as Map<String, dynamic>? ?? {};
-    final stackInfo = _stackText();
-    final userSample = _issueJson?['Model'] as Map<String, dynamic>? ?? {};
-    final huatuoAnalysis = <String, dynamic>{'logs': []};
-
-    try {
-      final report = await _reportGenerator.generateReportForIssue(
-        digestHash: widget.digestHash,
-        title: widget.title,
-        stackInfo: stackInfo,
-        issueDetail: issueDetail,
-        userSample: userSample,
-        huatuoAnalysis: huatuoAnalysis,
-      );
-      return report;
-    } catch (e) {
-      debugPrint('生成完整报告失败: $e');
-      // 降级到现有的 LLM 输出
-      return _llmOut.toString().trim();
-    }
-  }
-
   AnalysisReportRecord _buildReportRecord() {
     final git = _gitlabContextSummary();
     final devLine = _gitAuthorsSummaryLine;
@@ -406,35 +378,14 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
       }
       return;
     }
-
-    // 生成完整报告
-    final fullReport = await _generateFullAnalysisReport();
-
-    // 构建报告记录，使用完整报告
-    final git = _gitlabContextSummary();
-    final devLine = _gitAuthorsSummaryLine;
-    final reportBody = devLine.isEmpty ? fullReport : '$devLine\n\n$fullReport';
-
-    final record = AnalysisReportRecord(
-      id: AnalysisReportRecord.newId(),
-      projectId: widget.controller.activeProject.id,
-      digestHash: widget.digestHash,
-      title: widget.title,
-      bizModule: widget.controller.activeBizModule,
-      createdAtMs: DateTime.now().millisecondsSinceEpoch,
-      reportBody: reportBody,
-      stackSnippet: _stackSnippet(800),
-      gitlabContext: git.isEmpty ? null : git,
-    );
-
-    final evicted = await widget.controller.addAnalysisReport(record);
+    final evicted = await widget.controller.addAnalysisReport(_buildReportRecord());
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             evicted
-                ? '已保存完整分析报告。报告库最多 ${AppController.maxAnalysisReportsPerProject} 条，已按时间移除最旧条目'
-                : '已保存完整分析报告到报告库（对话页可继续挂载）',
+                ? '已保存。报告库最多 ${AppController.maxAnalysisReportsPerProject} 条，已按时间移除最旧条目'
+                : '已保存到报告库（对话页可继续挂载）',
           ),
           behavior: SnackBarBehavior.floating,
         ),
@@ -468,27 +419,7 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
   Future<void> _saveAndOpenChat() async {
     final body = _llmOut.toString().trim();
     if (body.isEmpty) return;
-
-    // 生成完整报告
-    final fullReport = await _generateFullAnalysisReport();
-
-    // 构建报告记录，使用完整报告
-    final git = _gitlabContextSummary();
-    final devLine = _gitAuthorsSummaryLine;
-    final reportBody = devLine.isEmpty ? fullReport : '$devLine\n\n$fullReport';
-
-    final rec = AnalysisReportRecord(
-      id: AnalysisReportRecord.newId(),
-      projectId: widget.controller.activeProject.id,
-      digestHash: widget.digestHash,
-      title: widget.title,
-      bizModule: widget.controller.activeBizModule,
-      createdAtMs: DateTime.now().millisecondsSinceEpoch,
-      reportBody: reportBody,
-      stackSnippet: _stackSnippet(800),
-      gitlabContext: git.isEmpty ? null : git,
-    );
-
+    final rec = _buildReportRecord();
     final evicted = await widget.controller.addAnalysisReport(rec);
     widget.controller.attachReportToChat(rec);
     widget.controller.requestOpenChatTab();
@@ -497,8 +428,8 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
         SnackBar(
           content: Text(
             evicted
-                ? '已保存并挂载完整分析报告；报告库已满（最多 ${AppController.maxAnalysisReportsPerProject} 条），已移除最旧一条'
-                : '已保存并挂载完整分析报告，已打开对话页',
+                ? '已保存并挂载；报告库已满（最多 ${AppController.maxAnalysisReportsPerProject} 条），已移除最旧一条'
+                : '已保存并挂载报告，已打开对话页',
           ),
           behavior: SnackBarBehavior.floating,
         ),
