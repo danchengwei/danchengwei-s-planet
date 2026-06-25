@@ -243,10 +243,10 @@ class _IssueDetailPageState extends State<IssueDetailPage> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final consoleLink = consoleLinkForIssue(
-      _cfg,
-      widget.digestHash,
-      bizModuleForConsole: widget.controller.activeBizModule,
+    final consoleLink = buildCrashConsoleUrl(
+      config: _cfg,
+      digest: widget.digestHash,
+      bizModule: widget.controller.activeBizModule,
     );
 
     return Scaffold(

@@ -304,10 +304,10 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
   }
 
   Widget _buildAliyunConsoleLink(BuildContext context, ColorScheme cs) {
-    final consoleLink = consoleLinkForIssue(
-      _cfg,
-      widget.digestHash,
-      bizModuleForConsole: widget.bizModule,
+    final consoleLink = buildCrashConsoleUrl(
+      config: _cfg,
+      digest: widget.digestHash,
+      bizModule: widget.bizModule,
     );
 
     if (consoleLink == null) {

@@ -8,6 +8,23 @@ String bizConsoleSegment(String bizModule) {
   return b;
 }
 
+/// 根据 bizModule 获取控制台中的分析路径段
+/// 如 crash → crashAnalysis/crash, anr → lagAnalysis/anr, lag → lagAnalysis/lag
+String consoleAnalysisPath(String bizModule) {
+  final b = bizModule.trim().toLowerCase();
+  switch (b) {
+    case 'crash':
+      return 'crashAnalysis/crash';
+    case 'anr':
+    case 'lag':
+      return 'lagAnalysis/$b';
+    case 'exception':
+      return 'exceptionAnalysis/exception';
+    default:
+      return '$b/$b';
+  }
+}
+
 /// EMAS 控制台 URL 常见平台段：Android 多为 `2`，iOS 多为 `1`（以你控制台地址栏为准）。
 String osCodeForEmasConsole(String os) {
   final o = os.trim().toLowerCase();
@@ -50,4 +67,39 @@ String? consoleLinkForIssue(ToolConfig config, String digest, {String? bizModule
     return applyConsolePlaceholders(config, digest, base, bizModuleForConsole: bizModuleForConsole);
   }
   return base.contains('{digest}') ? base.replaceAll('{digest}', Uri.encodeComponent(digest)) : base;
+}
+
+/// 根据请求参数生成具体的崩溃详情地址
+/// 格式: https://emas.console.aliyun.com/apm/{spaceId}/{appId}/{osCode}/{analysisPath}/detail?fromType={fromType}&digestId={digest}&pageNum=1
+String? buildCrashConsoleUrl({
+  required ToolConfig config,
+  required String digest,
+  String? bizModule,
+}) {
+  final spaceId = config.consoleBaseUrl.trim();
+  if (spaceId.isEmpty) return null;
+
+  // 从 consoleBaseUrl 中提取空间ID和应用ID
+  // 通常格式为: https://emas.console.aliyun.com/apm/{spaceId}/{appId}...
+  // 或配置中直接给出 spaceId 和 appId
+
+  final biz = (bizModule ?? config.bizModule).trim().toLowerCase();
+  final osCode = osCodeForEmasConsole(config.os);
+  final analysisPath = consoleAnalysisPath(biz);
+  final fromType = biz == 'lag' || biz == 'anr' ? 'lag' : biz;
+
+  // 尝试从 consoleBaseUrl 提取 spaceId 和 appId
+  final baseUrl = config.consoleBaseUrl.trim();
+  final regex = RegExp(r'/apm/(\d+)/(\d+)');
+  final match = regex.firstMatch(baseUrl);
+
+  if (match != null && match.groupCount >= 2) {
+    final extractedSpaceId = match.group(1);
+    final extractedAppId = match.group(2);
+
+    final url = 'https://emas.console.aliyun.com/apm/$extractedSpaceId/$extractedAppId/$osCode/$analysisPath/detail?fromType=$fromType&digestId=$digest&pageNum=1';
+    return url;
+  }
+
+  return null;
 }
