@@ -76,12 +76,8 @@ String? buildCrashConsoleUrl({
   required String digest,
   String? bizModule,
 }) {
-  final spaceId = config.consoleBaseUrl.trim();
-  if (spaceId.isEmpty) return null;
-
-  // 从 consoleBaseUrl 中提取空间ID和应用ID
-  // 通常格式为: https://emas.console.aliyun.com/apm/{spaceId}/{appId}...
-  // 或配置中直接给出 spaceId 和 appId
+  final baseUrl = config.consoleBaseUrl.trim();
+  if (baseUrl.isEmpty) return null;
 
   final biz = (bizModule ?? config.bizModule).trim().toLowerCase();
   final osCode = osCodeForEmasConsole(config.os);
@@ -89,7 +85,6 @@ String? buildCrashConsoleUrl({
   final fromType = biz == 'lag' || biz == 'anr' ? 'lag' : biz;
 
   // 尝试从 consoleBaseUrl 提取 spaceId 和 appId
-  final baseUrl = config.consoleBaseUrl.trim();
   final regex = RegExp(r'/apm/(\d+)/(\d+)');
   final match = regex.firstMatch(baseUrl);
 
@@ -101,5 +96,6 @@ String? buildCrashConsoleUrl({
     return url;
   }
 
-  return null;
+  // 如果无法从 consoleBaseUrl 提取，尝试使用旧的模板方式作为后备
+  return consoleLinkForIssue(config, digest, bizModuleForConsole: bizModule);
 }
