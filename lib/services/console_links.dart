@@ -9,20 +9,10 @@ String bizConsoleSegment(String bizModule) {
 }
 
 /// 根据 bizModule 获取控制台中的分析路径段
-/// 如 crash → crashAnalysis/crash, anr → lagAnalysis/anr, lag → lagAnalysis/lag
+/// 所有类型都使用固定的 crashAnalysis，只有后面的类型会变化
 String consoleAnalysisPath(String bizModule) {
   final b = bizModule.trim().toLowerCase();
-  switch (b) {
-    case 'crash':
-      return 'crashAnalysis/crash';
-    case 'anr':
-    case 'lag':
-      return 'lagAnalysis/$b';
-    case 'exception':
-      return 'exceptionAnalysis/exception';
-    default:
-      return '$b/$b';
-  }
+  return 'crashAnalysis/$b';
 }
 
 /// EMAS 控制台 URL 常见平台段：Android 多为 `2`，iOS 多为 `1`（以你控制台地址栏为准）。
@@ -96,5 +86,6 @@ String? buildCrashConsoleUrl({
     return url;
   }
 
-  return null;
+  // 后备方案：如果无法提取，返回 consoleBaseUrl 本身（这样至少能打开控制台）
+  return baseUrl;
 }

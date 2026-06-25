@@ -842,6 +842,7 @@ class _IssueEmasListCard extends StatelessWidget {
             errorCount: item.errorCount,
             errorDeviceCount: item.errorDeviceCount,
             bizModule: controller.activeBizModule,
+            pageNum: controller.pageIndex,
           ),
         ),
       );
@@ -858,6 +859,7 @@ class _IssueEmasListCard extends StatelessWidget {
             listStack: item.stack,
             errorCount: item.errorCount,
             errorDeviceCount: item.errorDeviceCount,
+            pageNum: controller.pageIndex,
           ),
         ),
       );

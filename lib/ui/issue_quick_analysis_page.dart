@@ -28,6 +28,7 @@ class IssueQuickAnalysisPage extends StatefulWidget {
     this.errorCount,
     this.errorDeviceCount,
     this.bizModule = 'crash',
+    this.pageNum = 1,
   });
 
   final AppController controller;
@@ -38,6 +39,7 @@ class IssueQuickAnalysisPage extends StatefulWidget {
   final int? errorDeviceCount;
   /// 业务类型：crash / lag / anr / exception / custom / network / pageload / startup / memory_leak / memory_alloc
   final String bizModule;
+  final int pageNum;
 
   @override
   State<IssueQuickAnalysisPage> createState() => _IssueQuickAnalysisPageState();
@@ -303,14 +305,27 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
     }
   }
 
-  Widget _buildAliyunConsoleLink(BuildContext context, ColorScheme cs) {
-    final consoleLink = buildCrashConsoleUrl(
-      config: _cfg,
-      digest: widget.digestHash,
-      bizModule: widget.bizModule,
-    );
+  String _buildDetailConsoleUrl() {
+    final spaceId = '3711937';
+    final appId = _cfg.appKey;
+    final osCode = _cfg.os.toLowerCase() == 'ios' ? '1' : '2';
 
-    if (consoleLink == null) {
+    final bizModule = widget.bizModule.toLowerCase();
+    int pageNum = widget.pageNum;
+
+    if (_issueJson != null) {
+      // 从 Model 层级获取分页信息
+      final model = (_issueJson!['Model'] is Map ? _issueJson!['Model'] : _issueJson) as Map<String, dynamic>;
+      pageNum = model['PageNum'] as int? ?? widget.pageNum;
+    }
+
+    return 'https://emas.console.aliyun.com/apm/$spaceId/$appId/$osCode/crashAnalysis/$bizModule/detail?fromType=$bizModule&storeName=$bizModule&digestId=${widget.digestHash}&pageNum=$pageNum';
+  }
+
+  Widget _buildAliyunConsoleLink(BuildContext context, ColorScheme cs) {
+    final consoleLink = _buildDetailConsoleUrl();
+
+    if (consoleLink.isEmpty) {
       return const SizedBox.shrink();
     }
 
@@ -332,13 +347,15 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
               Icon(Icons.link, size: 18, color: cs.primary),
               const SizedBox(width: 8),
               Expanded(
-                child: Text(
-                  '阿里云控制台 - 快速访问',
+                child: SelectableText(
+                  consoleLink,
                   style: TextStyle(
                     color: cs.primary,
-                    fontSize: 13,
+                    fontSize: 12,
+                    fontFamily: 'monospace',
                     fontWeight: FontWeight.w500,
                   ),
+                  maxLines: 2,
                 ),
               ),
               Icon(Icons.arrow_outward, size: 16, color: cs.primary),

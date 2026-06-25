@@ -26,6 +26,7 @@ class IssueDetailPage extends StatefulWidget {
     this.listStack,
     this.errorCount,
     this.errorDeviceCount,
+    this.pageNum = 1,
   });
 
   final AppController controller;
@@ -34,6 +35,7 @@ class IssueDetailPage extends StatefulWidget {
   final String? listStack;
   final int? errorCount;
   final int? errorDeviceCount;
+  final int pageNum;
 
   @override
   State<IssueDetailPage> createState() => _IssueDetailPageState();
@@ -240,14 +242,28 @@ class _IssueDetailPageState extends State<IssueDetailPage> {
     }
   }
 
+  String _buildDetailConsoleUrl() {
+    final spaceId = '3711937';
+    final appId = _cfg.appKey;
+    final osCode = _cfg.os.toLowerCase() == 'ios' ? '1' : '2';
+
+    final bizModule = widget.controller.activeBizModule.toLowerCase();
+    int pageNum = widget.pageNum;
+
+    if (_issueJson != null) {
+      // 从 Model 层级获取分页信息
+      final model = (_issueJson!['Model'] is Map ? _issueJson!['Model'] : _issueJson) as Map<String, dynamic>;
+      pageNum = model['PageNum'] as int? ?? widget.pageNum;
+    }
+
+    return 'https://emas.console.aliyun.com/apm/$spaceId/$appId/$osCode/crashAnalysis/$bizModule/detail?fromType=$bizModule&storeName=$bizModule&digestId=${widget.digestHash}&pageNum=$pageNum';
+    // 注：URL 路径中 crashAnalysis 是固定的，只有后面的 $bizModule 会根据业务模块变化
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final consoleLink = buildCrashConsoleUrl(
-      config: _cfg,
-      digest: widget.digestHash,
-      bizModule: widget.controller.activeBizModule,
-    );
+    final consoleLink = _buildDetailConsoleUrl();
 
     return Scaffold(
       body: _loading
@@ -266,7 +282,7 @@ class _IssueDetailPageState extends State<IssueDetailPage> {
                         ),
                       ],
                     ),
-                    if (consoleLink != null)
+                    if (consoleLink.isNotEmpty)
                       SliverPadding(
                         padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
                         sliver: SliverToBoxAdapter(
@@ -288,13 +304,15 @@ class _IssueDetailPageState extends State<IssueDetailPage> {
                                     Icon(Icons.link, size: 18, color: cs.primary),
                                     const SizedBox(width: 8),
                                     Expanded(
-                                      child: Text(
-                                        '阿里云控制台 - 快速访问',
+                                      child: SelectableText(
+                                        consoleLink,
                                         style: TextStyle(
                                           color: cs.primary,
-                                          fontSize: 13,
+                                          fontSize: 12,
+                                          fontFamily: 'monospace',
                                           fontWeight: FontWeight.w500,
                                         ),
+                                        maxLines: 2,
                                       ),
                                     ),
                                     Icon(Icons.arrow_outward, size: 16, color: cs.primary),
