@@ -35,6 +35,7 @@ local.properties
 # Sensitive / local config
 .claude/
 crash-tools-test-config.json
+crash-tools-test-config.json.bak
 crash-tools-test-config.sample.json
 skills-lock.json
 local.properties
