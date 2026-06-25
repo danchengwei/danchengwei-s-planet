@@ -5,6 +5,7 @@ import '../app_controller.dart';
 import '../aliyun/emas_appmonitor_client.dart';
 import '../constants/app_constants.dart';
 import '../services/huatuo_logger.dart';
+import '../services/llm_analyzer.dart';
 import 'widgets/version_filter_widget.dart';
 
 /// Top10日志分析页面：展示ANR/Crash/Lag的Top10数据
@@ -625,11 +626,17 @@ class _Top10LogsAnalysisTabState extends State<Top10LogsAnalysisTab> with Single
                     ),
                     SizedBox(height: kSpacing12),
                     ...samples.map((sample) {
+                      final llmAnalysis = sample.llmAnalysis;
+                      final hasSummary = (llmAnalysis?['summary'] as String?)?.isNotEmpty ?? false;
+
                       return Padding(
                         padding: EdgeInsets.only(bottom: kSpacing12),
                         child: Container(
                           decoration: BoxDecoration(
-                            border: Border.all(color: cs.outline),
+                            border: Border.all(
+                              color: hasSummary ? cs.primary : cs.outline,
+                              width: hasSummary ? 2 : 1,
+                            ),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           padding: EdgeInsets.all(kSpacing8),
@@ -648,6 +655,26 @@ class _Top10LogsAnalysisTabState extends State<Top10LogsAnalysisTab> with Single
                                 '日志: ${sample.huatuoLogs.length} 条',
                                 style: theme.textTheme.bodySmall,
                               ),
+                              if (hasSummary) ...[
+                                SizedBox(height: kSpacing8),
+                                Text(
+                                  '📊 分析摘要:',
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                    color: cs.primary,
+                                  ),
+                                ),
+                                Text(
+                                  llmAnalysis!['summary'] as String,
+                                  style: theme.textTheme.bodySmall,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ] else if (llmAnalysis != null)
+                                Text(
+                                  '❌ 分析失败',
+                                  style: theme.textTheme.bodySmall?.copyWith(color: cs.error),
+                                ),
                             ],
                           ),
                         ),
@@ -675,6 +702,7 @@ class _Top10LogsAnalysisTabState extends State<Top10LogsAnalysisTab> with Single
     required int endMs,
   }) async {
     final results = <ErrorSampleWithHuatuoLogs>[];
+    final llmAnalyzer = LlmAnalyzer(config: widget.controller.config);
 
     for (final digestHash in _selectedDigests) {
       try {
@@ -685,7 +713,36 @@ class _Top10LogsAnalysisTabState extends State<Top10LogsAnalysisTab> with Single
           endMs: endMs,
         );
         if (sample != null) {
-          results.add(sample);
+          // 调用 LLM 进行根因分析
+          Map<String, dynamic>? llmAnalysis;
+          try {
+            final stackStr = sample.rawErrorDetail['stacktrace'] as String? ?? '';
+            final huatuoLogsMap = <String, dynamic>{
+              'logs': sample.huatuoLogs.map((log) => log.toJson()).toList(),
+            };
+
+            llmAnalysis = await llmAnalyzer.generateRootCauseAnalysis(
+              digestHash: digestHash,
+              crashTitle: digestHash,
+              stackInfo: stackStr,
+              huatuoAnalysis: huatuoLogsMap,
+              userSample: sample.rawErrorDetail,
+            );
+          } catch (e) {
+            debugPrint('LLM 分析失败: $e');
+            llmAnalysis = null;
+          }
+
+          results.add(ErrorSampleWithHuatuoLogs(
+            digestHash: sample.digestHash,
+            userId: sample.userId,
+            errorTime: sample.errorTime,
+            osVersion: sample.osVersion,
+            deviceModel: sample.deviceModel,
+            huatuoLogs: sample.huatuoLogs,
+            rawErrorDetail: sample.rawErrorDetail,
+            llmAnalysis: llmAnalysis,
+          ));
         }
       } catch (e) {
         print('获取 $digestHash 样本失败: $e');
@@ -732,52 +789,89 @@ class _Top10LogsAnalysisTabState extends State<Top10LogsAnalysisTab> with Single
               final theme = Theme.of(context);
               final cs = theme.colorScheme;
 
-              return SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _buildDetailField('用户 ID', sample.userId, theme, cs),
-                    _buildDetailField('错误时间', sample.errorTime, theme, cs),
-                    _buildDetailField('设备型号', sample.deviceModel, theme, cs),
-                    _buildDetailField('系统版本', sample.osVersion, theme, cs),
-                    SizedBox(height: kSpacing16),
-                    Text(
-                      '华佗日志 (${sample.huatuoLogs.length} 条)',
-                      style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
-                    ),
-                    SizedBox(height: kSpacing8),
-                    if (sample.huatuoLogs.isEmpty)
-                      Text(
-                        '暂无日志',
-                        style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                      )
-                    else
-                      Container(
-                        constraints: const BoxConstraints(maxHeight: 200),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: cs.outline),
-                          borderRadius: BorderRadius.circular(8),
+              return StatefulBuilder(
+                builder: (context, setState) {
+                  Map<String, dynamic>? llmAnalysis = sample.llmAnalysis;
+                  bool isAnalyzing = false;
+
+                  return SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _buildDetailField('用户 ID', sample.userId, theme, cs),
+                        _buildDetailField('错误时间', sample.errorTime, theme, cs),
+                        _buildDetailField('设备型号', sample.deviceModel, theme, cs),
+                        _buildDetailField('系统版本', sample.osVersion, theme, cs),
+                        SizedBox(height: kSpacing16),
+                        Text(
+                          '华佗日志 (${sample.huatuoLogs.length} 条)',
+                          style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
                         ),
-                        child: SingleChildScrollView(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: sample.huatuoLogs.map((log) {
-                              return Padding(
-                                padding: EdgeInsets.all(kSpacing8),
-                                child: Text(
-                                  '[${log.timestamp}] ${log.level}: ${log.message}',
-                                  style: theme.textTheme.bodySmall,
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              );
-                            }).toList(),
+                        SizedBox(height: kSpacing8),
+                        if (sample.huatuoLogs.isEmpty)
+                          Text(
+                            '暂无日志',
+                            style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                          )
+                        else
+                          Container(
+                            constraints: const BoxConstraints(maxHeight: 200),
+                            decoration: BoxDecoration(
+                              border: Border.all(color: cs.outline),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: SingleChildScrollView(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: sample.huatuoLogs.map((log) {
+                                  return Padding(
+                                    padding: EdgeInsets.all(kSpacing8),
+                                    child: Text(
+                                      '[${log.timestamp}] ${log.level}: ${log.message}',
+                                      style: theme.textTheme.bodySmall,
+                                      maxLines: 3,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ),
                           ),
-                        ),
-                      ),
-                  ],
-                ),
+                        SizedBox(height: kSpacing16),
+                        if (llmAnalysis != null && (llmAnalysis['summary'] as String?)?.isNotEmpty == true) ...[
+                          Text(
+                            '📊 智能分析',
+                            style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                          SizedBox(height: kSpacing8),
+                          Container(
+                            padding: EdgeInsets.all(kSpacing12),
+                            decoration: BoxDecoration(
+                              color: cs.primaryContainer.withValues(alpha: 0.1),
+                              border: Border.all(color: cs.primary),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '分析摘要',
+                                  style: theme.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  llmAnalysis['summary'] as String,
+                                  style: theme.textTheme.bodySmall,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+                },
               );
             },
           ),
@@ -939,6 +1033,7 @@ class ErrorSampleWithHuatuoLogs {
   final String deviceModel;
   final List<HuatuoLogEntry> huatuoLogs;
   final Map<String, dynamic> rawErrorDetail;
+  final Map<String, dynamic>? llmAnalysis;
 
   ErrorSampleWithHuatuoLogs({
     required this.digestHash,
@@ -948,5 +1043,6 @@ class ErrorSampleWithHuatuoLogs {
     required this.deviceModel,
     required this.huatuoLogs,
     required this.rawErrorDetail,
+    this.llmAnalysis,
   });
 }
