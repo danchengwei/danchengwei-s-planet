@@ -84,18 +84,17 @@ String? buildCrashConsoleUrl({
   final analysisPath = consoleAnalysisPath(biz);
   final fromType = biz == 'lag' || biz == 'anr' ? 'lag' : biz;
 
-  // 尝试从 consoleBaseUrl 提取 spaceId 和 appId
+  // 从 consoleBaseUrl 提取 spaceId 和 appId (格式: .../apm/{spaceId}/{appId}/...)
   final regex = RegExp(r'/apm/(\d+)/(\d+)');
   final match = regex.firstMatch(baseUrl);
 
   if (match != null && match.groupCount >= 2) {
-    final extractedSpaceId = match.group(1);
-    final extractedAppId = match.group(2);
+    final spaceId = match.group(1)!;
+    final appId = match.group(2)!;
 
-    final url = 'https://emas.console.aliyun.com/apm/$extractedSpaceId/$extractedAppId/$osCode/$analysisPath/detail?fromType=$fromType&digestId=$digest&pageNum=1';
+    final url = 'https://emas.console.aliyun.com/apm/$spaceId/$appId/$osCode/$analysisPath/detail?fromType=$fromType&digestId=$digest&pageNum=1';
     return url;
   }
 
-  // 如果无法从 consoleBaseUrl 提取，尝试使用旧的模板方式作为后备
-  return consoleLinkForIssue(config, digest, bizModuleForConsole: bizModule);
+  return null;
 }
