@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
 
 import '../app_controller.dart';
 import '../services/analysis_logs_manager.dart';
 
-/// 分析报告查看页面：查看历史分析会话
+/// 报告来源类型
+enum ReportSource { htmlAnalysis, intelligentAnalysis }
+
+/// 分析报告查看页面：查看历史分析会话（HTML分析 + 智能分析）
 class AnalysisReportTab extends StatefulWidget {
   const AnalysisReportTab({super.key, required this.controller});
 
@@ -28,45 +32,69 @@ class _AnalysisReportTabState extends State<AnalysisReportTab> {
     _loadSessions();
   }
 
-  /// 加载所有分析会话
+  /// 加载所有分析会话（HTML分析 + 智能分析报告）
   Future<void> _loadSessions() async {
     try {
       final appSupportDir = await getApplicationSupportDirectory();
-      final analysisLogsDir = Directory('${appSupportDir.path}/analysis_logs');
+      final sessions = <_SessionInfo>[];
 
+      // 1. 加载 HTML 分析报告（analysis_logs/{sessionId}/analysis_report.md）
+      final analysisLogsDir = Directory('${appSupportDir.path}/analysis_logs');
       debugPrint('[LoadSessions] 查询目录: ${analysisLogsDir.path}');
 
-      if (!await analysisLogsDir.exists()) {
-        debugPrint('[LoadSessions] 目录不存在');
-        setState(() => _isLoadingSessions = false);
-        return;
+      if (await analysisLogsDir.exists()) {
+        final entities = analysisLogsDir.listSync();
+        debugPrint('[LoadSessions] analysis_logs 找到 ${entities.length} 个项目');
+
+        for (final entity in entities) {
+          if (entity is Directory) {
+            final sessionId = entity.path.split('/').last;
+            final reportFile = File('${entity.path}/analysis_report.md');
+
+            if (await reportFile.exists()) {
+              final stat = await reportFile.stat();
+              final content = await reportFile.readAsString();
+              debugPrint('[LoadSessions] 加载HTML分析会话: $sessionId (${stat.size} bytes)');
+              sessions.add(_SessionInfo(
+                id: sessionId,
+                reportPath: reportFile.path,
+                fileSize: stat.size,
+                modified: stat.modified,
+                content: content,
+                source: ReportSource.htmlAnalysis,
+              ));
+            }
+          }
+        }
       }
 
-      final sessions = <_SessionInfo>[];
-      final entities = analysisLogsDir.listSync();
-      debugPrint('[LoadSessions] 找到 ${entities.length} 个项目');
+      // 2. 加载智能分析报告（emas_analysis_reports/*.md）
+      final emasReportsDir = Directory('${appSupportDir.path}/emas_analysis_reports');
+      debugPrint('[LoadSessions] 查询目录: ${emasReportsDir.path}');
 
-      for (final entity in entities) {
-        if (entity is Directory) {
-          final sessionId = entity.path.split('/').last;
-          final reportFile = File('${entity.path}/analysis_report.md');
+      if (await emasReportsDir.exists()) {
+        final files = emasReportsDir.listSync();
+        debugPrint('[LoadSessions] emas_analysis_reports 找到 ${files.length} 个文件');
 
-          if (await reportFile.exists()) {
-            final stat = await reportFile.stat();
-            final content = await reportFile.readAsString();
-            debugPrint('[LoadSessions] 加载会话: $sessionId (${stat.size} bytes)');
+        for (final entity in files) {
+          if (entity is File && entity.path.endsWith('.md')) {
+            final fileName = p.basenameWithoutExtension(entity.path);
+            final stat = await entity.stat();
+            final content = await entity.readAsString();
+            debugPrint('[LoadSessions] 加载智能分析报告: $fileName (${stat.size} bytes)');
             sessions.add(_SessionInfo(
-              id: sessionId,
-              reportPath: reportFile.path,
+              id: fileName,
+              reportPath: entity.path,
               fileSize: stat.size,
               modified: stat.modified,
               content: content,
+              source: ReportSource.intelligentAnalysis,
             ));
           }
         }
       }
 
-      debugPrint('[LoadSessions] 成功加载 ${sessions.length} 个会话');
+      debugPrint('[LoadSessions] 成功加载 ${sessions.length} 个报告');
 
       // 按修改时间降序排列
       sessions.sort((a, b) => b.modified.compareTo(a.modified));
@@ -93,13 +121,13 @@ class _AnalysisReportTabState extends State<AnalysisReportTab> {
     });
   }
 
-  /// 删除会话
+  /// 删除会话或报告
   Future<void> _deleteSession(_SessionInfo session) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('确认删除'),
-        content: Text('确定要删除此分析会话吗？\n会话 ID: ${session.id}'),
+        content: Text('确定要删除此${session.source == ReportSource.htmlAnalysis ? '分析会话' : '智能分析报告'}吗？\n会话 ID: ${session.id}'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
           FilledButton(
@@ -112,12 +140,20 @@ class _AnalysisReportTabState extends State<AnalysisReportTab> {
 
     if (confirmed == true) {
       try {
-        // 解析出父目录
-        final parentPath = session.reportPath.split('/').take(session.reportPath.split('/').length - 1).join('/');
-        final sessionDirToDelete = Directory(parentPath);
+        if (session.source == ReportSource.htmlAnalysis) {
+          // HTML分析报告：删除整个会话目录
+          final parentPath = session.reportPath.split('/').take(session.reportPath.split('/').length - 1).join('/');
+          final sessionDirToDelete = Directory(parentPath);
 
-        if (await sessionDirToDelete.exists()) {
-          await sessionDirToDelete.delete(recursive: true);
+          if (await sessionDirToDelete.exists()) {
+            await sessionDirToDelete.delete(recursive: true);
+          }
+        } else {
+          // 智能分析报告：直接删除文件
+          final fileToDelete = File(session.reportPath);
+          if (await fileToDelete.exists()) {
+            await fileToDelete.delete();
+          }
         }
 
         if (mounted) {
@@ -130,7 +166,7 @@ class _AnalysisReportTabState extends State<AnalysisReportTab> {
           });
 
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('已删除分析会话')),
+            const SnackBar(content: Text('已删除分析报告')),
           );
         }
       } catch (e) {
@@ -207,7 +243,7 @@ class _AnalysisReportTabState extends State<AnalysisReportTab> {
             Text('暂无分析报告', style: theme.textTheme.bodyLarge),
             const SizedBox(height: 8),
             Text(
-              '完成 HTML 分析后报告将显示在这里',
+              '完成 HTML 分析或智能分析后报告将显示在这里',
               style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
             ),
           ],
@@ -220,6 +256,7 @@ class _AnalysisReportTabState extends State<AnalysisReportTab> {
       itemCount: _sessions.length,
       itemBuilder: (ctx, idx) {
         final session = _sessions[idx];
+        final isHtmlReport = session.source == ReportSource.htmlAnalysis;
         return Card(
           child: InkWell(
             onTap: () => _viewSession(session),
@@ -227,6 +264,23 @@ class _AnalysisReportTabState extends State<AnalysisReportTab> {
               padding: const EdgeInsets.all(12),
               child: Row(
                 children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: isHtmlReport
+                          ? Colors.orange.withValues(alpha: 0.15)
+                          : Colors.blue.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      isHtmlReport ? 'HTML' : '智能',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: isHtmlReport ? Colors.orange : Colors.blue,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -281,6 +335,7 @@ class _SessionInfo {
   final int fileSize;
   final DateTime modified;
   final String content;
+  final ReportSource source;
 
   _SessionInfo({
     required this.id,
@@ -288,5 +343,6 @@ class _SessionInfo {
     required this.fileSize,
     required this.modified,
     required this.content,
+    required this.source,
   });
 }
