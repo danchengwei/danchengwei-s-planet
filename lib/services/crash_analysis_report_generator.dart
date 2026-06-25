@@ -61,12 +61,12 @@ class CrashAnalysisReportGenerator {
   ///
   /// - [bizModule] 用于控制台链接拼接。
   /// - [projectPath] 为空时跳过源码分析（Git blame 同样跳过）。
-  /// - [llmReply] 已有 LLM 三段式输出时直接接入（避免重复调用 LLM）。
+  /// - [useLlm] 为 true 且配置了 LLM 时，调用大模型生成原因分析/修改建议/代码示例。
   Future<GeneratedReport> generateForIssue({
     required ReportInput input,
     required String bizModule,
     String? projectPath,
-    String? llmReply,
+    bool useLlm = false,
   }) async {
     final projectRoot = projectPath ?? config.localProjectPath;
     final detail = input.issueDetailJson;
@@ -109,9 +109,13 @@ class CrashAnalysisReportGenerator {
     buffer.writeln('> - **阿里云控制台**: [点击跳转](${_consoleLink(bizModule, hash)})');
     buffer.writeln();
 
-    _writeOsDistribution(buffer, model, errorCount, bizLabel);
-    _writeDeviceDistribution(buffer, model, errorCount, bizLabel);
-    _writeBrandDistribution(buffer, model, errorCount, bizLabel);
+    final osDist = _readDistributionList(model['OsDistribution'] ?? model['SystemVersionDistribution']);
+    final deviceDist = _readDistributionList(model['DeviceDistribution'] ?? model['DeviceModelDistribution']);
+    final brandDist = _readDistributionList(model['BrandDistribution']);
+
+    _writeOsDistribution(buffer, osDist, errorCount, bizLabel);
+    _writeDeviceDistribution(buffer, deviceDist, errorCount, bizLabel);
+    _writeBrandDistribution(buffer, brandDist, errorCount, bizLabel);
 
     buffer.writeln('### 📋 详细堆栈信息');
     buffer.writeln('> **Hash**: `$hash`');
@@ -138,8 +142,9 @@ class CrashAnalysisReportGenerator {
 
     _writeStackAnalysis(buffer, stackText, errorType);
 
+    SourceCodeLookup? sourceLookup;
     if (projectRoot.trim().isNotEmpty) {
-      _writeSourceAnalysis(buffer, stackText, projectRoot);
+      sourceLookup = await _writeSourceAnalysis(buffer, stackText, projectRoot);
     } else {
       buffer.writeln('### 🔎 源码分析');
       buffer.writeln('- ⚠️ 未配置本地项目路径（ToolConfig.localProjectPath），跳过源码定位与 Git blame。');
@@ -149,7 +154,12 @@ class CrashAnalysisReportGenerator {
     final fix = await _resolveFix(
       errorType: errorType,
       stackText: stackText,
-      llmReply: llmReply,
+      osDist: osDist,
+      deviceDist: deviceDist,
+      brandDist: brandDist,
+      sourceLookup: sourceLookup,
+      useLlm: useLlm,
+      bizLabel: bizLabel,
     );
     buffer.writeln('### 💡 原因分析');
     buffer.writeln(fix.reason.trim().isEmpty ? '需要根据具体堆栈信息分析。' : fix.reason.trim());
@@ -296,11 +306,10 @@ class CrashAnalysisReportGenerator {
 
   // -------- 私有：分布、堆栈、源码、模板 --------
 
-  void _writeOsDistribution(StringBuffer buffer, Map<String, dynamic> model, int errorCount, String bizLabel) {
+  void _writeOsDistribution(StringBuffer buffer, List<_DistEntry> osDist, int errorCount, String bizLabel) {
     buffer.writeln('### 📱 系统版本分布分析');
     buffer.writeln('| 系统版本 | $bizLabel次数 | 占比 |');
     buffer.writeln('|---------|---------|------|');
-    final osDist = _readDistributionList(model['OsDistribution'] ?? model['SystemVersionDistribution']);
     if (osDist.isNotEmpty) {
       final total = osDist.fold<int>(0, (s, e) => s + (e.count ?? 0));
       final sorted = [...osDist]..sort((a, b) => (b.count ?? 0).compareTo(a.count ?? 0));
@@ -314,11 +323,10 @@ class CrashAnalysisReportGenerator {
     buffer.writeln();
   }
 
-  void _writeDeviceDistribution(StringBuffer buffer, Map<String, dynamic> model, int errorCount, String bizLabel) {
+  void _writeDeviceDistribution(StringBuffer buffer, List<_DistEntry> list, int errorCount, String bizLabel) {
     buffer.writeln('### 📱 机型分布分析');
     buffer.writeln('| 机型 | $bizLabel次数 | 占比 |');
     buffer.writeln('|------|---------|------|');
-    final list = _readDistributionList(model['DeviceDistribution'] ?? model['DeviceModelDistribution']);
     if (list.isNotEmpty) {
       final total = list.fold<int>(0, (s, e) => s + (e.count ?? 0));
       final sorted = [...list]..sort((a, b) => (b.count ?? 0).compareTo(a.count ?? 0));
@@ -341,11 +349,10 @@ class CrashAnalysisReportGenerator {
     buffer.writeln();
   }
 
-  void _writeBrandDistribution(StringBuffer buffer, Map<String, dynamic> model, int errorCount, String bizLabel) {
+  void _writeBrandDistribution(StringBuffer buffer, List<_DistEntry> list, int errorCount, String bizLabel) {
     buffer.writeln('### 🏷️ 品牌分布分析');
     buffer.writeln('| 品牌 | $bizLabel次数 | 占比 |');
     buffer.writeln('|------|---------|------|');
-    final list = _readDistributionList(model['BrandDistribution']);
     if (list.isNotEmpty) {
       final total = list.fold<int>(0, (s, e) => s + (e.count ?? 0));
       final sorted = [...list]..sort((a, b) => (b.count ?? 0).compareTo(a.count ?? 0));
@@ -433,13 +440,13 @@ class CrashAnalysisReportGenerator {
     }
   }
 
-  Future<void> _writeSourceAnalysis(StringBuffer buffer, String stackText, String projectRoot) async {
+  Future<SourceCodeLookup?> _writeSourceAnalysis(StringBuffer buffer, String stackText, String projectRoot) async {
     final frame = SourceCodeAnalyzer.parseAppFrame(stackText);
     if (frame.className == null) {
       buffer.writeln('### 🔎 源码分析');
       buffer.writeln('- ⚠️ 堆栈中未定位到业务类（可能均为系统/框架调用）。');
       buffer.writeln();
-      return;
+      return null;
     }
     final analyzer = SourceCodeAnalyzer(projectPath: projectRoot);
     final lookup = await analyzer.readSnippet(className: frame.className, line: frame.line);
@@ -454,13 +461,13 @@ class CrashAnalysisReportGenerator {
       buffer.writeln('- 📄 源文件: 未找到');
       buffer.writeln('- 💡 可能原因：第三方库 / 业务包路径未配置 / 类名混淆。');
       buffer.writeln();
-      return;
+      return lookup;
     }
     if (lookup.isGitIgnored) {
       buffer.writeln('- 📄 文件: `${lookup.sourceFile}`');
       buffer.writeln('- ⚠️ 该文件被 `.gitignore` 忽略，跳过 git blame。');
       buffer.writeln();
-      return;
+      return lookup;
     }
     if (lookup.submodule.isNotEmpty) {
       buffer.writeln('- 📦 子模块: `${lookup.submodule}`（在子模块内执行 git blame）');
@@ -473,7 +480,7 @@ class CrashAnalysisReportGenerator {
     if (lookup.snippet.isEmpty) {
       buffer.writeln('- ⚠️ 代码片段为空。');
       buffer.writeln();
-      return;
+      return lookup;
     }
     buffer.writeln('#### 代码片段');
     buffer.writeln('```java');
@@ -513,6 +520,7 @@ class CrashAnalysisReportGenerator {
       }
     }
     buffer.writeln();
+    return lookup;
   }
 
   /// 在代码片段每行末尾追加「作者 · 时间 · commit 前 7 位」标识（最右注释区）。
@@ -526,42 +534,171 @@ class CrashAnalysisReportGenerator {
   Future<_FixContent> _resolveFix({
     required String errorType,
     required String stackText,
-    String? llmReply,
+    required List<_DistEntry> osDist,
+    required List<_DistEntry> deviceDist,
+    required List<_DistEntry> brandDist,
+    required SourceCodeLookup? sourceLookup,
+    required bool useLlm,
+    required String bizLabel,
   }) async {
-    if (llmReply != null && llmReply.trim().isNotEmpty) {
-      final fromLlm = _extractLlmFixSections(llmReply);
-      if (fromLlm != null) return fromLlm;
+    if (useLlm && config.llmBaseUrl.trim().isNotEmpty && config.llmApiKey.trim().isNotEmpty && config.llmModel.trim().isNotEmpty) {
+      try {
+        final fromLlm = await _generateFixWithLlm(
+          errorType: errorType,
+          stackText: stackText,
+          osDist: osDist,
+          deviceDist: deviceDist,
+          brandDist: brandDist,
+          sourceLookup: sourceLookup,
+          bizLabel: bizLabel,
+        );
+        if (fromLlm != null) return fromLlm;
+      } catch (_) {
+        // LLM 失败，回退到内置模板
+      }
     }
-    // LLM 不可用或没拿到时：回退到内置模板
-    return _BuiltinFixTemplate.pick(errorType, stackText);
+    return _BuiltinFixTemplate.build(
+      errorType: errorType,
+      stackText: stackText,
+      osDist: osDist,
+      deviceDist: deviceDist,
+      brandDist: brandDist,
+    );
   }
 
-  _FixContent? _extractLlmFixSections(String llm) {
-    String? grab(String h) {
-      final re = RegExp('^##\\s+${RegExp.escape(h)}\\s*\$', multiLine: true);
-      final m = re.firstMatch(llm);
+  Future<_FixContent?> _generateFixWithLlm({
+    required String errorType,
+    required String stackText,
+    required List<_DistEntry> osDist,
+    required List<_DistEntry> deviceDist,
+    required List<_DistEntry> brandDist,
+    required SourceCodeLookup? sourceLookup,
+    required String bizLabel,
+  }) async {
+    final client = newLlmClient();
+
+    final distBuf = StringBuffer();
+    if (osDist.isNotEmpty) {
+      distBuf.writeln('【系统版本分布 Top5】');
+      final sorted = [...osDist]..sort((a, b) => (b.count ?? 0).compareTo(a.count ?? 0));
+      for (final e in sorted.take(5)) {
+        distBuf.writeln('- ${e.name.isEmpty ? 'Unknown' : e.name}: ${e.count ?? 0}次');
+      }
+    }
+    if (deviceDist.isNotEmpty) {
+      distBuf.writeln('【机型分布 Top5】');
+      final sorted = [...deviceDist]..sort((a, b) => (b.count ?? 0).compareTo(a.count ?? 0));
+      for (final e in sorted.take(5)) {
+        distBuf.writeln('- ${e.name.isEmpty ? 'Unknown' : e.name}: ${e.count ?? 0}次');
+      }
+    }
+    if (brandDist.isNotEmpty) {
+      distBuf.writeln('【品牌分布】');
+      final sorted = [...brandDist]..sort((a, b) => (b.count ?? 0).compareTo(a.count ?? 0));
+      for (final e in sorted) {
+        distBuf.writeln('- ${e.name.isEmpty ? 'Unknown' : e.name}: ${e.count ?? 0}次');
+      }
+    }
+
+    final sourceBuf = StringBuffer();
+    if (sourceLookup != null && sourceLookup.sourceFile != null) {
+      sourceBuf.writeln('【源码定位】');
+      sourceBuf.writeln('文件: ${sourceLookup.sourceFile}');
+      if (sourceLookup.submodule.isNotEmpty) {
+        sourceBuf.writeln('子模块: ${sourceLookup.submodule}');
+      }
+      if (sourceLookup.snippet.isNotEmpty) {
+        sourceBuf.writeln('代码片段（带 >>> 的是崩溃行）:');
+        sourceBuf.writeln('```java');
+        for (final line in sourceLookup.snippet) {
+          final marker = line.lineNumber == sourceLookup.centerLine ? '>>> ' : '    ';
+          sourceBuf.writeln('$marker${line.lineNumber}: ${line.content}');
+        }
+        sourceBuf.writeln('```');
+      }
+      if (sourceLookup.authorStats.isNotEmpty) {
+        sourceBuf.writeln('代码贡献者:');
+        final sorted = sourceLookup.authorStats.entries.toList()
+          ..sort((a, b) => b.value.compareTo(a.value));
+        for (final e in sorted) {
+          sourceBuf.writeln('- ${e.key}: ${e.value}行');
+        }
+      }
+    }
+
+    final systemPrompt = '''你是资深移动端崩溃分析工程师，擅长 Android/iOS 原生与跨端栈。回答使用简体中文。
+
+**核心要求**：
+1. **只基于提供的事实分析，严禁编造**。不确定的地方标注「待确认」。
+2. **对于 native/so 崩溃**（堆栈是 libxxx.so、#xx pc 格式），从信号类型、.so 库作用、触发场景角度分析，不要强行对应业务代码。
+3. **对于 Java/Kotlin 异常**，结合堆栈中的类名/方法名和源码片段分析，不要编造未出现的类。
+4. **如果提供了源码片段**，请紧密围绕片段内容分析，指出具体行可能的问题。
+
+**输出格式要求**：
+直接输出三个部分，不要额外的标题或说明：
+
+【原因分析】
+（分析崩溃原因，结合堆栈指向、分布特征、源码定位等信息，给出 2-3 个最可能的原因，按可能性排序）
+
+【修改建议】
+（分点给出可操作的修复建议，每条建议具体、可落地）
+
+【代码示例】
+（用 Java 代码展示修复方案，如果是 native 崩溃则给出伪代码或防护模式）''';
+
+    final userPrompt = '''【${bizLabel}信息】
+错误类型: $errorType
+堆栈:
+$stackText
+
+${distBuf.toString().trim()}
+
+${sourceBuf.toString().trim()}
+
+请基于以上信息，生成原因分析、修改建议和代码示例。严格按照系统提示中的输出格式。''';
+
+    final reply = await client.chat([
+      {'role': 'system', 'content': systemPrompt},
+      {'role': 'user', 'content': userPrompt},
+    ]);
+
+    return _parseLlmFixOutput(reply);
+  }
+
+  _FixContent? _parseLlmFixOutput(String text) {
+    String? grabSection(String marker) {
+      final re = RegExp('【${RegExp.escape(marker)}】\\s*\\n', multiLine: true);
+      final m = re.firstMatch(text);
       if (m == null) return null;
-      final rest = llm.substring(m.end);
-      final next = RegExp(r'^##\s+', multiLine: true).firstMatch(rest);
+      final rest = text.substring(m.end);
+      final next = RegExp(r'【[^】]+】\s*\n', multiLine: true).firstMatch(rest);
       final end = next?.start ?? rest.length;
       final body = rest.substring(0, end).trim();
       return body.isEmpty ? null : body;
     }
-    final reason = grab('原因') ?? grab('根因');
-    final analysis = grab('分析');
-    final howto = grab('如何处理') ?? grab('修复建议') ?? grab('修复');
-    if (reason == null && analysis == null && howto == null) return null;
-    final reasonText = [reason, analysis].whereType<String>().join('\n\n');
+
+    final reason = grabSection('原因分析');
+    final suggestion = grabSection('修改建议');
+    final codeSection = grabSection('代码示例');
+
+    final codeExample = _extractFirstCodeBlock(codeSection ?? '');
+
+    if (reason == null && suggestion == null) return null;
+
     return _FixContent(
-      reason: reasonText.isEmpty ? '由大模型生成。' : reasonText,
-      suggestion: howto ?? '由大模型生成修复建议。',
-      codeExample: _extractFirstCodeBlock(llm),
+      reason: reason ?? '由大模型生成。',
+      suggestion: suggestion ?? '由大模型生成修复建议。',
+      codeExample: codeExample.isEmpty ? '// 请参考上方修改建议自行补全示例' : codeExample,
     );
   }
 
   String _extractFirstCodeBlock(String md) {
     final m = RegExp(r'```[a-zA-Z]*\n([\s\S]*?)```').firstMatch(md);
-    if (m == null) return '';
+    if (m == null) {
+      final cleaned = md.trim();
+      if (cleaned.isEmpty) return '';
+      return cleaned;
+    }
     return (m.group(1) ?? '').trim();
   }
 
@@ -719,25 +856,47 @@ class _FixContent {
   final String codeExample;
 }
 
-/// 简易内置模板（无 LLM 时的兜底；与 skill 的 `generateFixSuggestion` 思路一致）。
+/// 内置模板（无 LLM 时的兜底；结合分布数据生成更具体的分析）。
 class _BuiltinFixTemplate {
-  static _FixContent pick(String errorType, String stackText) {
+  static _FixContent build({
+    required String errorType,
+    required String stackText,
+    required List<_DistEntry> osDist,
+    required List<_DistEntry> deviceDist,
+    required List<_DistEntry> brandDist,
+  }) {
     final t = errorType.toLowerCase();
     final s = stackText.toLowerCase();
+
+    final distAnalysis = _buildDistributionAnalysis(osDist, deviceDist, brandDist);
+
     if (s.contains('libhwui.so') || t.contains('hwui')) {
       return _FixContent(
-        reason: '崩溃位置：libhwui.so（Android 硬件渲染引擎）。'
-            '通常由自定义 View 绘制异常、动画过载、GPU 驱动兼容性问题或资源未释放引起。',
-        suggestion: '1. 检查自定义 View 的 onDraw，确保空指针/越界已防护\n'
+        reason: '崩溃位置：libhwui.so（Android 硬件渲染引擎）\n'
+            '崩溃类型：Native 崩溃 / 渲染崩溃 / 绘图崩溃\n\n'
+            '常见原因：\n'
+            '- 自定义 View 绘图逻辑异常（onDraw 写错）\n'
+            '- 动画过度 / 内存抖动导致渲染器挂掉\n'
+            '- Android 系统版本 bug（尤其是 8.0/9.0/10.0）\n'
+            '- GPU 驱动异常 / 设备兼容性问题\n'
+            '- 大量图片、画布、纹理未释放'
+            '${distAnalysis.isEmpty ? '' : '\n\n分布特征：$distAnalysis'}',
+        suggestion: '1. 检查自定义 View 的 onDraw 方法，确保没有空指针和异常\n'
             '2. 减少动画复杂度，避免过度绘制\n'
-            '3. 及时释放 Canvas/Bitmap 等资源\n'
-            '4. 关闭/开启硬件加速对比复现\n'
-            '5. 针对高发品牌/版本做兼容性回归',
+            '3. 及时释放 Canvas、Bitmap 等资源\n'
+            '4. 对不同 Android 版本进行兼容性测试\n'
+            '5. 考虑使用硬件加速的替代方案\n'
+            '6. 检查是否有内存泄漏导致的内存抖动\n'
+            '7. 针对主要影响设备和品牌进行专门测试\n'
+            '8. 如果主要集中在特定设备上，考虑添加设备特定的适配代码',
         codeExample: '@Override\n'
             'protected void onDraw(Canvas canvas) {\n'
             '    try {\n'
             '        if (bitmap != null && !bitmap.isRecycled()) {\n'
             '            canvas.drawBitmap(bitmap, 0, 0, paint);\n'
+            '        }\n'
+            '        if (path != null && !path.isEmpty()) {\n'
+            '            canvas.drawPath(path, paint);\n'
             '        }\n'
             '    } catch (Exception e) {\n'
             '        Log.e(TAG, "onDraw error", e);\n'
@@ -747,11 +906,20 @@ class _BuiltinFixTemplate {
     }
     if (t.contains('nullpointerexception')) {
       return _FixContent(
-        reason: '空指针异常：访问了 null 对象或未初始化的变量。',
+        reason: '空指针异常：访问了 null 对象或未初始化的变量。\n\n'
+            '常见原因：\n'
+            '- 访问了 null 对象的方法或属性\n'
+            '- 未初始化的变量\n'
+            '- 方法返回了 null 但没有检查\n'
+            '- 异步操作导致对象被提前释放'
+            '${distAnalysis.isEmpty ? '' : '\n\n分布特征：$distAnalysis'}',
         suggestion: '1. 在访问对象前添加 null 检查\n'
-            '2. 检查异步回调时对象生命周期\n'
-            '3. 必要时使用 Optional 或空安全操作符\n'
-            '4. 关键路径加 try-catch 兜底',
+            '2. 确保变量在使用前已初始化\n'
+            '3. 检查方法返回值是否为 null\n'
+            '4. 注意异步操作中的对象生命周期\n'
+            '5. 使用 Optional 类或空安全操作符\n'
+            '6. 添加异常捕获机制\n'
+            '7. 针对主要影响设备和版本进行测试',
         codeExample: 'String planId = obj != null ? obj.getPlanId() : null;\n'
             'if (planId != null) {\n'
             '    use(planId);\n'
@@ -763,8 +931,9 @@ class _BuiltinFixTemplate {
     }
     if (t.contains('illegalstateexception') && s.contains('start service')) {
       return _FixContent(
-        reason: 'Android 12+ 不允许在后台启动 Service，应用在后台时尝试 startService 会崩溃。',
-        suggestion: '方案1: 使用 WorkManager 替代\n'
+        reason: 'Android 12+ 不允许在后台启动 Service，应用在后台时尝试 startService 会崩溃。'
+            '${distAnalysis.isEmpty ? '' : '\n\n分布特征：$distAnalysis'}',
+        suggestion: '方案1: 使用 WorkManager 替代后台 Service\n'
             '方案2: 使用 startForegroundService() + startForeground()\n'
             '方案3: 在 onDestroy() 中判断应用是否在后台',
         codeExample: 'if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {\n'
@@ -780,7 +949,8 @@ class _BuiltinFixTemplate {
     }
     if (t.contains(r'resources$notfoundexception') || t.contains('notfoundexception')) {
       return _FixContent(
-        reason: '资源未找到：资源 ID 不存在或资源名称拼写错误。',
+        reason: '资源未找到：资源 ID 不存在或资源名称拼写错误。'
+            '${distAnalysis.isEmpty ? '' : '\n\n分布特征：$distAnalysis'}',
         suggestion: '1. 检查资源名/ID 是否正确\n'
             '2. 多语言/多分辨率目录下确认资源齐备\n'
             '3. 必要时使用 getIdentifier() 兜底',
@@ -790,7 +960,8 @@ class _BuiltinFixTemplate {
     }
     if (t.contains('sigtrap') || t.contains('sigsegv') || t.contains('sigabrt')) {
       return _FixContent(
-        reason: 'Native 层崩溃：WebView/图形渲染/第三方 native 库常见。',
+        reason: 'Native 层崩溃：WebView/图形渲染/第三方 native 库常见。'
+            '${distAnalysis.isEmpty ? '' : '\n\n分布特征：$distAnalysis'}',
         suggestion: '1. 更新 WebView 到最新版本\n'
             '2. 捕获并上报 native 异常（xCrash 等）\n'
             '3. 评估替换为 X5 WebView\n'
@@ -804,7 +975,8 @@ class _BuiltinFixTemplate {
       );
     }
     return _FixContent(
-      reason: '需要根据具体堆栈信息分析。',
+      reason: '需要根据具体堆栈信息进一步分析。'
+          '${distAnalysis.isEmpty ? '' : '\n\n分布特征：$distAnalysis'}',
       suggestion: '1. 查看堆栈定位具体代码\n'
           '2. 检查相关对象状态\n'
           '3. 添加空检查和异常处理\n'
@@ -817,5 +989,44 @@ class _BuiltinFixTemplate {
           '    Log.e(TAG, "Error", e);\n'
           '}',
     );
+  }
+
+  static String _buildDistributionAnalysis(
+    List<_DistEntry> osDist,
+    List<_DistEntry> deviceDist,
+    List<_DistEntry> brandDist,
+  ) {
+    final parts = <String>[];
+
+    if (osDist.isNotEmpty) {
+      final sorted = [...osDist]..sort((a, b) => (b.count ?? 0).compareTo(a.count ?? 0));
+      final top = sorted.first;
+      final total = osDist.fold<int>(0, (s, e) => s + (e.count ?? 0));
+      if (total > 0 && (top.count ?? 0) / total > 0.6) {
+        parts.add('主要集中在 ${top.name.isEmpty ? 'Unknown' : top.name} 系统版本');
+      } else if (sorted.length > 3) {
+        parts.add('影响多个系统版本（${sorted.length}个）');
+      }
+    }
+
+    if (brandDist.isNotEmpty) {
+      final sorted = [...brandDist]..sort((a, b) => (b.count ?? 0).compareTo(a.count ?? 0));
+      final top = sorted.first;
+      final total = brandDist.fold<int>(0, (s, e) => s + (e.count ?? 0));
+      if (total > 0 && (top.count ?? 0) / total > 0.5) {
+        parts.add('主要集中在 ${top.name.isEmpty ? 'Unknown' : top.name} 品牌');
+      }
+    }
+
+    if (deviceDist.isNotEmpty) {
+      final sorted = [...deviceDist]..sort((a, b) => (b.count ?? 0).compareTo(a.count ?? 0));
+      final top = sorted.first;
+      final total = deviceDist.fold<int>(0, (s, e) => s + (e.count ?? 0));
+      if (total > 0 && (top.count ?? 0) / total > 0.5) {
+        parts.add('主要集中在 ${top.name.isEmpty ? 'Unknown' : top.name} 机型');
+      }
+    }
+
+    return parts.join('；');
   }
 }

@@ -335,7 +335,9 @@ class _SettingsTabState extends State<SettingsTab> {
       return;
     }
     try {
+      debugPrint('[DEBUG] 保存前 localProjectPath = ${next.localProjectPath}');
       await widget.controller.saveConfig(next);
+      debugPrint('[DEBUG] 保存后 config.localProjectPath = ${widget.controller.config.localProjectPath}');
     } catch (e, st) {
       debugPrint('saveConfig failed: $e\n$st');
       if (!mounted) return;

@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../app_controller.dart';
-import '../models/analysis_report_record.dart';
 import '../models/agent_payload.dart';
 import '../models/tool_config.dart';
 import '../services/agent_launcher.dart';
@@ -13,14 +12,9 @@ import '../services/analysis_prompt_builder.dart';
 import '../services/console_links.dart';
 import '../services/crash_analysis_report_generator.dart';
 import '../services/gitlab_client.dart';
-import '../services/gitlab_stack_search.dart';
-import '../services/llm_client.dart';
-import '../services/outbound_http_client_for_config.dart';
 import '../services/security_redaction.dart';
 import '../services/stack_clarity.dart';
-import '../services/stack_keywords.dart';
 import 'issue_detail_page.dart';
-import 'llm_output_sections.dart';
 import '../constants/app_constants.dart';
 
 /// 列表「查看」入口：拉取单条详情后自动调用大模型，分块展示原因 / 方案等，并提供去处理（Agent）。
@@ -54,13 +48,8 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
   String? _loadErr;
   bool _loading = true;
 
-  final StringBuffer _llmOut = StringBuffer();
-  bool _llmBusy = false;
-  String? _llmErr;
   List<GitLabBlobHit> _blobHits = const [];
   List<GitLabCommitInfo> _commits = const [];
-  bool _gitlabBusy = false;
-  String? _gitlabErr;
 
   /// 完整 Markdown 报告（业务模块 + 项目路径 + Git blame 三件套齐备时一次性生成）。
   final StringBuffer _fullReport = StringBuffer();
@@ -101,7 +90,7 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
         _loading = false;
       });
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _runLlm();
+        if (mounted) _generateFullReport(useLlm: _cfg.validateLlm().isEmpty);
       });
     } catch (e) {
       if (!mounted) return;
@@ -113,9 +102,6 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
   }
 
   ToolConfig get _cfg => widget.controller.config;
-
-  /// 首条命中路径近期 Git 提交作者去重，供 UI 与保存报告复用。
-  String get _gitAuthorsSummaryLine => gitCommitAuthorsSummaryLine(_commits);
 
   String _stackText() {
     final j = _issueJson;
@@ -142,98 +128,11 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
     return widget.listStack ?? '';
   }
 
-  Future<void> _runLlm() async {
-    if (_issueJson == null) {
-      setState(() {
-        _llmErr = _loadErr ?? '缺少 GetIssue 数据，无法分析';
-        _llmOut.clear();
-      });
-      return;
-    }
-    final miss = _cfg.validateLlm();
-    if (miss.isNotEmpty) {
-      setState(() {
-        _llmErr = '请先在「配置」中填写：${miss.join('、')}';
-        _llmOut.clear();
-      });
-      return;
-    }
-
-    final stackFull = widget.listStack ?? _stackText();
-    final clarity = analyzeStackClarity(stackFull);
-
-    var gh = _blobHits;
-    var gc = _commits;
-    final tryAutoGitlab = clarity.level == StackClarityLevel.businessLikely &&
-        _cfg.validateGitlab().isEmpty &&
-        extractStackKeywords(stackFull).isNotEmpty;
-
-    setState(() {
-      _llmBusy = true;
-      _llmErr = null;
-    });
-
-    if (tryAutoGitlab) {
-      setState(() {
-        _gitlabBusy = true;
-        _gitlabErr = null;
-      });
-      try {
-        final r = await searchGitlabForStack(config: _cfg, stack: stackFull);
-        if (!mounted) return;
-        gh = r.hits;
-        gc = r.commits;
-        setState(() {
-          _blobHits = gh;
-          _commits = gc;
-          if (r.skippedReason != null && gh.isEmpty) {
-            _gitlabErr = r.skippedReason;
-          }
-        });
-      } catch (e) {
-        if (mounted) setState(() => _gitlabErr = userFacingNetworkError(e));
-      } finally {
-        if (mounted) setState(() => _gitlabBusy = false);
-      }
-    }
-
-    final client = LlmClient(
-      baseUrl: _cfg.llmBaseUrl.trim(),
-      apiKey: _cfg.llmApiKey.trim(),
-      model: _cfg.llmModel.trim(),
-      chatCompletionsPath: _cfg.effectiveLlmChatPath,
-      httpClient: newOutboundHttpClient(),
-    );
-    try {
-      final userMsg = buildAnalysisUserPrompt(
-        digestHash: widget.digestHash,
-        getIssueBody: _issueJson,
-        listTitle: widget.title,
-        listStack: stackFull,
-        clarity: clarity,
-        gitlabHits: gh,
-        gitlabCommits: gc,
-      );
-      final reply = await client.chat([
-        {'role': 'system', 'content': _cfg.effectiveLlmSystemPrompt},
-        {'role': 'user', 'content': userMsg},
-      ]);
-      if (!mounted) return;
-      setState(() {
-        _llmOut.clear();
-        _llmOut.writeln(reply);
-        _llmBusy = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _llmOut.clear();
-        _llmOut.writeln('请求失败：${userFacingNetworkError(e)}');
-        _llmBusy = false;
-      });
-    } finally {
-      client.close();
-    }
+  Map<String, dynamic> _modelMap() {
+    final j = _issueJson;
+    if (j == null) return const {};
+    if (j['Model'] is Map) return Map<String, dynamic>.from(j['Model'] as Map);
+    return j;
   }
 
   Future<void> _copyPrompt() async {
@@ -328,132 +227,10 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
     );
   }
 
-  String _stackSnippet(int max) {
-    final s = _stackText().trim();
-    if (s.isEmpty) return '';
-    if (s.length <= max) return s;
-    return '${s.substring(0, max)}…';
-  }
-
-  String _gitlabContextSummary() {
-    if (_blobHits.isEmpty && _commits.isEmpty) return '';
-    final buf = StringBuffer();
-    final devLine = _gitAuthorsSummaryLine;
-    if (devLine.isNotEmpty) {
-      buf.writeln(devLine);
-      buf.writeln();
-    }
-    if (_blobHits.isNotEmpty) {
-      buf.writeln('GitLab 检索命中（工具内 REST，可在 MCP 中继续查仓库）：');
-      for (final h in _blobHits.take(12)) {
-        final label = (h.configRepoLabel?.trim().isNotEmpty ?? false)
-            ? h.configRepoLabel!.trim()
-            : (h.searchProjectId ?? '${h.projectId ?? ''}');
-        buf.writeln('- [$label] ${h.path ?? h.basename ?? '?'}');
-      }
-    }
-    if (_commits.isNotEmpty) {
-      buf.writeln('相关提交摘录：');
-      for (final c in _commits.take(6)) {
-        final who = c.authorName?.trim();
-        final bit = (who != null && who.isNotEmpty) ? ' · $who' : '';
-        buf.writeln('- ${c.title ?? c.id ?? ''}$bit');
-      }
-    }
-    return buf.toString().trim();
-  }
-
-  AnalysisReportRecord _buildReportRecord() {
-    final git = _gitlabContextSummary();
-    final devLine = _gitAuthorsSummaryLine;
-    final core = _llmOut.toString().trim();
-    final reportBody = devLine.isEmpty ? core : '$devLine\n\n$core';
-    return AnalysisReportRecord(
-      id: AnalysisReportRecord.newId(),
-      projectId: widget.controller.activeProject.id,
-      digestHash: widget.digestHash,
-      title: widget.title,
-      bizModule: widget.controller.activeBizModule,
-      createdAtMs: DateTime.now().millisecondsSinceEpoch,
-      reportBody: reportBody,
-      stackSnippet: _stackSnippet(800),
-      gitlabContext: git.isEmpty ? null : git,
-    );
-  }
-
-  Future<void> _saveAnalysisReport() async {
-    final body = _llmOut.toString().trim();
-    if (body.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('暂无分析内容可保存'), behavior: SnackBarBehavior.floating),
-        );
-      }
-      return;
-    }
-    final evicted = await widget.controller.addAnalysisReport(_buildReportRecord());
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            evicted
-                ? '已保存。报告库最多 ${AppController.maxAnalysisReportsPerProject} 条，已按时间移除最旧条目'
-                : '已保存到报告库（对话页可继续挂载）',
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
-
-  void _attachReportToChat() {
-    final body = _llmOut.toString().trim();
-    if (body.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('请等待分析完成'), behavior: SnackBarBehavior.floating),
-        );
-      }
-      return;
-    }
-    final rec = _buildReportRecord();
-    widget.controller.attachReportToChat(rec);
-    widget.controller.requestOpenChatTab();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('已挂载到「对话」上下文，并切换到对话页；可直接让模型结合 Claude Code / MCP 改代码'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
-
-  Future<void> _saveAndOpenChat() async {
-    final body = _llmOut.toString().trim();
-    if (body.isEmpty) return;
-    final rec = _buildReportRecord();
-    final evicted = await widget.controller.addAnalysisReport(rec);
-    widget.controller.attachReportToChat(rec);
-    widget.controller.requestOpenChatTab();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            evicted
-                ? '已保存并挂载；报告库已满（最多 ${AppController.maxAnalysisReportsPerProject} 条），已移除最旧一条'
-                : '已保存并挂载报告，已打开对话页',
-          ),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
-  }
-
   /// 生成并保存「完整分析报告」（对应 skill 的 analyzeCrash 输出结构）。
   ///
-  /// 入参：当前 issue 的 GetIssue 详情 + LLM 三段式（已有则复用，避免重复扣 LLM 配额）。
-  Future<void> _generateFullReport() async {
+  /// [useLlm] 为 true 且配置了 LLM 时，调用大模型生成原因分析/修改建议/代码示例。
+  Future<void> _generateFullReport({bool useLlm = false}) async {
     if (_issueJson == null) {
       setState(() => _fullReportErr = '缺少 GetIssue 数据');
       return;
@@ -474,7 +251,7 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
         input: input,
         bizModule: widget.bizModule,
         projectPath: _cfg.localProjectPath,
-        llmReply: _llmOut.toString(),
+        useLlm: useLlm,
       );
       final path = await generator.saveReport(result);
       if (!mounted) return;
@@ -484,6 +261,14 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
         _fullReportPath = path;
         _fullReportBusy = false;
       });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('分析报告已生成，可在报告Tab页查看'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -559,7 +344,7 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
                 )
               : Column(
                   children: [
-                    if (_llmBusy || _gitlabBusy)
+                    if (_fullReportBusy)
                       LinearProgressIndicator(
                         minHeight: 3,
                         color: cs.primary,
@@ -572,6 +357,7 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
                             digest: widget.digestHash,
                             errorCount: widget.errorCount,
                             deviceCount: widget.errorDeviceCount,
+                            model: _modelMap(),
                           ),
                           const SizedBox(height: 12),
                           Card(
@@ -607,94 +393,31 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
                               Icon(Icons.auto_awesome, color: cs.primary, size: 22),
                               const SizedBox(width: 8),
                               Text(
-                                '智能分析（原因 · 分析 · 如何处理）',
+                                '智能分析报告',
                                 style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
                               ),
                               const Spacer(),
-                              if (!_llmBusy && _cfg.validateLlm().isEmpty)
+                              if (!_fullReportBusy)
                                 TextButton.icon(
-                                  onPressed: _runLlm,
+                                  onPressed: () => _generateFullReport(useLlm: _cfg.validateLlm().isEmpty),
                                   icon: const Icon(Icons.refresh, size: 18),
-                                  label: const Text('重新分析'),
+                                  label: const Text('重新生成'),
                                 ),
                             ],
                           ),
-                          if (_llmErr != null) ...[
+                          if (_fullReportErr != null) ...[
                             const SizedBox(height: 8),
                             Material(
                               color: cs.errorContainer.withValues(alpha: 0.6),
                               borderRadius: AppBorderRadius.md,
                               child: Padding(
                                 padding: const EdgeInsets.all(12),
-                                child: Text(_llmErr!, style: TextStyle(color: cs.onErrorContainer, height: 1.35)),
-                              ),
-                            ),
-                          ],
-                          if (_gitlabBusy)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 8),
-                              child: Text(
-                                '正在根据堆栈检索 GitLab…',
-                                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-                              ),
-                            ),
-                          if (_gitlabErr != null && _blobHits.isEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: Text(
-                                'GitLab：$_gitlabErr',
-                                style: TextStyle(fontSize: 12, color: cs.outline),
-                              ),
-                            ),
-                          if (_gitAuthorsSummaryLine.isNotEmpty) ...[
-                            const SizedBox(height: 10),
-                            Card(
-                              elevation: 0,
-                              color: cs.secondaryContainer.withValues(alpha: kOpacitySemiTransparent),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: AppBorderRadius.md,
-                                side: BorderSide(color: cs.outlineVariant.withValues(alpha: kOpacityLight)),
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Icon(Icons.person_outline, size: 20, color: cs.primary),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            '相关开发者（Git）',
-                                            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                                                  fontWeight: FontWeight.w700,
-                                                ),
-                                          ),
-                                          const SizedBox(height: 4),
-                                          SelectableText(
-                                            _gitAuthorsSummaryLine,
-                                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.35),
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            '根据首条命中文件在 GitLab 的近期提交 author 去重汇总；保存报告时会写入报告正文开头。',
-                                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                                  color: cs.onSurfaceVariant,
-                                                  height: 1.3,
-                                                ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                                child: Text(_fullReportErr!, style: TextStyle(color: cs.onErrorContainer, height: 1.35)),
                               ),
                             ),
                           ],
                           const SizedBox(height: 12),
-                          if (_llmBusy && _llmOut.isEmpty)
+                          if (_fullReportBusy && _fullReport.isEmpty)
                             Padding(
                               padding: const EdgeInsets.symmetric(vertical: 32),
                               child: Center(
@@ -707,90 +430,21 @@ class _IssueQuickAnalysisPageState extends State<IssueQuickAnalysisPage> {
                                     ),
                                     const SizedBox(height: 16),
                                     Text(
-                                      '正在调用模型分析堆栈…',
+                                      '正在生成分析报告…',
                                       style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: cs.onSurfaceVariant),
                                     ),
                                   ],
                                 ),
                               ),
                             )
-                          else ...[
-                            buildLlmSectionCards(context, _llmOut.toString()),
-                            if (_llmErr == null && _llmOut.toString().trim().isNotEmpty) ...[
-                              const SizedBox(height: 16),
-                              Card(
-                                elevation: 0,
-                                color: cs.primaryContainer.withValues(alpha: kOpacityLight),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: AppBorderRadius.md,
-                                  side: BorderSide(color: cs.outlineVariant.withValues(alpha: kOpacityLight)),
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Icon(Icons.article_outlined, size: 20, color: cs.primary),
-                                          const SizedBox(width: 8),
-                                          Text(
-                                            '报告与后续开发',
-                                            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                                                  fontWeight: FontWeight.w700,
-                                                ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        '每个项目报告库最多 ${AppController.maxAnalysisReportsPerProject} 条，满后新保存会淘汰最旧条目。可在「对话」页报告库中删除或挂载；挂载后模型会带上完整分析，便于结合 Claude Code / GitLab MCP 改代码。',
-                                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                              color: cs.onSurfaceVariant,
-                                              height: 1.35,
-                                            ),
-                                      ),
-                                      const SizedBox(height: 12),
-                                      Wrap(
-                                        spacing: 8,
-                                        runSpacing: 8,
-                                        children: [
-                                          FilledButton.tonalIcon(
-                                            onPressed: _llmBusy ? null : _saveAnalysisReport,
-                                            icon: const Icon(Icons.save_outlined, size: 18),
-                                            label: const Text('保存到报告库'),
-                                          ),
-                                          FilledButton.icon(
-                                            onPressed: _llmBusy ? null : _attachReportToChat,
-                                            icon: const Icon(Icons.chat_bubble_outline, size: 18),
-                                            label: const Text('加入对话上下文'),
-                                          ),
-                                          OutlinedButton.icon(
-                                            onPressed: _llmBusy ? null : _saveAndOpenChat,
-                                            icon: const Icon(Icons.merge_type, size: 18),
-                                            label: const Text('保存并打开对话'),
-                                          ),
-                                          FilledButton.tonalIcon(
-                                            onPressed: (_llmBusy || _fullReportBusy) ? null : _generateFullReport,
-                                            icon: const Icon(Icons.assignment_outlined, size: 18),
-                                            label: const Text('生成完整报告'),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ],
-                          if (_fullReportBusy || _fullReportErr != null || _fullReport.isNotEmpty)
+                          else if (_fullReport.isNotEmpty || _fullReportErr != null)
                             _FullReportSection(
                               busy: _fullReportBusy,
                               err: _fullReportErr,
                               markdown: _fullReport.toString(),
                               path: _fullReportPath,
                               onOpen: _openFullReportInFinder,
-                              onRegenerate: _generateFullReport,
+                              onRegenerate: () => _generateFullReport(useLlm: _cfg.validateLlm().isEmpty),
                             ),
                           const SizedBox(height: 80),
                         ],
@@ -1023,15 +677,25 @@ class _DigestSummaryCard extends StatelessWidget {
     required this.digest,
     required this.errorCount,
     required this.deviceCount,
+    required this.model,
   });
 
   final String digest;
   final int? errorCount;
   final int? deviceCount;
+  final Map<String, dynamic> model;
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+
+    final errorRate = _readRate(model['ErrorRate'] ?? model['CrashRate']);
+    final firstVersion = (model['FirstVersion']?.toString() ?? '-').trim();
+    final firstTime = model['FirstTime']?.toString();
+    final latestTime = model['LatestTime']?.toString();
+    final errorName = (model['Name']?.toString() ?? model['ErrorName']?.toString() ?? '-').trim();
+    final errorType = (model['Type']?.toString() ?? model['ErrorType']?.toString() ?? '-').trim();
+
     return Card(
       elevation: 0,
       color: cs.surfaceContainerHighest.withValues(alpha: 0.7),
@@ -1047,19 +711,50 @@ class _DigestSummaryCard extends StatelessWidget {
             Text('Digest', style: Theme.of(context).textTheme.labelMedium?.copyWith(color: cs.onSurfaceVariant)),
             const SizedBox(height: 4),
             SelectableText(digest, style: const TextStyle(fontFamily: 'monospace', fontSize: 13)),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             Wrap(
               spacing: 10,
               runSpacing: 8,
               children: [
                 _StatPill(icon: Icons.repeat, label: '上报次数', value: '${errorCount ?? '-'}'),
                 _StatPill(icon: Icons.devices, label: '影响设备', value: '${deviceCount ?? '-'}'),
+                if (errorRate != null)
+                  _StatPill(icon: Icons.trending_up, label: '错误率', value: '${errorRate.toStringAsFixed(3)}%'),
+                if (firstVersion.isNotEmpty && firstVersion != '-')
+                  _StatPill(icon: Icons.label_outline, label: '首现版本', value: firstVersion),
+                if (firstTime != null && firstTime.isNotEmpty)
+                  _StatPill(icon: Icons.schedule, label: '首次时间', value: firstTime.split('.')[0]),
+                if (latestTime != null && latestTime.isNotEmpty)
+                  _StatPill(icon: Icons.update, label: '最近时间', value: latestTime.split('.')[0]),
               ],
             ),
+            if (errorName.isNotEmpty || errorType.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Divider(height: 1, color: cs.outlineVariant.withValues(alpha: kOpacityLight)),
+              const SizedBox(height: 12),
+              if (errorName.isNotEmpty && errorName != '-')
+                _DetailRow(label: '错误名称', value: errorName),
+              if (errorType.isNotEmpty && errorType != '-')
+                _DetailRow(label: '错误类型', value: errorType),
+            ],
           ],
         ),
       ),
     );
+  }
+
+  double? _readRate(dynamic v) {
+    if (v == null) return null;
+    if (v is num) {
+      final d = v.toDouble();
+      return d <= 1 ? d * 100 : d;
+    }
+    final s = v.toString().trim();
+    if (s.isEmpty) return null;
+    final cleaned = s.endsWith('%') ? s.substring(0, s.length - 1).trim() : s;
+    final d = double.tryParse(cleaned);
+    if (d == null) return null;
+    return d <= 1 ? d * 100 : d;
   }
 }
 
@@ -1090,6 +785,38 @@ class _StatPill extends StatelessWidget {
               Text(label, style: Theme.of(context).textTheme.labelSmall?.copyWith(color: cs.onPrimaryContainer)),
               Text(value, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  const _DetailRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 110,
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+            ),
+          ),
+          Expanded(
+            child: SelectableText(
+              value,
+              style: const TextStyle(fontSize: 13, height: 1.4),
+            ),
           ),
         ],
       ),
