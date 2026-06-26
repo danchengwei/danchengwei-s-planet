@@ -10,6 +10,7 @@ import 'unified_report_hub.dart';
 import 'analysis_report_tab.dart';
 import 'html_report_analysis_tab.dart';
 import 'scheduled_background_tasks_tab.dart';
+import 'crash_fix_agent_tab.dart';
 
 /// 主导航：工作台 / 报告 / HTML分析 / 后台定时任务 / 配置。
 class MainShell extends StatefulWidget {
@@ -70,20 +71,22 @@ class _MainShellState extends State<MainShell> {
       case 0:
         return WorkbenchShell(
           controller: widget.controller,
-          onOpenSettings: () => setState(() => _index = 4),
+          onOpenSettings: () => setState(() => _index = 5),
         );
       case 1:
         return AnalysisReportTab(controller: widget.controller);
       case 2:
         return HtmlReportAnalysisTab(controller: widget.controller);
       case 3:
-        return ScheduledBackgroundTasksTab(controller: widget.controller);
+        return CrashFixAgentTab(controller: widget.controller);
       case 4:
+        return ScheduledBackgroundTasksTab(controller: widget.controller);
+      case 5:
         return SettingsTab(controller: widget.controller);
       default:
         return WorkbenchShell(
           controller: widget.controller,
-          onOpenSettings: () => setState(() => _index = 4),
+          onOpenSettings: () => setState(() => _index = 5),
         );
     }
   }
@@ -159,6 +162,11 @@ class _MainShellState extends State<MainShell> {
                                   icon: Image.asset('lib/assets/shiba.png', width: 24, height: 24),
                                   selectedIcon: Image.asset('lib/assets/shiba.png', width: 24, height: 24),
                                   label: const Text('HTML分析'),
+                                ),
+                                NavigationRailDestination(
+                                  icon: Image.asset('lib/assets/doll_cat.png', width: 24, height: 24),
+                                  selectedIcon: Image.asset('lib/assets/doll_cat.png', width: 24, height: 24),
+                                  label: const Text('Agent'),
                                 ),
                                 NavigationRailDestination(
                                   icon: Image.asset('lib/assets/duck.png', width: 24, height: 24),

@@ -35,6 +35,8 @@ import 'services/report_bundle.dart';
 import 'services/report_html.dart';
 import 'services/security_redaction.dart';
 import 'services/wallpaper_theme_seeder.dart';
+import 'services/ai_source_code_analyzer.dart';
+import 'services/report_manager.dart';
 
 /// 全局状态：多项目工作区、当前项目配置、列表、多选、协议回调。
 class AppController extends ChangeNotifier {
@@ -103,6 +105,10 @@ class AppController extends ChangeNotifier {
 
   late int rangeStartMs;
   late int rangeEndMs;
+
+  late Directory _tempDirectory;
+
+  Directory get tempDirectory => _tempDirectory;
 
   /// 工作台子模块临时覆盖的 BizModule（如 anr、performance）；空则使用 [config.bizModule]。
   String _workspaceBizOverride = '';
@@ -461,11 +467,43 @@ class AppController extends ChangeNotifier {
     return true;
   }
 
+  /// 获取当前项目的所有 issue（用于 Agent 选择）
+  List<Map<String, dynamic>> get activeProjectIssues {
+    final items = lastIssues?.items ?? <IssueListItem>[];
+    return items.map((item) {
+      return <String, dynamic>{
+        'digestHash': item.digestHash,
+        'title': item.errorName ?? 'Unknown',
+        'errorCount': item.errorCount ?? 0,
+        'stackTrace': item.stack ?? '',
+        'errorType': item.errorType ?? 'Exception',
+      };
+    }).toList();
+  }
+
+  /// 获取源代码分析器
+  AiSourceCodeAnalyzer? _sourceCodeAnalyzer;
+  AiSourceCodeAnalyzer get sourceCodeAnalyzer {
+    if (_sourceCodeAnalyzer == null) {
+      _sourceCodeAnalyzer = AiSourceCodeAnalyzer(
+        config: config,
+        reportManager: ReportManager(),
+      );
+    }
+    return _sourceCodeAnalyzer!;
+  }
+
+  /// Git 客户端（通过命令行调用）
+  dynamic get gitClient => null; // 使用 git 命令而非 API 客户端
+
   Future<void> _bootstrap() async {
     loadingConfig = true;
     bootstrapError = null;
     notifyListeners();
     try {
+      // 初始化临时目录
+      _tempDirectory = await getTemporaryDirectory();
+
       _workspace = await _configRepo.loadWorkspace();
       _workspace.ensureValidActive();
       testLocalConfigAppliedPath = null;

@@ -78,6 +78,9 @@ flutter:
     - lib/assets/
     - crash-tools-builtin-config.json
     - crash-tools-test-config.sample.json
+    - tools/aliyun/bundled/VERSION
+    - tools/aliyun/bundled/darwin-arm64/aliyun
+    - tools/aliyun/bundled/darwin-amd64/aliyun
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
