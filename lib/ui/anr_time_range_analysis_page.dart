@@ -107,6 +107,12 @@ class _AnrTimeRangeAnalysisPageState extends State<AnrTimeRangeAnalysisPage> {
     await _fetchAvailableVersions(startDate, endDate, _quickWeekCount);
   }
 
+  /// 当前是否选择的是崩溃模块（crash）
+  bool get _isCrashModule => _selectedBizModule == 'crash';
+
+  /// 获取当前的率名称（根据模块动态显示）
+  String get _rateLabel => _isCrashModule ? '崩溃率' : '卡顿率';
+
   /// 获取可用的版本列表
   /// 调用统一的版本获取方法，展示所有真实数据中的版本
   Future<void> _fetchAvailableVersions(DateTime startDate, DateTime endDate, int weekCount) async {
@@ -507,7 +513,7 @@ class _AnrTimeRangeAnalysisPageState extends State<AnrTimeRangeAnalysisPage> {
                   DataColumn(label: Text('版本', style: textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600))),
                   DataColumn(label: Text('次数', style: textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600))),
                   DataColumn(label: Text('设备数', style: textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600))),
-                  DataColumn(label: Text('卡顿率', style: textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600))),
+                  DataColumn(label: Text(_isCrashModule ? '崩溃率' : '卡顿率', style: textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600))),
                 ],
                 rows: [
                   ...weekData.dailyStats.map((stat) {
@@ -713,7 +719,7 @@ class _AnrTimeRangeAnalysisPageState extends State<AnrTimeRangeAnalysisPage> {
                 ),
                 const SizedBox(height: 10),
                 _TrendRow(
-                  label: '卡顿率',
+                  label: _rateLabel,
                   trend: trend.getYoYTrend('rate'),
                   direction: trend.getTrendDirection('rate'),
                 ),
