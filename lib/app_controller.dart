@@ -1142,7 +1142,7 @@ class AppController extends ChangeNotifier {
         granularity: granularity,
         endTimeMs: rangeEndMs,
         bizModule: bizModule,
-        firstVersion: version,
+        appVersion: version,
         topN: topN,
       );
 

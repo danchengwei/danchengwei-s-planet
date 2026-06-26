@@ -708,6 +708,7 @@ class IssueListItem {
     this.deviceRatePercent,
     this.firstVersion,
     this.issueStatus,
+    this.rawJson,
   });
 
   /// 将 GetIssue 顶层 JSON（含 `Model`）转为列表行；缺 `DigestHash` 时用 [digestHint]。
@@ -729,20 +730,18 @@ class IssueListItem {
   factory IssueListItem.fromJson(Map<String, dynamic> j) {
     return IssueListItem(
       digestHash: j['DigestHash']?.toString(),
-      // GetIssues API 返回的是 Name 和 Type 字段
       errorName: _firstNonEmptyString(
         j['ErrorName'],
-        j['Name'],  // GetIssues API 实际字段
+        j['Name'],
         j['Title'],
       ),
       stack: j['Stack']?.toString(),
       errorCount: _parseOptionalInt(j['ErrorCount']),
       errorDeviceCount: _parseOptionalInt(j['ErrorDeviceCount']),
       eventTime: j['EventTime']?.toString(),
-      // GetIssues API 返回的是 Type 字段
       errorType: _firstNonEmptyString(
         j['ErrorType'],
-        j['Type'],  // GetIssues API 实际字段
+        j['Type'],
       ),
       errorRatePercent: _parseOptionalPercent(j['ErrorRate'] ?? j['CrashRate'] ?? j['IssueCrashRate']),
       deviceRatePercent: _parseOptionalPercent(
@@ -759,6 +758,7 @@ class IssueListItem {
         j['IssueStatus'],
         j['HandleStatus'],
       ),
+      rawJson: j,
     );
   }
 
@@ -783,6 +783,7 @@ class IssueListItem {
   final double? deviceRatePercent;
   final String? firstVersion;
   final String? issueStatus;
+  final Map<String, dynamic>? rawJson;
 
   /// 与控制台一致：优先 [errorType] 作粗体标题，[errorName] 作补充说明。
   (String primaryTitle, String? secondaryLine) displayTitles() {

@@ -991,7 +991,6 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
         final osDist = _readDistributionList(crash['os_distribution']);
         final deviceDist = _readDistributionList(crash['device_distribution']);
         final brandDist = _readDistributionList(crash['brand_distribution']);
-        final errorCount = crash['error_count'] as int? ?? 0;
 
         if (osDist.isNotEmpty || deviceDist.isNotEmpty || brandDist.isNotEmpty) {
           buffer.writeln('**分布分析**:');

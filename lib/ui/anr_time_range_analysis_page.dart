@@ -507,7 +507,7 @@ class _AnrTimeRangeAnalysisPageState extends State<AnrTimeRangeAnalysisPage> {
                   DataColumn(label: Text('版本', style: textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600))),
                   DataColumn(label: Text('次数', style: textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600))),
                   DataColumn(label: Text('设备数', style: textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600))),
-                  DataColumn(label: Text('错误率', style: textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600))),
+                  DataColumn(label: Text('卡顿率', style: textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600))),
                 ],
                 rows: [
                   ...weekData.dailyStats.map((stat) {
@@ -713,7 +713,7 @@ class _AnrTimeRangeAnalysisPageState extends State<AnrTimeRangeAnalysisPage> {
                 ),
                 const SizedBox(height: 10),
                 _TrendRow(
-                  label: '错误率',
+                  label: '卡顿率',
                   trend: trend.getYoYTrend('rate'),
                   direction: trend.getTrendDirection('rate'),
                 ),
@@ -828,18 +828,24 @@ class _WeeklyDataGroup {
     required this.dailyStats,
   });
 
-  /// 计算周汇总（周错误率 = 周总次数 / 周总设备数）
+  /// 计算周汇总（周错误率 = 各天错误率的简单平均）
   Map<String, dynamic> calculateWeeklyTotal() {
     int totalCount = 0;
     int totalDevices = 0;
+    double sumRate = 0.0;
+    int daysWithRate = 0;
 
     for (final stat in dailyStats) {
       totalCount += stat.anrCount;
       totalDevices += stat.affectedDevices;
+      if (stat.errorRate > 0) {
+        sumRate += stat.errorRate;
+        daysWithRate++;
+      }
     }
 
-    // 周错误率：总次数 / 总设备数；如果无数据则为 0
-    final weekRate = totalDevices > 0 ? totalCount.toDouble() / totalDevices : 0.0;
+    // 周错误率：各天错误率的简单平均（errorRate 已是 0-1 小数）
+    final weekRate = daysWithRate > 0 ? sumRate / daysWithRate : 0.0;
 
     return {
       'count': totalCount,

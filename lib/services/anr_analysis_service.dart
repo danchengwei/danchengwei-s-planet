@@ -22,7 +22,7 @@ class AnrAnalysisService {
   /// [granularity]: 周期粒度（日/周/月）
   /// [endTimeMs]: 时间范围的结束时间戳（毫秒）
   /// [bizModule]: 业务模块（crash/anr/lag/custom/memory_leak/memory_alloc 等），默认 anr
-  /// [firstVersion]: 要筛选的首现版本（可选，为空表示不筛选），用于过滤问题列表
+  /// [appVersion]: 要筛选的发生版本（可选，为空表示不筛选），用于过滤问题列表
   /// [topN]: 返回前 N 条错误，默认 10
   /// [orderBy]: 排序字段，支持 ErrorRate/ErrorCount/ErrorDeviceCount/ErrorDeviceRate
   ///
@@ -33,7 +33,7 @@ class AnrAnalysisService {
     required PeriodGranularity granularity,
     required int endTimeMs,
     String bizModule = 'anr',
-    String? firstVersion,
+    String? appVersion,
     int topN = 10,
     String orderBy = 'ErrorRate',
   }) async {
@@ -49,7 +49,7 @@ class AnrAnalysisService {
           endMs: endMs,
           periodLabel: label,
           bizModule: bizModule,
-          firstVersion: firstVersion,
+          appVersion: appVersion,
           topN: topN,
           orderBy: orderBy,
         );
@@ -238,7 +238,7 @@ class AnrAnalysisService {
   ///
   /// EMAS API 的 get-issues 返回**各个问题**的统计（按错误率排序），而不是周期聚合。
   /// 为了获取周期的总体数据（总错误数、总设备数等），需要聚合所有问题数据。
-  /// 支持通过 firstVersion 筛选特定版本的问题。
+  /// 支持通过 appVersion 筛选特定版本的问题。
   ///
   /// 查询策略：分页查询所有问题（而不是只查 topN），然后按条件筛选。
   Future<AnrPeriodStatistics?> _fetchSinglePeriodStats({
@@ -246,7 +246,7 @@ class AnrAnalysisService {
     required int endMs,
     required String periodLabel,
     required String bizModule,
-    String? firstVersion,
+    String? appVersion,
     required int topN,
     required String orderBy,
   }) async {
@@ -263,7 +263,7 @@ class AnrAnalysisService {
       bool hasMorePages = true;
       int totalPages = 0;
 
-      print('[ANR分析] 开始查询问题列表，时间范围: $startMs - $endMs, 业务模块: $bizModule, 版本: $firstVersion');
+      print('[ANR分析] 开始查询问题列表，时间范围: $startMs - $endMs, 业务模块: $bizModule, 版本: $appVersion');
 
       while (hasMorePages) {
         print('[ANR分析] 查询第 $pageIndex 页...');
@@ -275,7 +275,7 @@ class AnrAnalysisService {
           pageIndex: pageIndex,
           pageSize: pageSize,
           orderBy: orderBy,
-          firstVersion: firstVersion,
+          appVersion: appVersion,
         );
 
         print('[ANR分析] 第 $pageIndex 页返回 ${result.items.length} 条问题');
@@ -307,21 +307,30 @@ class AnrAnalysisService {
       // 聚合所有问题的数据（API 已通过 Filter 参数过滤）
       int totalErrorCount = 0;
       int totalErrorDeviceCount = 0;
-      double totalErrorRate = 0.0;
-      int totalDeviceRate = 0;
+      double totalErrorRate = 0.0;  // 所有问题 errorRate 直接相加 = 整体卡顿率（0-1小数）
+      double totalDeviceRate = 0.0;  // 所有问题 deviceRate 直接相加 = 整体设备影响率（0-1小数）
 
       for (final item in allItems) {
         totalErrorCount += item.errorCount ?? 0;
         totalErrorDeviceCount += item.errorDeviceCount ?? 0;
-        totalErrorRate += _parseDouble(item.errorRatePercent) ?? 0.0;
-        totalDeviceRate += (_parseDouble(item.deviceRatePercent)?.toInt() ?? 0);
+
+        final rawRate = item.errorRatePercent;
+        if (rawRate != null && rawRate > 0) {
+          final normalized = rawRate > 1 ? rawRate / 100 : rawRate;
+          totalErrorRate += normalized;
+        }
+
+        final rawDeviceRate = item.deviceRatePercent;
+        if (rawDeviceRate != null && rawDeviceRate > 0) {
+          final normalized = rawDeviceRate > 1 ? rawDeviceRate / 100 : rawDeviceRate;
+          totalDeviceRate += normalized;
+        }
       }
 
-      // 错误率和设备率取平均
-      if (allItems.isNotEmpty) {
-        totalErrorRate = totalErrorRate / allItems.length;
-        totalDeviceRate = totalDeviceRate ~/ allItems.length;
-      }
+      // 卡顿率：所有问题 errorRate 直接相加（分母都是总启动数，相加即整体率）
+      final avgErrorRate = totalErrorRate;
+      // 设备影响率：所有问题 deviceRate 直接相加（百分比数值的整数部分）
+      final avgDeviceRateInt = (totalDeviceRate * 100).round();
 
       return AnrPeriodStatistics(
         periodLabel: periodLabel,
@@ -329,8 +338,8 @@ class AnrAnalysisService {
         endTimeMs: endMs,
         anrCount: totalErrorCount,
         affectedDevices: totalErrorDeviceCount,
-        errorRate: totalErrorRate,
-        affectedDeviceRate: totalDeviceRate,
+        errorRate: avgErrorRate,
+        affectedDeviceRate: avgDeviceRateInt,
         createdAt: DateTime.now(),
       );
     } catch (e) {
