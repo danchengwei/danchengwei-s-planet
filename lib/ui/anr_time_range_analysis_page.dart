@@ -520,7 +520,7 @@ class _AnrTimeRangeAnalysisPageState extends State<AnrTimeRangeAnalysisPage> {
                       DataCell(Text(versionStr, style: textTheme.bodySmall)),
                       DataCell(Text('${stat.anrCount}', style: textTheme.bodySmall)),
                       DataCell(Text('${stat.affectedDevices}', style: textTheme.bodySmall)),
-                      DataCell(Text('${(stat.errorRate * 100).toStringAsFixed(2)}%', style: textTheme.bodySmall)),
+                      DataCell(Text('${(stat.errorRate * 100).toStringAsFixed(3)}%', style: textTheme.bodySmall)),
                     ]);
                   }),
                   // 周汇总行
@@ -531,7 +531,7 @@ class _AnrTimeRangeAnalysisPageState extends State<AnrTimeRangeAnalysisPage> {
                       DataCell(Text('', style: textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600))),
                       DataCell(Text('${weekTotal['count']}', style: textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600))),
                       DataCell(Text('${weekTotal['devices']}', style: textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600))),
-                      DataCell(Text('${(weekTotal['rate'] * 100).toStringAsFixed(2)}%', style: textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600))),
+                      DataCell(Text('${(weekTotal['rate'] * 100).toStringAsFixed(3)}%', style: textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600))),
                     ],
                   ),
                 ],
@@ -769,7 +769,7 @@ class _AnrStatCard extends StatelessWidget {
                 ),
                 _StatItem(
                   label: '错误率',
-                  value: '${(stat.errorRate * 100).toStringAsFixed(2)}%',
+                  value: '${(stat.errorRate * 100).toStringAsFixed(3)}%',
                   color: cs.tertiary,
                 ),
               ],
