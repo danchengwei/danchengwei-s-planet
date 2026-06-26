@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
@@ -221,12 +222,10 @@ class _AnalysisReportTabState extends State<AnalysisReportTab> {
             ),
           ),
           Expanded(
-            child: SingleChildScrollView(
+            child: Markdown(
+              data: _selectedReportContent!,
+              selectable: true,
               padding: const EdgeInsets.all(16),
-              child: SelectableText(
-                _selectedReportContent!,
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 13, height: 1.6),
-              ),
             ),
           ),
         ],

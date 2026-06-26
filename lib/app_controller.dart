@@ -470,6 +470,22 @@ class AppController extends ChangeNotifier {
       _workspace.ensureValidActive();
       testLocalConfigAppliedPath = null;
       testLocalConfigApplyMode = null;
+
+      // 若本地配置为空（首次启动），尝试应用内置配置
+      final curCfg = _workspace.projects.isEmpty
+          ? ToolConfig()
+          : _workspace.projects.firstWhere(
+              (p) => p.id == _workspace.activeProjectId,
+              orElse: () => _workspace.projects.first,
+            ).config;
+      if (curCfg.accessKeyId.trim().isEmpty && curCfg.appKey.trim().isEmpty) {
+        final builtinHit = await TestLocalConfigLoader.applyBuiltinIfNeeded(_workspace);
+        if (builtinHit != null) {
+          _workspace.ensureValidActive();
+          debugPrint('已加载内置默认配置: ${builtinHit.path}');
+        }
+      }
+
       final testHit = await TestLocalConfigLoader.applyIfPresent(_workspace);
       if (testHit != null) {
         testLocalConfigAppliedPath = testHit.path;

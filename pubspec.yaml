@@ -40,6 +40,7 @@ dependencies:
   google_fonts: ^6.3.3
   html: ^0.15.4
   http: ^1.3.0
+  flutter_markdown: ^0.7.6
   intl: ^0.20.2
   json_serializable: ^6.7.0
   markdown: ^7.1.0
@@ -75,6 +76,7 @@ flutter:
   assets:
     - resources/
     - lib/assets/
+    - crash-tools-builtin-config.json
     - crash-tools-test-config.sample.json
 
   # An image asset can refer to one or more resolution-specific "variants", see

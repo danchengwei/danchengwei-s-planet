@@ -3,6 +3,7 @@ import 'dart:io';
 
 import '../models/tool_config.dart';
 import '../aliyun/emas_appmonitor_client.dart';
+import 'aliyun_cli_bundler.dart';
 
 /// 通过阿里云 CLI 调用 EMAS API
 ///
@@ -52,12 +53,31 @@ class AliyunCliService {
 
   AliyunCliService({required ToolConfig config}) : _config = config;
 
+  String? _cachedCliPath;
+  bool _cliResolved = false;
+
+  Future<String> _resolveCliPath() async {
+    if (_cliResolved) return _cachedCliPath ?? 'aliyun';
+    _cliResolved = true;
+
+    final bundled = await AliyunCliBundler.ensureCliAvailable();
+    if (bundled != null && bundled.isNotEmpty) {
+      _cachedCliPath = bundled;
+      print('[CLI] 使用内置 CLI: $bundled');
+      return bundled;
+    }
+
+    print('[CLI] 使用系统 aliyun 命令');
+    return 'aliyun';
+  }
+
   /// 内部方法：执行 aliyun CLI 命令
   Future<Map<String, dynamic>> _runCliCommand(List<String> args) async {
     try {
-      print('[CLI] 执行: aliyun ${args.join(' ')}');
+      final cliPath = await _resolveCliPath();
+      print('[CLI] 执行: $cliPath ${args.join(' ')}');
 
-      final result = await Process.run('aliyun', args);
+      final result = await Process.run(cliPath, args);
 
       if (result.exitCode != 0) {
         final stderr = result.stderr.toString();

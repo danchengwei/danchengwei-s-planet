@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -25,8 +26,28 @@ class TestLocalConfigLoader {
 
   static const fileName = 'crash-tools-test-config.json';
 
+  /// 内置配置资源路径（打包进应用的默认配置）
+  static const builtinAssetPath = 'crash-tools-builtin-config.json';
+
   /// 环境变量名：可指向任意路径的测试配置文件。
   static const envPathKey = 'CRASH_TOOLS_TEST_CONFIG';
+
+  /// 从 assets 加载内置配置（仅当工作区为空/默认时应用）。
+  static Future<TestConfigApplyResult?> applyBuiltinIfNeeded(
+    ProjectsWorkspace workspace,
+  ) async {
+    try {
+      final text = await rootBundle.loadString(builtinAssetPath);
+      final dynamic root = jsonDecode(text);
+      if (root is! Map) return null;
+      final m = Map<String, dynamic>.from(root);
+      m.remove('__comment');
+      return _applyDecodedMap(m, workspace, 'asset:$builtinAssetPath');
+    } catch (e, st) {
+      debugPrint('TestLocalConfigLoader.applyBuiltinIfNeeded: $e\n$st');
+      return null;
+    }
+  }
 
   /// 供单元测试或脚本：从已有文件应用到 [workspace]，返回是否成功。
   static Future<TestConfigApplyResult?> applyFromFile(

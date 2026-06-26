@@ -331,10 +331,114 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
 
       debugPrint('[Step2] [$index/$total] Model 字段数: ${model.keys.length}');
 
+      // 调用 get-issue 获取崩溃统计数据（错误次数、影响设备等）
+      Map<String, dynamic> issueStats = {};
+      try {
+        debugPrint('[Step2] [$index/$total] 调用 get-issue 获取统计数据');
+        final issueResult = await _cliService.getIssue(
+          bizModule: 'crash',
+          digestHash: hash,
+          startTimeMs: int.parse(startMs),
+          endTimeMs: int.parse(endMs),
+          os: config.os,
+        );
+        issueStats = issueResult is Map ? Map<String, dynamic>.from(issueResult) : {};
+        debugPrint('[Step2] [$index/$total] get-issue 成功，字段数: ${issueStats.keys.length}');
+      } catch (e) {
+        debugPrint('[Step2] [$index/$total] get-issue 失败: $e');
+      }
+
+      final errorCount = _readInt(_firstNonNull([
+        issueStats['ErrorCount'],
+        issueStats['Count'],
+        issueStats['TotalCount'],
+        issueStats['CrashCount'],
+      ]));
+      final errorDeviceCount = _readInt(_firstNonNull([
+        issueStats['ErrorDeviceCount'],
+        issueStats['DeviceCount'],
+        issueStats['AffectedDeviceCount'],
+        issueStats['TotalDeviceCount'],
+      ]));
+      final errorRate = _readDouble(_firstNonNull([
+        issueStats['ErrorRate'],
+        issueStats['CrashRate'],
+        issueStats['Rate'],
+        issueStats['IssueCrashRate'],
+      ]));
+      final deviceRate = _readDouble(_firstNonNull([
+        issueStats['ErrorDeviceRate'],
+        issueStats['DeviceRate'],
+        issueStats['AffectedDeviceRate'],
+        issueStats['IssueDeviceRate'],
+      ]));
+      final firstVersion = _firstNonEmpty([
+        issueStats['FirstVersion'],
+        issueStats['FirstSeenVersion'],
+        issueStats['FirstAppVersion'],
+      ]);
+      final firstTime = _firstNonEmpty([
+        issueStats['FirstTime'],
+        issueStats['FirstEventTime'],
+        issueStats['FirstSeenTime'],
+      ]);
+      final latestTime = _firstNonEmpty([
+        issueStats['LatestTime'],
+        issueStats['LastTime'],
+        issueStats['LatestEventTime'],
+        issueStats['LastSeenTime'],
+        issueStats['EventTime'],
+      ]);
+      final errorVersionCount = _readInt(_firstNonNull([
+        issueStats['ErrorVersionCount'],
+        issueStats['VersionCount'],
+        issueStats['AffectedVersionCount'],
+      ]));
+      final name = _firstNonEmpty([
+        issueStats['Name'],
+        issueStats['ErrorName'],
+        issueStats['Title'],
+      ]);
+      final type = _firstNonEmpty([
+        issueStats['Type'],
+        issueStats['ErrorType'],
+        issueStats['CrashType'],
+        'java',
+      ]);
+      final status = _firstNonEmpty([
+        issueStats['Status'],
+        issueStats['IssueStatus'],
+        issueStats['HandleStatus'],
+      ]);
+      final reason = _firstNonEmpty([
+        issueStats['Reason'],
+        issueStats['ErrorReason'],
+        issueStats['CrashReason'],
+      ]);
+
+      final osDist = issueStats['OsDistribution'] ?? issueStats['SystemVersionDistribution'] ?? [];
+      final deviceDist = issueStats['DeviceDistribution'] ?? issueStats['DeviceModelDistribution'] ?? [];
+      final brandDist = issueStats['BrandDistribution'] ?? [];
+
       // 构建样本数据
       final crash = {
         'digest_hash': hash,
-        'type': 'java',
+        'type': type,
+        'title': name,
+        'error_count': errorCount ?? 0,
+        'affected_devices': errorDeviceCount ?? 0,
+        'error_rate': errorRate ?? 0.0,
+        'device_rate': deviceRate ?? 0.0,
+        'version': firstVersion,
+        'first_time': firstTime,
+        'latest_time': latestTime,
+        'version_count': errorVersionCount,
+        'status': status,
+        'reason': reason,
+        'os_distribution': osDist,
+        'device_distribution': deviceDist,
+        'brand_distribution': brandDist,
+        'full_issue_data': issueStats,
         'latest_user_sample': {
           'uuid': uuid,
           'user_id': model['UserId']?.toString() ?? '',
@@ -351,7 +455,18 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
           'startup_time': model['StartupTime']?.toString() ?? '',
           'exception_msg': model['ExceptionMsg']?.toString() ?? '',
           'stack_top': (model['Backtrace'] as String?)?.split('\n').take(5).join('\n') ?? '',
-        }
+        },
+        'samples': [
+          {
+            'uuid': uuid,
+            'user_id': model['UserId']?.toString() ?? '',
+            'did': did,
+            'app_version': model['AppVersion']?.toString() ?? '',
+            'device_model': model['DeviceModel']?.toString() ?? '',
+            'os_version': model['OsVersion']?.toString() ?? '',
+            'client_time': clientTime.toString(),
+          }
+        ],
       };
 
       final userSample = crash['latest_user_sample'] as Map<String, dynamic>;
@@ -740,27 +855,48 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
     final javaCrashes = fullOutput['java'] as List<dynamic>? ?? [];
     final nativeCrashes = fullOutput['native'] as List<dynamic>? ?? [];
 
+    int javaErrorCount = 0;
+    int javaDeviceCount = 0;
+    int nativeErrorCount = 0;
+    int nativeDeviceCount = 0;
+    for (final c in javaCrashes) {
+      final m = c as Map<String, dynamic>;
+      javaErrorCount += (m['error_count'] as int? ?? 0);
+      javaDeviceCount += (m['affected_devices'] as int? ?? 0);
+    }
+    for (final c in nativeCrashes) {
+      final m = c as Map<String, dynamic>;
+      nativeErrorCount += (m['error_count'] as int? ?? 0);
+      nativeDeviceCount += (m['affected_devices'] as int? ?? 0);
+    }
+
     // 概览表格
     buffer.writeln('## 📊 概览');
     buffer.writeln();
     buffer.writeln('| 指标 | Java | Native | 合计 |');
     buffer.writeln('|:---|---:|---:|---:|');
     buffer.writeln('| 崩溃种类 | ${javaCrashes.length} | ${nativeCrashes.length} | ${session.selectedDigestHashes.length} |');
-    buffer.writeln('| 下载日志 | - | - | ${session.logFilesPaths.length} |');
+    buffer.writeln('| 影响设备 | $javaDeviceCount | $nativeDeviceCount | ${javaDeviceCount + nativeDeviceCount} |');
+    buffer.writeln('| 错误次数 | $javaErrorCount | $nativeErrorCount | ${javaErrorCount + nativeErrorCount} |');
     buffer.writeln();
 
     // Java 崩溃列表
     if (javaCrashes.isNotEmpty) {
       buffer.writeln('## ☕ Java Crash 完整列表');
       buffer.writeln();
-      buffer.writeln('| 排名 | DigestHash | 应用版本 |');
-      buffer.writeln('|:---:|:---|:---|');
+      buffer.writeln('| 排名 | DigestHash | 影响设备 | 错误次数 | 崩溃率 | 版本 |');
+      buffer.writeln('|:---:|:---|---:|---:|:---|:---|');
       for (int i = 0; i < javaCrashes.length; i++) {
         final crash = javaCrashes[i] as Map<String, dynamic>;
         final hash = crash['digest_hash'] as String? ?? '';
-        final sample = crash['latest_user_sample'] as Map<String, dynamic>? ?? {};
-        final version = sample['app_version'] as String? ?? '-';
-        buffer.writeln('| ${i + 1} | `$hash` | $version |');
+        final deviceCount = crash['affected_devices'] as int? ?? 0;
+        final errorCount = crash['error_count'] as int? ?? 0;
+        final errorRate = crash['error_rate'] as num? ?? 0.0;
+        final version = crash['version'] as String? ?? '-';
+        final rateStr = errorRate > 0
+            ? (errorRate < 1 ? '${errorRate.toStringAsFixed(4)}%' : '$errorRate%')
+            : '-';
+        buffer.writeln('| ${i + 1} | `$hash` | $deviceCount | $errorCount | $rateStr | $version |');
       }
       buffer.writeln();
     }
@@ -769,14 +905,19 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
     if (nativeCrashes.isNotEmpty) {
       buffer.writeln('## ⚙️ Native Crash 完整列表');
       buffer.writeln();
-      buffer.writeln('| 排名 | DigestHash | 应用版本 |');
-      buffer.writeln('|:---:|:---|:---|');
+      buffer.writeln('| 排名 | DigestHash | 影响设备 | 错误次数 | 崩溃率 | 版本 |');
+      buffer.writeln('|:---:|:---|---:|---:|:---|:---|');
       for (int i = 0; i < nativeCrashes.length; i++) {
         final crash = nativeCrashes[i] as Map<String, dynamic>;
         final hash = crash['digest_hash'] as String? ?? '';
-        final sample = crash['latest_user_sample'] as Map<String, dynamic>? ?? {};
-        final version = sample['app_version'] as String? ?? '-';
-        buffer.writeln('| ${i + 1} | `$hash` | $version |');
+        final deviceCount = crash['affected_devices'] as int? ?? 0;
+        final errorCount = crash['error_count'] as int? ?? 0;
+        final errorRate = crash['error_rate'] as num? ?? 0.0;
+        final version = crash['version'] as String? ?? '-';
+        final rateStr = errorRate > 0
+            ? (errorRate < 1 ? '${errorRate.toStringAsFixed(4)}%' : '$errorRate%')
+            : '-';
+        buffer.writeln('| ${i + 1} | `$hash` | $deviceCount | $errorCount | $rateStr | $version |');
       }
       buffer.writeln();
     }
@@ -795,8 +936,28 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
         final crash = javaCrashes[i] as Map<String, dynamic>;
         final hash = crash['digest_hash'] as String? ?? '';
         final sample = crash['latest_user_sample'] as Map<String, dynamic>? ?? {};
+        final title = crash['title'] as String? ?? '';
+        final errorCount = crash['error_count'] as int? ?? 0;
+        final deviceCount = crash['affected_devices'] as int? ?? 0;
+        final errorRate = crash['error_rate'] as num? ?? 0.0;
+        final version = crash['version'] as String? ?? '';
 
         buffer.writeln('### Java ${i + 1}. [$hash]');
+        buffer.writeln();
+
+        if (title.isNotEmpty) {
+          buffer.writeln('**错误名称**: $title');
+          buffer.writeln();
+        }
+        buffer.writeln('- **错误次数**: $errorCount');
+        buffer.writeln('- **影响设备**: $deviceCount');
+        if (errorRate > 0) {
+          final rateStr = errorRate < 1 ? '${errorRate.toStringAsFixed(4)}%' : '$errorRate%';
+          buffer.writeln('- **崩溃率**: $rateStr');
+        }
+        if (version.isNotEmpty && version != '-') {
+          buffer.writeln('- **首现版本**: $version');
+        }
         buffer.writeln();
 
         // 用户样本信息
@@ -824,6 +985,59 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
           }
           buffer.writeln('```');
           buffer.writeln();
+        }
+
+        // 分布分析
+        final osDist = _readDistributionList(crash['os_distribution']);
+        final deviceDist = _readDistributionList(crash['device_distribution']);
+        final brandDist = _readDistributionList(crash['brand_distribution']);
+        final errorCount = crash['error_count'] as int? ?? 0;
+
+        if (osDist.isNotEmpty || deviceDist.isNotEmpty || brandDist.isNotEmpty) {
+          buffer.writeln('**分布分析**:');
+          buffer.writeln();
+
+          if (osDist.isNotEmpty) {
+            buffer.writeln('*系统版本分布:*');
+            buffer.writeln();
+            buffer.writeln('| 系统版本 | 次数 | 占比 |');
+            buffer.writeln('|:---|---:|---:|');
+            for (final e in osDist.take(5)) {
+              final name = (e['OsVersion'] ?? e['SystemVersion'] ?? e['Name'] ?? e['Value'] ?? '').toString();
+              final count = _readInt(e['Count'] ?? e['ErrorCount']) ?? 0;
+              final pct = errorCount > 0 ? ((count / errorCount) * 100).toStringAsFixed(1) : '0';
+              buffer.writeln('| $name | $count | ${pct}% |');
+            }
+            buffer.writeln();
+          }
+
+          if (brandDist.isNotEmpty) {
+            buffer.writeln('*品牌分布:*');
+            buffer.writeln();
+            buffer.writeln('| 品牌 | 次数 | 占比 |');
+            buffer.writeln('|:---|---:|---:|');
+            for (final e in brandDist.take(5)) {
+              final name = (e['Brand'] ?? e['Name'] ?? e['Value'] ?? '').toString();
+              final count = _readInt(e['Count'] ?? e['ErrorCount']) ?? 0;
+              final pct = errorCount > 0 ? ((count / errorCount) * 100).toStringAsFixed(1) : '0';
+              buffer.writeln('| $name | $count | ${pct}% |');
+            }
+            buffer.writeln();
+          }
+
+          if (deviceDist.isNotEmpty) {
+            buffer.writeln('*机型分布:*');
+            buffer.writeln();
+            buffer.writeln('| 机型 | 次数 | 占比 |');
+            buffer.writeln('|:---|---:|---:|');
+            for (final e in deviceDist.take(5)) {
+              final name = (e['Device'] ?? e['DeviceModel'] ?? e['Name'] ?? e['Value'] ?? '').toString();
+              final count = _readInt(e['Count'] ?? e['ErrorCount']) ?? 0;
+              final pct = errorCount > 0 ? ((count / errorCount) * 100).toStringAsFixed(1) : '0';
+              buffer.writeln('| $name | $count | ${pct}% |');
+            }
+            buffer.writeln();
+          }
         }
 
         // 华佗日志链接与 data 数据
@@ -986,8 +1200,28 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
         final crash = nativeCrashes[i] as Map<String, dynamic>;
         final hash = crash['digest_hash'] as String? ?? '';
         final sample = crash['latest_user_sample'] as Map<String, dynamic>? ?? {};
+        final title = crash['title'] as String? ?? '';
+        final errorCount = crash['error_count'] as int? ?? 0;
+        final deviceCount = crash['affected_devices'] as int? ?? 0;
+        final errorRate = crash['error_rate'] as num? ?? 0.0;
+        final version = crash['version'] as String? ?? '';
 
         buffer.writeln('### Native ${i + 1}. [$hash]');
+        buffer.writeln();
+
+        if (title.isNotEmpty) {
+          buffer.writeln('**错误名称**: $title');
+          buffer.writeln();
+        }
+        buffer.writeln('- **错误次数**: $errorCount');
+        buffer.writeln('- **影响设备**: $deviceCount');
+        if (errorRate > 0) {
+          final rateStr = errorRate < 1 ? '${errorRate.toStringAsFixed(4)}%' : '$errorRate%';
+          buffer.writeln('- **崩溃率**: $rateStr');
+        }
+        if (version.isNotEmpty && version != '-') {
+          buffer.writeln('- **首现版本**: $version');
+        }
         buffer.writeln();
 
         // 用户样本信息
@@ -1015,6 +1249,59 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
           }
           buffer.writeln('```');
           buffer.writeln();
+        }
+
+        // 分布分析
+        final osDistNative = _readDistributionList(crash['os_distribution']);
+        final deviceDistNative = _readDistributionList(crash['device_distribution']);
+        final brandDistNative = _readDistributionList(crash['brand_distribution']);
+        final errorCountNative = crash['error_count'] as int? ?? 0;
+
+        if (osDistNative.isNotEmpty || deviceDistNative.isNotEmpty || brandDistNative.isNotEmpty) {
+          buffer.writeln('**分布分析**:');
+          buffer.writeln();
+
+          if (osDistNative.isNotEmpty) {
+            buffer.writeln('*系统版本分布:*');
+            buffer.writeln();
+            buffer.writeln('| 系统版本 | 次数 | 占比 |');
+            buffer.writeln('|:---|---:|---:|');
+            for (final e in osDistNative.take(5)) {
+              final name = (e['OsVersion'] ?? e['SystemVersion'] ?? e['Name'] ?? e['Value'] ?? '').toString();
+              final count = _readInt(e['Count'] ?? e['ErrorCount']) ?? 0;
+              final pct = errorCountNative > 0 ? ((count / errorCountNative) * 100).toStringAsFixed(1) : '0';
+              buffer.writeln('| $name | $count | ${pct}% |');
+            }
+            buffer.writeln();
+          }
+
+          if (brandDistNative.isNotEmpty) {
+            buffer.writeln('*品牌分布:*');
+            buffer.writeln();
+            buffer.writeln('| 品牌 | 次数 | 占比 |');
+            buffer.writeln('|:---|---:|---:|');
+            for (final e in brandDistNative.take(5)) {
+              final name = (e['Brand'] ?? e['Name'] ?? e['Value'] ?? '').toString();
+              final count = _readInt(e['Count'] ?? e['ErrorCount']) ?? 0;
+              final pct = errorCountNative > 0 ? ((count / errorCountNative) * 100).toStringAsFixed(1) : '0';
+              buffer.writeln('| $name | $count | ${pct}% |');
+            }
+            buffer.writeln();
+          }
+
+          if (deviceDistNative.isNotEmpty) {
+            buffer.writeln('*机型分布:*');
+            buffer.writeln();
+            buffer.writeln('| 机型 | 次数 | 占比 |');
+            buffer.writeln('|:---|---:|---:|');
+            for (final e in deviceDistNative.take(5)) {
+              final name = (e['Device'] ?? e['DeviceModel'] ?? e['Name'] ?? e['Value'] ?? '').toString();
+              final count = _readInt(e['Count'] ?? e['ErrorCount']) ?? 0;
+              final pct = errorCountNative > 0 ? ((count / errorCountNative) * 100).toStringAsFixed(1) : '0';
+              buffer.writeln('| $name | $count | ${pct}% |');
+            }
+            buffer.writeln();
+          }
         }
 
         // 华佗日志链接
@@ -1389,13 +1676,12 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
   /// 根据关键词过滤日志内容，返回相关行
   String _filterLogContentByKeywords(String content, List<String> keywords) {
     if (keywords.isEmpty) {
-      // 如果没有关键词，返回前 3000 个字符
-      return content.length > 3000 ? content.substring(0, 3000) : content;
+      return content.length > 8000 ? content.substring(0, 8000) : content;
     }
 
     final lines = content.split('\n');
     final relevantLines = <String>[];
-    const contextLines = 2; // 匹配行前后各保留 2 行
+    const contextLines = 5;
 
     for (int i = 0; i < lines.length; i++) {
       final line = lines[i].toLowerCase();
@@ -1423,13 +1709,11 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
     }
 
     if (relevantLines.isEmpty) {
-      // 如果没有找到相关行，返回前 3000 个字符
-      return content.length > 3000 ? content.substring(0, 3000) : content;
+      return content.length > 8000 ? content.substring(0, 8000) : content;
     }
 
     final result = relevantLines.join('\n');
-    // 限制最大字符数为 5000
-    return result.length > 5000 ? '${result.substring(0, 5000)}\n...[已截断，共 ${lines.length} 行]' : result;
+    return result.length > 15000 ? '${result.substring(0, 15000)}\n...[已截断，共 ${lines.length} 行]' : result;
   }
 
   void _updateProgress(AnalysisProgress progress) {
@@ -1452,5 +1736,56 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
     _currentSession = null;
     _cancelRequested = false;
     notifyListeners();
+  }
+
+  static int? _readInt(dynamic v) {
+    if (v == null) return null;
+    if (v is int) return v;
+    if (v is double) return v.toInt();
+    if (v is String) return int.tryParse(v.trim());
+    return null;
+  }
+
+  static double? _readDouble(dynamic v) {
+    if (v == null) return null;
+    if (v is double) return v;
+    if (v is int) return v.toDouble();
+    if (v is String) return double.tryParse(v.trim());
+    return null;
+  }
+
+  static String _firstNonEmpty(List<dynamic> candidates) {
+    for (final c in candidates) {
+      if (c == null) continue;
+      final s = c.toString().trim();
+      if (s.isNotEmpty) return s;
+    }
+    return '';
+  }
+
+  static dynamic _firstNonNull(List<dynamic> candidates) {
+    for (final c in candidates) {
+      if (c != null) return c;
+    }
+    return null;
+  }
+
+  static List<Map<String, dynamic>> _readDistributionList(dynamic raw) {
+    if (raw is! List) return const [];
+    final out = <Map<String, dynamic>>[];
+    for (final e in raw) {
+      if (e is Map) {
+        out.add(Map<String, dynamic>.from(e));
+      }
+    }
+    return out;
+  }
+
+  static String _formatRate(num? rate) {
+    if (rate == null || rate == 0) return '-';
+    if (rate is double) {
+      return rate < 1 ? '${(rate * 100).toStringAsFixed(4)}%' : '${rate.toStringAsFixed(3)}%';
+    }
+    return '$rate%';
   }
 }

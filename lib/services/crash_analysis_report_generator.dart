@@ -75,15 +75,83 @@ class CrashAnalysisReportGenerator {
         : detail;
 
     final hash = (model['DigestHash']?.toString() ?? input.digestHash).trim();
-    final errorName = (model['Name']?.toString() ?? input.listItem?.errorName ?? input.title).trim();
-    final errorType = (model['Type']?.toString() ?? input.listItem?.errorType ?? 'Unknown').trim();
-    final errorCount = _readInt(model['ErrorCount'] ?? input.listItem?.errorCount) ?? 0;
-    final errorDeviceCount = _readInt(model['ErrorDeviceCount'] ?? input.listItem?.errorDeviceCount) ?? 0;
-    final errorRate = _readRate(model['ErrorRate'] ?? model['CrashRate'] ?? input.listItem?.errorRatePercent);
-    final firstVersion = (model['FirstVersion']?.toString() ?? input.listItem?.firstVersion ?? '-').trim();
-    final firstTime = model['FirstTime']?.toString();
-    final latestTime = model['LatestTime']?.toString();
-    final errorVersionCount = _readInt(model['ErrorVersionCount']);
+    final errorName = _firstNonEmpty([
+      model['Name'],
+      model['ErrorName'],
+      model['Title'],
+      input.listItem?.errorName,
+      input.title,
+    ]);
+    final errorType = _firstNonEmpty([
+      model['Type'],
+      model['ErrorType'],
+      model['CrashType'],
+      input.listItem?.errorType,
+      'Unknown',
+    ]);
+    final errorCount = _readInt(_firstNonNull([
+      model['ErrorCount'],
+      model['Count'],
+      model['TotalCount'],
+      model['CrashCount'],
+      input.listItem?.errorCount,
+    ])) ?? 0;
+    final errorDeviceCount = _readInt(_firstNonNull([
+      model['ErrorDeviceCount'],
+      model['DeviceCount'],
+      model['AffectedDeviceCount'],
+      model['TotalDeviceCount'],
+      input.listItem?.errorDeviceCount,
+    ])) ?? 0;
+    final errorRate = _readRate(_firstNonNull([
+      model['ErrorRate'],
+      model['CrashRate'],
+      model['Rate'],
+      model['IssueCrashRate'],
+      input.listItem?.errorRatePercent,
+    ]));
+    final deviceRate = _readRate(_firstNonNull([
+      model['ErrorDeviceRate'],
+      model['DeviceRate'],
+      model['AffectedDeviceRate'],
+      model['IssueDeviceRate'],
+      input.listItem?.deviceRatePercent,
+    ]));
+    final firstVersion = _firstNonEmpty([
+      model['FirstVersion'],
+      model['FirstSeenVersion'],
+      model['FirstAppVersion'],
+      input.listItem?.firstVersion,
+      '-',
+    ]);
+    final firstTime = _firstNonEmpty([
+      model['FirstTime'],
+      model['FirstEventTime'],
+      model['FirstSeenTime'],
+    ]);
+    final latestTime = _firstNonEmpty([
+      model['LatestTime'],
+      model['LastTime'],
+      model['LatestEventTime'],
+      model['LastSeenTime'],
+      model['EventTime'],
+    ]);
+    final errorVersionCount = _readInt(_firstNonNull([
+      model['ErrorVersionCount'],
+      model['VersionCount'],
+      model['AffectedVersionCount'],
+    ]));
+    final issueStatus = _firstNonEmpty([
+      model['Status'],
+      model['IssueStatus'],
+      model['HandleStatus'],
+      input.listItem?.issueStatus,
+    ]);
+    final reason = _firstNonEmpty([
+      model['Reason'],
+      model['ErrorReason'],
+      model['CrashReason'],
+    ]);
 
     final stackText = _extractStack(detail) ?? input.listStack ?? input.listItem?.stack ?? '';
 
@@ -100,12 +168,16 @@ class CrashAnalysisReportGenerator {
     buffer.writeln('> - **$bizLabel次数**: $errorCount');
     buffer.writeln('> - **影响设备**: $errorDeviceCount');
     buffer.writeln('> - **错误率**: ${errorRate != null ? '${errorRate.toStringAsFixed(3)}%' : '-'}');
+    if (deviceRate != null) {
+      buffer.writeln('> - **设备影响率**: ${deviceRate.toStringAsFixed(3)}%');
+    }
     buffer.writeln('> - **首现版本**: ${firstVersion.isEmpty ? '-' : firstVersion}');
     if (errorVersionCount != null) {
       buffer.writeln('> - **影响版本数**: $errorVersionCount');
     }
-    if (firstTime != null && firstTime.isNotEmpty) buffer.writeln('> - **首次时间**: $firstTime');
-    if (latestTime != null && latestTime.isNotEmpty) buffer.writeln('> - **最近时间**: $latestTime');
+    if (firstTime.isNotEmpty) buffer.writeln('> - **首次时间**: $firstTime');
+    if (latestTime.isNotEmpty) buffer.writeln('> - **最近时间**: $latestTime');
+    if (issueStatus.isNotEmpty) buffer.writeln('> - **状态**: $issueStatus');
     buffer.writeln('> - **阿里云控制台**: [点击跳转](${_consoleLink(bizModule, hash)})');
     buffer.writeln();
 
@@ -120,11 +192,13 @@ class CrashAnalysisReportGenerator {
     buffer.writeln('### 📋 详细堆栈信息');
     buffer.writeln('> **Hash**: `$hash`');
     buffer.writeln('> **$bizLabel类型**: `${errorType.isEmpty ? 'Unknown' : errorType}`');
-    if (stackHead.isNotEmpty && stackHead != errorType) {
+    if (errorName.isNotEmpty && errorName != errorType && errorName != stackHead) {
+      final short = errorName.length > 200 ? '${errorName.substring(0, 200)}…' : errorName;
+      buffer.writeln('> **错误名称**: $short');
+    } else if (stackHead.isNotEmpty && stackHead != errorType) {
       final short = stackHead.length > 200 ? '${stackHead.substring(0, 200)}…' : stackHead;
       buffer.writeln('> **错误名称**: $short');
     }
-    final reason = (model['Reason']?.toString() ?? '').trim();
     if (reason.isNotEmpty) {
       final short = reason.length > 200 ? '${reason.substring(0, 200)}…' : reason;
       buffer.writeln('> **错误原因**: $short');
@@ -228,11 +302,41 @@ class CrashAnalysisReportGenerator {
           ? Map<String, dynamic>.from(it.issueDetailJson['Model'] as Map)
           : it.issueDetailJson;
       final hash = (m['DigestHash']?.toString() ?? it.digestHash).trim();
-      final type = (m['Type']?.toString() ?? it.listItem?.errorType ?? '-').trim();
-      final ec = _readInt(m['ErrorCount'] ?? it.listItem?.errorCount) ?? 0;
-      final ed = _readInt(m['ErrorDeviceCount'] ?? it.listItem?.errorDeviceCount) ?? 0;
-      final er = _readRate(m['ErrorRate'] ?? m['CrashRate'] ?? it.listItem?.errorRatePercent);
-      final fv = (m['FirstVersion']?.toString() ?? it.listItem?.firstVersion ?? '-').trim();
+      final type = _firstNonEmpty([
+        m['Type'],
+        m['ErrorType'],
+        m['CrashType'],
+        it.listItem?.errorType,
+        '-',
+      ]);
+      final ec = _readInt(_firstNonNull([
+        m['ErrorCount'],
+        m['Count'],
+        m['TotalCount'],
+        m['CrashCount'],
+        it.listItem?.errorCount,
+      ])) ?? 0;
+      final ed = _readInt(_firstNonNull([
+        m['ErrorDeviceCount'],
+        m['DeviceCount'],
+        m['AffectedDeviceCount'],
+        m['TotalDeviceCount'],
+        it.listItem?.errorDeviceCount,
+      ])) ?? 0;
+      final er = _readRate(_firstNonNull([
+        m['ErrorRate'],
+        m['CrashRate'],
+        m['Rate'],
+        m['IssueCrashRate'],
+        it.listItem?.errorRatePercent,
+      ]));
+      final fv = _firstNonEmpty([
+        m['FirstVersion'],
+        m['FirstSeenVersion'],
+        m['FirstAppVersion'],
+        it.listItem?.firstVersion,
+        '-',
+      ]);
       final stackText = _extractStack(it.issueDetailJson) ?? it.listStack ?? it.listItem?.stack ?? '';
       final head = _stackHeadLine(stackText);
       final cellText = head.isEmpty ? (type.isEmpty ? hash : type) : head;
@@ -703,6 +807,22 @@ ${sourceBuf.toString().trim()}
   }
 
   // -------- 工具方法 --------
+
+  static String _firstNonEmpty(List<dynamic> candidates) {
+    for (final c in candidates) {
+      if (c == null) continue;
+      final s = c.toString().trim();
+      if (s.isNotEmpty) return s;
+    }
+    return '';
+  }
+
+  static dynamic _firstNonNull(List<dynamic> candidates) {
+    for (final c in candidates) {
+      if (c != null) return c;
+    }
+    return null;
+  }
 
   static int? _readInt(dynamic v) {
     if (v == null) return null;

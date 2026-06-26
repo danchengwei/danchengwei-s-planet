@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../app_controller.dart';
@@ -711,23 +712,15 @@ class _FullReportSection extends StatelessWidget {
               Container(
                 width: double.infinity,
                 constraints: const BoxConstraints(maxHeight: 480),
-                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: cs.surfaceContainerHighest.withValues(alpha: 0.7),
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(color: cs.outlineVariant.withValues(alpha: 0.5)),
                 ),
-                child: Scrollbar(
-                  child: SingleChildScrollView(
-                    child: SelectableText(
-                      markdown,
-                      style: const TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 12,
-                        height: 1.45,
-                      ),
-                    ),
-                  ),
+                child: Markdown(
+                  data: markdown,
+                  selectable: true,
+                  padding: const EdgeInsets.all(12),
                 ),
               ),
           ],
