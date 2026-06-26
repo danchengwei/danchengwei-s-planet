@@ -53,3 +53,31 @@ local.properties
 **/config.local.*
 **/secrets.json
 **/credentials.json
+
+# Release 打包产物
+emas-crashtools-release-*.zip
+release-package/
+
+# 临时构建输出
+*.apk
+*.ipa
+build/
+dist/
+
+# 缓存目录
+.cache/
+.dart_tool/
+.flutter-plugins
+.packages
+
+# 系统文件
+.DS_Store
+*.swp
+*.swo
+*~
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.xcworkspace/
