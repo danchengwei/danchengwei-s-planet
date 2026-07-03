@@ -161,7 +161,7 @@ class DistributionAnalyzer {
         final count = (item['Count'] as num?)?.toInt() ?? 0;
 
         result.add(OsVersionDistribution(
-          osVersion: _formatOsVersion(version),
+          osVersion: formatOsVersion(version),
           count: count,
           percentage: totalCount > 0 ? (count / totalCount) * 100 : 0,
         ));
@@ -255,7 +255,7 @@ class DistributionAnalyzer {
   }
 
   /// 格式化 OS 版本为友好名称
-  static String _formatOsVersion(String version) {
+  static String formatOsVersion(String version) {
     // 解析版本号 (e.g., "31" -> "Android 12+")
     final versionNum = int.tryParse(version) ?? 0;
 
