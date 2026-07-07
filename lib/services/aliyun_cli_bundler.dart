@@ -75,6 +75,40 @@ class AliyunCliBundler {
     return null;
   }
 
+  /// 获取 .app 包内 flutter_assets 目录的文件系统路径
+  static String? _getAppBundlePath() {
+    final exePath = Platform.resolvedExecutable;
+    // macOS: .../EMAS崩溃分析工具.app/Contents/MacOS/EMAS崩溃分析工具
+    // flutter_assets 在: .../Contents/Frameworks/App.framework/Versions/A/Resources/flutter_assets/
+    if (Platform.isMacOS) {
+      final contentsDir = p.dirname(p.dirname(exePath));
+      final flutterAssetsDir = p.join(
+        contentsDir,
+        'Frameworks',
+        'App.framework',
+        'Versions',
+        'A',
+        'Resources',
+        'flutter_assets',
+      );
+      if (Directory(flutterAssetsDir).existsSync()) {
+        return flutterAssetsDir;
+      }
+      // 兼容不带 Versions/A 的结构
+      final altDir = p.join(
+        contentsDir,
+        'Frameworks',
+        'App.framework',
+        'Resources',
+        'flutter_assets',
+      );
+      if (Directory(altDir).existsSync()) {
+        return altDir;
+      }
+    }
+    return null;
+  }
+
   static Future<void> _deployBundledCli(
     Directory dir,
     String cliPath,
@@ -91,6 +125,22 @@ class AliyunCliBundler {
       throw UnsupportedError('不支持的平台');
     }
 
+    // 优先从 .app 包内文件系统直接拷贝，避免 rootBundle.load 加载大文件 OOM
+    final appBundlePath = _getAppBundlePath();
+    if (appBundlePath != null) {
+      final sourcePath = p.join(appBundlePath, '$_assetBase/$arch/aliyun');
+      final sourceFile = File(sourcePath);
+      if (sourceFile.existsSync()) {
+        debugPrint('[AliyunCliBundler] 从 .app 包拷贝 CLI: $sourcePath');
+        await sourceFile.copy(cliPath);
+        await File(versionFilePath).writeAsString(version);
+        return;
+      }
+      debugPrint('[AliyunCliBundler] .app 包内未找到 CLI: $sourcePath');
+    }
+
+    // 回退: rootBundle.load (小文件或开发模式)
+    debugPrint('[AliyunCliBundler] 回退到 rootBundle.load 加载 CLI');
     final assetPath = '$_assetBase/$arch/aliyun';
     final bytes = await rootBundle.load(assetPath);
     final file = File(cliPath);
