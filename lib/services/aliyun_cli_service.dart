@@ -173,6 +173,13 @@ class AliyunCliService {
       '--biz-module', bizModule,
     ];
 
+    // 传递 AK 凭证，避免需要 aliyun configure
+    final akId = _config.accessKeyId.trim();
+    final akSecret = _config.accessKeySecret.trim();
+    if (akId.isNotEmpty && akSecret.isNotEmpty) {
+      args.insertAll(0, ['--access-key-id', akId, '--access-key-secret', akSecret]);
+    }
+
     if (os != null && os.isNotEmpty) {
       args.addAll(['--os', os]);
     }
