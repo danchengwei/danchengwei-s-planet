@@ -82,3 +82,6 @@ dist/
 .vscode/
 *.iml
 *.xcworkspace/
+
+# 内置 aliyun CLI 二进制（体积过大，构建时由 bundler 回退系统命令）
+tools/aliyun/bundled/
