@@ -57,7 +57,7 @@ class AnalysisLogsManager {
         final fileName = entity.path.split('/').last;
 
         if (entity is Directory) {
-          // 只显示解压后的日志目录（03_*_logs）
+          // 显示日志目录（03_*_logs），点进去可查看其中的多个日志文件
           if (fileName.startsWith('03_') && fileName.endsWith('_logs')) {
             final stat = await entity.stat();
             final size = await _getDirectorySize(entity.path);
@@ -75,6 +75,31 @@ class AnalysisLogsManager {
     } catch (e) {
       return [];
     }
+  }
+
+  /// 列出某个日志目录内的文件（含子目录递归），供「进入目录」后展示。
+  Future<List<FileInfo>> listFilesInDirectory(String dirPath) async {
+    final out = <FileInfo>[];
+    try {
+      final dir = Directory(dirPath);
+      if (!await dir.exists()) return out;
+      final entities = dir.listSync(recursive: true, followLinks: false);
+      for (final e in entities) {
+        if (e is File) {
+          final stat = await e.stat();
+          out.add(FileInfo(
+            name: e.path.replaceFirst('$dirPath/', ''),
+            path: e.path,
+            size: stat.size,
+            modified: stat.modified,
+          ));
+        }
+      }
+      out.sort((a, b) => a.name.compareTo(b.name));
+    } catch (e) {
+      debugPrint('[AnalysisLogsManager] 列目录文件失败: $e');
+    }
+    return out;
   }
 
   /// 计算目录总大小
@@ -216,7 +241,7 @@ class AnalysisLogsManager {
         final fileName = entity.path.split('/').last;
 
         if (entity is Directory) {
-          // 只显示解压后的日志目录（03_*_logs），用户可直接查看原始日志文件
+          // 显示日志目录（03_*_logs），点进去可查看其中的多个日志文件
           if (fileName.startsWith('03_') && fileName.endsWith('_logs')) {
             final stat = await entity.stat();
             final size = await _getDirectorySize(entity.path);

@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 
 import '../app_controller.dart';
 import '../services/analysis_logs_manager.dart';
+import '../services/crash_analysis_agent_service.dart';
 
 /// 报告来源类型
 enum ReportSource { htmlAnalysis, intelligentAnalysis }
@@ -26,6 +28,156 @@ class _AnalysisReportTabState extends State<AnalysisReportTab> {
   bool _isLoadingSessions = true;
   _SessionInfo? _selectedSession;
   String? _selectedReportContent;
+  bool _sourceAnalyzing = false;
+
+  late final CrashAnalysisAgentService _agentService =
+      CrashAnalysisAgentService(config: widget.controller.config);
+
+  /// 从报告内容提取 digest hash（形如 [xxxx]）。
+  String _extractHash(String report) {
+    final m = RegExp(r'`([0-9A-Za-z]{6,})`').firstMatch(report);
+    return m?.group(1) ?? 'unknown';
+  }
+
+  /// 触发源码智能分析，并把结果作为「源码分析结果」模块追加到报告末尾、落盘。
+  Future<void> _runSourceAnalysis() async {
+    if (_selectedReportContent == null || _selectedSession == null) return;
+    final cfg = widget.controller.config;
+    final miss = cfg.validateLlm();
+    if (miss.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('请先在「配置」填写大模型：${miss.join('、')}')),
+      );
+      return;
+    }
+    // 未配置项目路径：阻断，提示先配置
+    if (cfg.localProjectPath.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请先在「配置 → 源码分析」中填写本地项目源码路径，再进行源码智能分析。')),
+      );
+      return;
+    }
+    // 未配置项目提示词：不阻断，仅提示将使用内置默认说明
+    if (cfg.sourceAnalysisPrompt.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('未配置「项目说明提示词」，将使用内置的学而思网校项目默认结构说明进行检索。')),
+      );
+    }
+
+    setState(() => _sourceAnalyzing = true);
+    try {
+      final base = _selectedReportContent!;
+      final hash = _extractHash(base);
+      final result = await _agentService.analyzeSource(
+        digestHash: hash,
+        reportContent: base,
+      );
+
+      final section = _buildSourceSection(result);
+      // 避免重复追加：若已有「源码分析结果」模块，先去除旧模块。
+      final marker = '## 🔬 源码分析结果';
+      var persisted = base;
+      final idx = persisted.indexOf(marker);
+      if (idx >= 0) persisted = persisted.substring(0, idx).trimRight();
+      persisted = '$persisted\n\n$section';
+
+      // 落盘
+      await File(_selectedSession!.reportPath).writeAsString(persisted);
+      if (mounted) {
+        setState(() {
+          _selectedReportContent = persisted;
+          _selectedSession!.content = persisted;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('源码分析失败：$e')));
+      }
+    } finally {
+      if (mounted) setState(() => _sourceAnalyzing = false);
+    }
+  }
+
+  /// 将源码分析结果渲染为 markdown 模块。
+  String _buildSourceSection(result) {
+    final b = StringBuffer();
+    b.writeln('## 🔬 源码分析结果');
+    b.writeln();
+    if (result.isError) {
+      b.writeln('> ${result.summary}');
+      return b.toString();
+    }
+    if (result.summary.isNotEmpty) {
+      b.writeln('**总结**: ${result.summary}');
+      b.writeln();
+    }
+    if (result.investigation.isNotEmpty) {
+      b.writeln('### 源码排查过程');
+      b.writeln();
+      b.writeln(result.investigation);
+      b.writeln();
+    }
+    if (result.rootCause.isNotEmpty) {
+      b.writeln('### 源码级根因');
+      b.writeln();
+      b.writeln(result.rootCause);
+      b.writeln();
+    }
+    if (result.sourceAnalysis.isNotEmpty) {
+      b.writeln('### 结合源码分析');
+      b.writeln();
+      b.writeln(result.sourceAnalysis);
+      b.writeln();
+    }
+    if (result.possibleCauses.isNotEmpty) {
+      b.writeln('### 可能原因');
+      b.writeln();
+      for (final c in result.possibleCauses) {
+        b.writeln('- **${c.cause}**');
+        if (c.detail.isNotEmpty) b.writeln('  ${c.detail}');
+        for (final ev in c.evidence) {
+          b.writeln('  - $ev');
+        }
+      }
+      b.writeln();
+    }
+    if (result.fixSuggestions.isNotEmpty) {
+      b.writeln('### 代码修改建议');
+      b.writeln();
+      for (final s in result.fixSuggestions) {
+        final icon = s.priority == 'high' ? '🔴' : s.priority == 'medium' ? '🟡' : '🟢';
+        b.writeln('- **${s.suggestion}** $icon');
+        if (s.file != null && s.file!.isNotEmpty) b.writeln('  - 涉及文件: `${s.file}`');
+        if (s.implementation.isNotEmpty) b.writeln('  - ${s.implementation}');
+        if (s.codeDiff != null && s.codeDiff!.isNotEmpty) {
+          b.writeln();
+          b.writeln('  ```diff');
+          for (final line in s.codeDiff!.split('\n')) {
+            b.writeln('  $line');
+          }
+          b.writeln('  ```');
+        }
+      }
+      b.writeln();
+    }
+    if (result.conclusion.isNotEmpty) {
+      b.writeln('### 结论');
+      b.writeln();
+      b.writeln(result.conclusion);
+      b.writeln();
+    }
+    if (result.toolTrace.isNotEmpty) {
+      b.writeln('<details><summary>源码检索轨迹</summary>');
+      b.writeln();
+      b.writeln('```');
+      b.writeln(result.toolTrace);
+      b.writeln('```');
+      b.writeln();
+      b.writeln('</details>');
+      b.writeln();
+    }
+    return b.toString();
+  }
 
   @override
   void initState() {
@@ -211,6 +363,13 @@ class _AnalysisReportTabState extends State<AnalysisReportTab> {
                   ),
                 ),
                 IconButton(
+                  icon: _sourceAnalyzing
+                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.auto_fix_high_outlined),
+                  tooltip: '源码智能分析',
+                  onPressed: _sourceAnalyzing ? null : _runSourceAnalysis,
+                ),
+                IconButton(
                   icon: const Icon(Icons.close),
                   onPressed: () => setState(() {
                     _selectedReportContent = null;
@@ -226,6 +385,11 @@ class _AnalysisReportTabState extends State<AnalysisReportTab> {
               data: _selectedReportContent!,
               selectable: true,
               padding: const EdgeInsets.all(16),
+              onTapLink: (text, href, title) async {
+                if (href == null) return;
+                final uri = Uri.tryParse(href);
+                if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
+              },
             ),
           ),
         ],
@@ -333,7 +497,7 @@ class _SessionInfo {
   final String reportPath;
   final int fileSize;
   final DateTime modified;
-  final String content;
+  String content;
   final ReportSource source;
 
   _SessionInfo({

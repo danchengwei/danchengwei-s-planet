@@ -9,8 +9,14 @@ import '../models/tool_config.dart';
 import 'analysis_logs_manager.dart';
 import 'aliyun_cli_service.dart';
 import 'archive_manager.dart';
+import 'crash_analysis_agent_service.dart';
 import 'huatuo_log_analyzer.dart';
-import 'llm_analyzer.dart';
+
+/// 用户主动取消分析时抛出。
+class AnalysisCancelledException implements Exception {
+  @override
+  String toString() => '分析已被用户取消';
+}
 
 /// HTML 报告分析完整流程服务
 ///
@@ -23,14 +29,14 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
   HtmlAnalysisPipelineService({required this.config}) {
     _cliService = AliyunCliService(config: config);
     _huatuoAnalyzer = HuatuoLogAnalyzer();
-    _llmAnalyzer = LlmAnalyzer(config: config);
+    _crashAnalysisAgent = CrashAnalysisAgentService(config: config);
   }
 
   final ToolConfig config;
   final _logsManager = AnalysisLogsManager();
   late AliyunCliService _cliService;
   late HuatuoLogAnalyzer _huatuoAnalyzer;
-  late LlmAnalyzer _llmAnalyzer;
+  late CrashAnalysisAgentService _crashAnalysisAgent;
 
   AnalysisProgress? _currentProgress;
   AnalysisSession? _currentSession;
@@ -67,24 +73,25 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
       // Step 1: 解析 HTML 提取崩溃
       debugPrint('[Pipeline] ========== Step 1 开始 ==========');
       await _step1_parseHtml(session);
-      if (_cancelRequested) return;
+      _checkCancelled();
       debugPrint('[Pipeline] ========== Step 1 完成 ==========');
 
       // Step 2: 查询用户样本
       debugPrint('[Pipeline] ========== Step 2 开始 ==========');
       await _step2_getUnfortunatelySamples(session);
-      if (_cancelRequested) return;
+      _checkCancelled();
       debugPrint('[Pipeline] ========== Step 2 完成 ==========');
 
       // Step 3: 华佗日志查询和下载
       debugPrint('[Pipeline] ========== Step 3 开始 ==========');
       await _step3_huatuoLogAnalysis(session);
-      if (_cancelRequested) return;
+      _checkCancelled();
       debugPrint('[Pipeline] ========== Step 3 完成 ==========');
 
       // Step 4: 生成最终报告
       debugPrint('[Pipeline] ========== Step 4 开始 ==========');
       await _step4_generateReport(session);
+      _checkCancelled();
       debugPrint('[Pipeline] ========== Step 4 完成 ==========');
 
       _updateProgress(
@@ -97,6 +104,18 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
       );
 
       session.status = AnalysisSessionStatus.done;
+      _isRunning = false;
+    } on AnalysisCancelledException {
+      debugPrint('[Pipeline] 用户取消分析');
+      _updateProgress(
+        AnalysisProgress(
+          status: AnalysisSessionStatus.cancelled,
+          currentStep: _currentProgress?.currentStep ?? 1,
+          totalSteps: 4,
+          message: '⏹️ 分析已取消',
+        ),
+      );
+      session.status = AnalysisSessionStatus.cancelled;
       _isRunning = false;
     } catch (e) {
       debugPrint('分析失败: $e');
@@ -289,14 +308,14 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
     try {
       debugPrint('[Step2] [$index/$total] 查询 Hash: $hash');
 
-      // 调用 get-errors 获取样本列表
+      // 调用 get-errors 获取样本列表（取最新多个，供后续逐个查找华佗日志）
       final errors = await _cliService.getErrors(
         bizModule: 'crash',
         digestHash: hash,
         startTimeMs: int.parse(startMs),
         endTimeMs: int.parse(endMs),
         os: config.os,
-        pageSize: 1, // 只取最新的1个样本
+        pageSize: 4, // 取最新 4 个样本作为候选
       );
 
       final items = errors['Model']['Items'] as List? ?? [];
@@ -306,30 +325,74 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
         return {'status': 'no_samples', 'hash': hash};
       }
 
-      final item = items.first as Map<String, dynamic>;
-      final uuid = item['Uuid'] as String?;
-      final clientTime = item['ClientTime'] as dynamic;
-      final did = item['Did'] as String? ?? '';
+      // 逐个样本调用 get-error 获取详情，组装候选样本列表
+      final candidateSamples = <Map<String, dynamic>>[];
+      final samples = <Map<String, dynamic>>[];
+      for (final rawItem in items) {
+        final item = rawItem as Map<String, dynamic>;
+        final uuid = item['Uuid'] as String?;
+        final clientTime = item['ClientTime'] as dynamic;
+        final did = item['Did'] as String? ?? '';
 
-      debugPrint('[Step2] [$index/$total] UUID: $uuid, ClientTime: $clientTime');
+        if (uuid == null || clientTime == null) {
+          debugPrint('[Step2] [$index/$total] UUID 或 ClientTime 为空，跳过该样本');
+          continue;
+        }
 
-      if (uuid == null || clientTime == null) {
-        debugPrint('[Step2] [$index/$total] UUID 或 ClientTime 为空');
+        // 调用 get-error 获取详细信息
+        Map<String, dynamic> model;
+        try {
+          model = await _cliService.getError(
+            bizModule: 'crash',
+            digestHash: hash,
+            uuid: uuid,
+            clientTime: int.parse(clientTime.toString()),
+            did: did,
+            os: config.os,
+          ) as Map<String, dynamic>;
+        } catch (e) {
+          debugPrint('[Step2] [$index/$total] get-error 失败 (uuid=$uuid): $e');
+          continue;
+        }
+
+        final userSample = {
+          'uuid': uuid,
+          'user_id': model['UserId']?.toString() ?? '',
+          'utdid': model['Utdid']?.toString() ?? '',
+          'device_model': model['DeviceModel']?.toString() ?? '',
+          'app_version': model['AppVersion']?.toString() ?? '',
+          'country': model['Country']?.toString() ?? '',
+          'province': model['Province']?.toString() ?? '',
+          'city': model['City']?.toString() ?? '',
+          'client_time': clientTime.toString(),
+          'did': did,
+          'report_time': model['ReportTime']?.toString() ?? '',
+          'happened_time': model['HappenedTime']?.toString() ?? '',
+          'startup_time': model['StartupTime']?.toString() ?? '',
+          'exception_msg': model['ExceptionMsg']?.toString() ?? '',
+          // 完整堆栈（不截断），供报告展示与 Agent 分析
+          'stack_top': (model['Backtrace'] as String?) ?? '',
+          'backtrace_full': (model['Backtrace'] as String?) ?? '',
+        };
+
+        candidateSamples.add(userSample);
+        samples.add({
+          'uuid': uuid,
+          'user_id': model['UserId']?.toString() ?? '',
+          'did': did,
+          'app_version': model['AppVersion']?.toString() ?? '',
+          'device_model': model['DeviceModel']?.toString() ?? '',
+          'os_version': model['OsVersion']?.toString() ?? '',
+          'client_time': clientTime.toString(),
+        });
+      }
+
+      if (candidateSamples.isEmpty) {
+        debugPrint('[Step2] [$index/$total] 无有效样本，跳过');
         return {'status': 'incomplete_sample', 'hash': hash};
       }
 
-      // 调用 get-error 获取详细信息
-      debugPrint('[Step2] [$index/$total] 调用 get-error 获取详情');
-      final model = await _cliService.getError(
-        bizModule: 'crash',
-        digestHash: hash,
-        uuid: uuid,
-        clientTime: int.parse(clientTime.toString()),
-        did: did,
-        os: config.os,
-      ) as Map<String, dynamic>;
-
-      debugPrint('[Step2] [$index/$total] Model 字段数: ${model.keys.length}');
+      debugPrint('[Step2] [$index/$total] 获取到 ${candidateSamples.length} 个候选样本');
 
       // 调用 get-issue 获取崩溃统计数据（错误次数、影响设备等）
       Map<String, dynamic> issueStats = {};
@@ -439,34 +502,9 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
         'device_distribution': deviceDist,
         'brand_distribution': brandDist,
         'full_issue_data': issueStats,
-        'latest_user_sample': {
-          'uuid': uuid,
-          'user_id': model['UserId']?.toString() ?? '',
-          'utdid': model['Utdid']?.toString() ?? '',
-          'device_model': model['DeviceModel']?.toString() ?? '',
-          'app_version': model['AppVersion']?.toString() ?? '',
-          'country': model['Country']?.toString() ?? '',
-          'province': model['Province']?.toString() ?? '',
-          'city': model['City']?.toString() ?? '',
-          'client_time': clientTime.toString(),
-          'did': did,
-          'report_time': model['ReportTime']?.toString() ?? '',
-          'happened_time': model['HappenedTime']?.toString() ?? '',
-          'startup_time': model['StartupTime']?.toString() ?? '',
-          'exception_msg': model['ExceptionMsg']?.toString() ?? '',
-          'stack_top': (model['Backtrace'] as String?)?.split('\n').take(5).join('\n') ?? '',
-        },
-        'samples': [
-          {
-            'uuid': uuid,
-            'user_id': model['UserId']?.toString() ?? '',
-            'did': did,
-            'app_version': model['AppVersion']?.toString() ?? '',
-            'device_model': model['DeviceModel']?.toString() ?? '',
-            'os_version': model['OsVersion']?.toString() ?? '',
-            'client_time': clientTime.toString(),
-          }
-        ],
+        'latest_user_sample': candidateSamples.first,
+        'candidate_samples': candidateSamples,
+        'samples': samples,
       };
 
       final userSample = crash['latest_user_sample'] as Map<String, dynamic>;
@@ -510,15 +548,17 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
       final javaCrashes = fullOutput['java'] as List<dynamic>? ?? [];
       final nativeCrashes = fullOutput['native'] as List<dynamic>? ?? [];
 
-      // 构建用户样本映射
-      final sampleMap = <String, Map<String, dynamic>>{};
+      // 构建用户候选样本映射（hash → 候选样本列表）
+      final sampleMap = <String, List<Map<String, dynamic>>>{};
       for (final crash in [...javaCrashes, ...nativeCrashes]) {
         final crashMap = crash as Map<String, dynamic>;
         final hash = crashMap['digest_hash'] as String?;
-        final latestSample = crashMap['latest_user_sample'] as Map<String, dynamic>?;
-        if (hash != null && latestSample != null) {
-          sampleMap[hash] = latestSample;
-          debugPrint('[Step3] 找到样本 - Hash: $hash, UUID: ${latestSample['uuid']}');
+        final candidateSamples = crashMap['candidate_samples'] as List<dynamic>? ?? [];
+        if (hash != null && candidateSamples.isNotEmpty) {
+          sampleMap[hash] = candidateSamples
+              .map((s) => s as Map<String, dynamic>)
+              .toList();
+          debugPrint('[Step3] 找到候选样本 - Hash: $hash, 数量: ${candidateSamples.length}');
         }
       }
 
@@ -527,10 +567,10 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
       final downloadFutures = <Future<void>>[];
       for (int i = 0; i < session.selectedDigestHashes.length; i++) {
         final hash = session.selectedDigestHashes[i];
-        final sample = sampleMap[hash] ?? {};
+        final samples = sampleMap[hash] ?? [];
         downloadFutures.add(_downloadHuatuoLogArchive(
           hash,
-          sample,
+          samples,
           outputDir,
           i + 1,
           session.selectedDigestHashes.length,
@@ -547,186 +587,282 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
   }
 
   /// 下载单个华佗日志压缩包
+  ///
+  /// 依次遍历候选样本（最多 4 个），逐个查询华佗日志，
+  /// 找到第一个含 crashLogFile 事件且能拿到下载链接的样本即下载并停止。
   Future<void> _downloadHuatuoLogArchive(
     String hash,
-    Map<String, dynamic> sample,
+    List<Map<String, dynamic>> samples,
     String outputDir,
     int index,
     int total,
     AnalysisSession session,
   ) async {
     try {
-      debugPrint('[Step3] [$index/$total] 开始下载 Hash: $hash');
+      debugPrint('[Step3] [$index/$total] 开始下载 Hash: $hash，候选样本 ${samples.length} 个');
 
-      final uuid = sample['uuid'] as String? ?? '';
-      final userId = sample['user_id'] as String? ?? '';
-      final did = sample['did'] as String? ?? '';
-      final clientTime = sample['client_time'] as String? ?? '';
-
-      if (uuid.isEmpty) {
-        debugPrint('[Step3] [$index/$total] 跳过：UUID 为空');
+      if (samples.isEmpty) {
+        debugPrint('[Step3] [$index/$total] 跳过：无候选样本');
         return;
       }
 
-      // 构建华佗 API 请求（不需要 appKey，用户 ID、devid 和日期即可）
       const baseUrl = 'https://huatuo.xesv5.com/api/1.0';
 
-      // 从 clientTime（毫秒时间戳）提取日期
-      String dateStr = '';
-      if (clientTime.isNotEmpty) {
-        try {
-          final timestamp = int.parse(clientTime);
-          final dateTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
-          dateStr = '${dateTime.year}${dateTime.month.toString().padLeft(2, '0')}${dateTime.day.toString().padLeft(2, '0')}';
-        } catch (e) {
+      // 逐个尝试候选样本
+      for (int s = 0; s < samples.length; s++) {
+        _checkCancelled();
+        final sample = samples[s];
+        final uuid = sample['uuid'] as String? ?? '';
+        final userId = sample['user_id'] as String? ?? '';
+        final did = sample['did'] as String? ?? '';
+        final clientTime = sample['client_time'] as String? ?? '';
+
+        debugPrint('[Step3] [$index/$total] 尝试候选样本 ${s + 1}/${samples.length} - UUID: $uuid, UserId: $userId');
+
+        if (userId.isEmpty && uuid.isEmpty) {
+          debugPrint('[Step3] [$index/$total] 候选 ${s + 1} 无 userId/uuid，跳过');
+          continue;
+        }
+
+        // 从 clientTime（毫秒时间戳）提取日期
+        String dateStr = '';
+        if (clientTime.isNotEmpty) {
+          try {
+            final timestamp = int.parse(clientTime);
+            final dateTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
+            dateStr = '${dateTime.year}${dateTime.month.toString().padLeft(2, '0')}${dateTime.day.toString().padLeft(2, '0')}';
+          } catch (e) {
+            final today = DateTime.now();
+            dateStr = '${today.year}${today.month.toString().padLeft(2, '0')}${today.day.toString().padLeft(2, '0')}';
+          }
+        } else {
           final today = DateTime.now();
           dateStr = '${today.year}${today.month.toString().padLeft(2, '0')}${today.day.toString().padLeft(2, '0')}';
         }
-      } else {
-        final today = DateTime.now();
-        dateStr = '${today.year}${today.month.toString().padLeft(2, '0')}${today.day.toString().padLeft(2, '0')}';
-      }
 
-      final url = '$baseUrl/logFile?'
-          'userId=$userId&'
-          'devid=8&'
-          'date=$dateStr';
+        final url = '$baseUrl/logFile?'
+            'userId=$userId&'
+            'devid=8&'
+            'date=$dateStr';
 
-      debugPrint('[Step3] [$index/$total] 请求 URL: $url');
+        debugPrint('[Step3] [$index/$total] 请求 URL: $url');
 
-      final response = await http.get(Uri.parse(url)).timeout(
-        const Duration(seconds: 30),
-        onTimeout: () => throw TimeoutException('Huatuo request timeout'),
-      );
+        // 华佗接口限流时会返回 data:null，对同一候选样本重试若干次。
+        List<dynamic> dataList = const [];
+        bool gotResponse = false;
+        for (int attempt = 1; attempt <= 3; attempt++) {
+          final http.Response response;
+          try {
+            response = await http.get(Uri.parse(url)).timeout(
+              const Duration(seconds: 30),
+              onTimeout: () => throw TimeoutException('Huatuo request timeout'),
+            );
+          } catch (e) {
+            debugPrint('[Step3] [$index/$total] 候选 ${s + 1} 第 $attempt 次请求失败: $e');
+            await Future.delayed(Duration(milliseconds: 400 * attempt));
+            continue;
+          }
 
-      if (response.statusCode != 200) {
-        debugPrint('[Step3] [$index/$total] 错误：HTTP ${response.statusCode}');
-        return;
-      }
+          if (response.statusCode != 200) {
+            debugPrint('[Step3] [$index/$total] 候选 ${s + 1} HTTP ${response.statusCode}');
+            await Future.delayed(Duration(milliseconds: 400 * attempt));
+            continue;
+          }
 
-      // 解析响应
-      final responseData = jsonDecode(response.body) as Map<String, dynamic>;
-      debugPrint('[Step3] [$index/$total] 响应大小: ${response.bodyBytes.length} 字节');
+          Map<String, dynamic>? responseData;
+          try {
+            responseData = jsonDecode(response.body) as Map<String, dynamic>;
+          } catch (e) {
+            debugPrint('[Step3] [$index/$total] 候选 ${s + 1} 响应解析失败: $e');
+            break;
+          }
 
-      // 从响应中提取下载链接和崩溃日志数据
-      final huatuoData = responseData['data'] as Map<String, dynamic>? ?? {};
-      final fileList = huatuoData['fileList'] as List<dynamic>? ?? [];
-      final dataList = huatuoData['dataList'] as List<dynamic>? ?? [];
+          final huatuoData = responseData['data'];
+          if (huatuoData == null) {
+            // 限流/暂态空响应，重试
+            debugPrint('[Step3] [$index/$total] 候选 ${s + 1} 第 $attempt 次返回 data:null（限流），重试...');
+            await Future.delayed(Duration(milliseconds: 500 * attempt));
+            continue;
+          }
 
-      debugPrint('[Step3] [$index/$total] 解析数据列表，共 ${dataList.length} 条，文件列表 ${fileList.length} 个');
-
-      // 从 fileList 中提取第一个压缩包的下载链接
-      String? downloadUrl;
-      if (fileList.isNotEmpty) {
-        final fileItem = fileList.first as Map<String, dynamic>;
-        downloadUrl = fileItem['filePath'] as String? ?? '';
-        if (downloadUrl.isNotEmpty) {
-          debugPrint('[Step3] [$index/$total] 找到文件链接 (fileList): $downloadUrl');
+          final dataMap = huatuoData as Map<String, dynamic>? ?? {};
+          dataList = dataMap['dataList'] as List<dynamic>? ?? [];
+          gotResponse = true;
+          break;
         }
-      }
 
-      // 备用方案：从 dataList 中查找 crashLogFile 事件
-      if (downloadUrl == null || downloadUrl.isEmpty) {
+        if (!gotResponse) {
+          debugPrint('[Step3] [$index/$total] 候选 ${s + 1} 多次请求无有效数据，尝试下一个');
+          continue;
+        }
+
+        debugPrint('[Step3] [$index/$total] 候选 ${s + 1} dataList 共 ${dataList.length} 条');
+
+        // 按命中条件：在 dataList 中查找 eventid 为 crashLogFile 的事件，且能拿到下载路径
+        String? downloadUrl;
         for (final item in dataList) {
           final itemMap = item as Map<String, dynamic>;
-          final eventType = itemMap['eventType'] as String? ?? '';
+          final innerData = itemMap['data'] as Map<String, dynamic>? ?? {};
+          final eventid = innerData['eventid'] as String? ?? '';
 
-          if (eventType == 'crashLogFile' || eventType.toLowerCase().contains('crash')) {
-            final logFileUrl = itemMap['logFileUrl'] as String? ?? '';
-            if (logFileUrl.isNotEmpty) {
-              downloadUrl = logFileUrl;
-              debugPrint('[Step3] [$index/$total] 从 dataList 找到 crashLogFile URL: $downloadUrl');
-              break;
-            }
+          if (eventid != 'crashLogFile' && !eventid.toLowerCase().contains('crash')) {
+            continue;
+          }
+
+          // 下载路径：真实结构在 data.logFileUrl（嵌套在 data 对象内）
+          final logFileUrl = innerData['logFileUrl'] as String? ??
+              itemMap['logFileUrl'] as String? ??
+              innerData['filePath'] as String? ??
+              innerData['fileUrl'] as String? ??
+              innerData['url'] as String? ??
+              '';
+
+          downloadUrl = logFileUrl;
+          if (downloadUrl.isNotEmpty) {
+            debugPrint('[Step3] [$index/$total] 候选 ${s + 1} 命中 crashLogFile: $downloadUrl');
+            break;
           }
         }
-      }
 
-      if (downloadUrl == null || downloadUrl.isEmpty) {
-        debugPrint('[Step3] [$index/$total] 未找到下载链接，跳过');
+        if (downloadUrl == null || downloadUrl.isEmpty) {
+          debugPrint('[Step3] [$index/$total] 候选 ${s + 1} 无 crashLogFile 下载链接，尝试下一个');
+          continue;
+        }
+
+        // 命中：下载压缩包。扩展名按真实下载链接判断（华佗日志多为 .zip）。
+        // 归档名取下载链接里的原始压缩包名（如 23475914_1788354226074_zipLog），
+        // 便于在日志列表中与实际下载文件保持一致。
+        final lowerUrl = downloadUrl.toLowerCase();
+        final archiveExt = lowerUrl.contains('.tar.gz') || lowerUrl.contains('.tgz')
+            ? 'tar.gz'
+            : 'zip';
+        final urlBaseName = downloadUrl.split('?').first.split('/').last;
+        final archiveBaseName = urlBaseName
+            .replaceAll(RegExp(r'\.(tar\.gz|tgz|zip)$', caseSensitive: false), '')
+            .trim();
+        final archiveFileName = '03_${hash}_huatuo_log.$archiveExt';
+        final archivePath = '$outputDir/$archiveFileName';
+
+        debugPrint('[Step3] [$index/$total] 下载压缩包到: $archivePath (格式: $archiveExt)');
+        final archiveResponse = await http.get(Uri.parse(downloadUrl)).timeout(
+          const Duration(minutes: 2),
+          onTimeout: () => throw TimeoutException('Archive download timeout'),
+        );
+
+        if (archiveResponse.statusCode != 200) {
+          debugPrint('[Step3] [$index/$total] 候选 ${s + 1} 压缩包下载失败 ${archiveResponse.statusCode}，尝试下一个');
+          continue;
+        }
+
+        // 保存压缩包
+        await _logsManager.saveBinaryLogFile(
+          sessionId: session.id,
+          fileName: archiveFileName,
+          bytes: archiveResponse.bodyBytes,
+        );
+        debugPrint('[Step3] [$index/$total] 压缩包已保存，大小: ${archiveResponse.bodyBytes.length} 字节');
+
+        // 全量解压：保留包内所有日志文件（tombstone + 按日期日志等）。
+        // 目录名含原始压缩包名（如 03_23475914_1788354226074_zipLog_logs），
+        // 使日志列表展示与实际下载文件一致。
+        final dirLabel = archiveBaseName.isNotEmpty ? archiveBaseName : hash;
+        final extractDir = '$outputDir/03_${dirLabel}_logs';
+        final extractOk = await ArchiveManager.extractArchive(archivePath, extractDir);
+
+        // 删除压缩包（内容已解压保留）
+        try {
+          await File(archivePath).delete();
+          debugPrint('[Step3] [$index/$total] 已删除压缩包');
+        } catch (e) {
+          debugPrint('[Step3] [$index/$total] 删除压缩包失败: $e');
+        }
+
+        if (!extractOk) {
+          debugPrint('[Step3] [$index/$total] 解压失败，尝试下一个候选');
+          try {
+            await Directory(extractDir).delete(recursive: true);
+          } catch (_) {}
+          continue;
+        }
+
+        // 定位 tombstone 文件名（分析时使用；目录内其他日志文件全部保留）
+        final tombstoneFileName = await _findTombstoneFileName(extractDir);
+        if (tombstoneFileName == null) {
+          debugPrint('[Step3] [$index/$total] 解压成功但未找到 tombstone 文件，尝试下一个候选');
+          try {
+            await Directory(extractDir).delete(recursive: true);
+          } catch (_) {}
+          continue;
+        }
+
+        debugPrint('[Step3] [$index/$total] 解压完成，tombstone 文件: $tombstoneFileName');
+
+        // 保存华佗 API 数据（用于 Step 4 生成报告时使用）
+        final huatuoLogsFileName = '03_${hash}_huatuo_logs_analysis.json';
+        final huatuoLogsData = {
+          'hash': hash,
+          'uuid': uuid,
+          'user_id': userId,
+          'did': did,
+          'extract_dir': extractDir,
+          'tombstone_file': tombstoneFileName,
+          'query_url': url,
+          'download_url': downloadUrl,
+          'archive_size': archiveResponse.bodyBytes.length,
+          'logs_count': dataList.length,
+          'timestamp': DateTime.now().toIso8601String(),
+          // 保留 API 的 dataList 用于报告和 LLM 分析
+          'data_items': dataList.map((item) {
+            final itemMap = item as Map<String, dynamic>;
+            final innerData = itemMap['data'] as Map<String, dynamic>? ?? {};
+            return {
+              'eventid': innerData['eventid'] ?? '',
+              'logtype': itemMap['logtype'] ?? '',
+              'data': innerData,
+              'userid': itemMap['userid'] ?? '',
+              'loglevel': itemMap['loglevel'] ?? '',
+              'clits': itemMap['clits'] ?? 0,
+            };
+          }).toList(),
+        };
+        await _logsManager.saveLogFile(
+          sessionId: session.id,
+          fileName: huatuoLogsFileName,
+          content: jsonEncode(huatuoLogsData),
+        );
+
+        // 添加 tombstone 文件路径到会话
+        session.addLogFile('$extractDir/$tombstoneFileName');
+
+        debugPrint('[Step3] [$index/$total] 完成：$hash（命中候选 ${s + 1}）');
         return;
       }
 
-      // 下载压缩包
-      final archiveFileName = '03_${hash}_huatuo_log.tar.gz';
-      final archivePath = '$outputDir/$archiveFileName';
-
-      debugPrint('[Step3] [$index/$total] 下载压缩包到: $archivePath');
-      final archiveResponse = await http.get(Uri.parse(downloadUrl)).timeout(
-        const Duration(minutes: 2),
-        onTimeout: () => throw TimeoutException('Archive download timeout'),
-      );
-
-      if (archiveResponse.statusCode != 200) {
-        debugPrint('[Step3] [$index/$total] 错误：无法下载压缩包 ${archiveResponse.statusCode}');
-        return;
-      }
-
-      // 临时保存压缩包用于解压
-      final tempArchivePath = '$outputDir/$archiveFileName';
-      await _logsManager.saveBinaryLogFile(
-        sessionId: session.id,
-        fileName: archiveFileName,
-        bytes: archiveResponse.bodyBytes,
-      );
-      debugPrint('[Step3] [$index/$total] 压缩包已保存，大小: ${archiveResponse.bodyBytes.length} 字节');
-
-      // 解压压缩包
-      final extractDir = '$outputDir/03_${hash}_logs';
-      final success = await ArchiveManager.extractArchive(tempArchivePath, extractDir);
-
-      if (!success) {
-        debugPrint('[Step3] [$index/$total] 解压失败');
-        return;
-      }
-      debugPrint('[Step3] [$index/$total] 解压成功: $extractDir');
-
-      // 删除压缩包，只保留解压内容
-      try {
-        await File(tempArchivePath).delete();
-        debugPrint('[Step3] [$index/$total] 已删除压缩包');
-      } catch (e) {
-        debugPrint('[Step3] [$index/$total] 删除压缩包失败: $e');
-      }
-
-      // 保存华佗 API 数据（用于 Step 4 生成报告时使用）
-      final huatuoLogsFileName = '03_${hash}_huatuo_logs_analysis.json';
-      final huatuoLogsData = {
-        'hash': hash,
-        'uuid': uuid,
-        'user_id': userId,
-        'did': did,
-        'extract_dir': extractDir,
-        'download_url': downloadUrl,
-        'archive_size': archiveResponse.bodyBytes.length,
-        'logs_count': dataList.length,
-        'timestamp': DateTime.now().toIso8601String(),
-        // 保留 API 的 dataList 用于报告和 LLM 分析
-        'data_items': dataList.map((item) {
-          final itemMap = item as Map<String, dynamic>;
-          return {
-            'eventid': itemMap['eventType'] ?? '',
-            'logtype': itemMap['logtype'] ?? '',
-            'data': itemMap['data'] ?? {},
-            'userid': itemMap['userid'] ?? '',
-            'loglevel': itemMap['loglevel'] ?? '',
-            'clits': itemMap['clits'] ?? 0,
-          };
-        }).toList(),
-      };
-      await _logsManager.saveLogFile(
-        sessionId: session.id,
-        fileName: huatuoLogsFileName,
-        content: jsonEncode(huatuoLogsData),
-      );
-
-      // 添加解压后的日志目录到会话
-      session.addLogFile('03_${hash}_logs');
-
-      debugPrint('[Step3] [$index/$total] 完成：$hash');
+      debugPrint('[Step3] [$index/$total] 所有候选样本均无 crashLogFile 日志，放弃下载：$hash');
     } catch (e) {
       debugPrint('[Step3] 下载失败 ($hash): $e');
     }
+  }
+
+  /// 在已全量解压的目录中递归查找 tombstone 文件，返回其文件名（不含路径）。
+  /// 目录内其余日志文件全部保留。
+  Future<String?> _findTombstoneFileName(String extractDir) async {
+    try {
+      final dir = Directory(extractDir);
+      if (!await dir.exists()) return null;
+      final entities = dir.listSync(recursive: true, followLinks: false);
+      for (final e in entities) {
+        if (e is File) {
+          final name = e.path.split('/').last;
+          if (name.toLowerCase().contains('tombstone')) {
+            return name;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[Step3] 查找 tombstone 失败: $e');
+    }
+    return null;
   }
 
   /// Step 4: 生成最终分析报告（整合用户样本和华佗日志文件链接）
@@ -925,6 +1061,13 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
     buffer.writeln('---');
     buffer.writeln();
 
+    // 并行预计算所有 crash 的 Agent 分析（最多 3 并发），后续详情段直接读取结果。
+    final allCrashes = <Map<String, dynamic>>[
+      ...javaCrashes.whereType<Map<String, dynamic>>(),
+      ...nativeCrashes.whereType<Map<String, dynamic>>(),
+    ];
+    final agentAnalysisMap = await _runAgentAnalysesInParallel(allCrashes, outputDir, step3Data);
+
     // 详情部分
     buffer.writeln('## 📋 崩溃详情与用户样本');
     buffer.writeln();
@@ -941,6 +1084,7 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
         final deviceCount = crash['affected_devices'] as int? ?? 0;
         final errorRate = crash['error_rate'] as num? ?? 0.0;
         final version = crash['version'] as String? ?? '';
+        final crashExtractDir = _extractDirForHash(step3Data, hash, outputDir);
 
         buffer.writeln('### Java ${i + 1}. [$hash]');
         buffer.writeln();
@@ -975,16 +1119,27 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
           buffer.writeln();
         }
 
-        // 堆栈信息
-        final stackTop = sample['stack_top'] as String? ?? '';
+        // 堆栈信息（完整，不省略）
+        final stackTop = (sample['backtrace_full'] ?? sample['stack_top']) as String? ?? '';
         if (stackTop.isNotEmpty) {
-          buffer.writeln('**关键堆栈**:');
+          buffer.writeln('**完整崩溃堆栈**:');
           buffer.writeln('```');
-          for (final line in stackTop.split('\n').take(15)) {
-            buffer.writeln(line);
-          }
+          buffer.writeln(stackTop.trim());
           buffer.writeln('```');
           buffer.writeln();
+        }
+
+        // tombstone 关键数据（完整展示崩溃主日志）
+        final tombstoneText = await _readTombstoneContent(crashExtractDir);
+        if (tombstoneText.trim().isNotEmpty) {
+          final keySections = _extractTombstoneForReport(tombstoneText);
+          if (keySections.trim().isNotEmpty) {
+            buffer.writeln('**📄 tombstone 崩溃主日志（关键数据）**:');
+            buffer.writeln('```');
+            buffer.writeln(keySections);
+            buffer.writeln('```');
+            buffer.writeln();
+          }
         }
 
         // 分布分析
@@ -1039,152 +1194,52 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
           }
         }
 
-        // 华佗日志链接与 data 数据
-        buffer.writeln('**华佗日志**:');
-        buffer.writeln();
-        final userId = sample['user_id'] as String? ?? '';
-        final uuid = sample['uuid'] as String? ?? '';
-        if (userId.isNotEmpty && userId != '-') {
-          final clientTime = sample['client_time'] as String? ?? '';
-          String dateStr = '';
-          try {
-            final timestamp = int.parse(clientTime);
-            final dateTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
-            dateStr = '${dateTime.year}${dateTime.month.toString().padLeft(2, '0')}${dateTime.day.toString().padLeft(2, '0')}';
-          } catch (e) {
-            dateStr = '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}';
+        // 华佗日志：链接与数据均来自实际命中并下载成功的那次请求（step3 JSON）。
+        final huatuoData = step3Data[hash] as Map<String, dynamic>?;
+        if (huatuoData != null && huatuoData.isNotEmpty) {
+          final hitQueryUrl = (huatuoData['query_url'] as String? ?? '').trim();
+          final hitDownloadUrl = (huatuoData['download_url'] as String? ?? '').trim();
+          final hitUserId = (huatuoData['user_id'] as String? ?? '').trim();
+          buffer.writeln('**华佗日志**（命中用户: $hitUserId）:');
+          buffer.writeln();
+          if (hitQueryUrl.isNotEmpty) {
+            buffer.writeln('- [🔗 日志列表查询（实际命中请求）]($hitQueryUrl)');
           }
-          buffer.writeln('[🔗 日志列表查询](https://huatuo.xesv5.com/api/1.0/logFile?userId=$userId&devid=8&date=$dateStr)');
+          if (hitDownloadUrl.isNotEmpty) {
+            buffer.writeln('- [⬇️ 崩溃日志压缩包]($hitDownloadUrl)');
+          }
           buffer.writeln();
 
-          // 显示华佗 API 返回的日志数据 - 查找 eventid 为 "crashLogFile" 的数据部分
-          final huatuoData = step3Data[hash] as Map<String, dynamic>?;
-          if (huatuoData != null && huatuoData.isNotEmpty) {
+          // 展示实际命中响应里的 crashLogFile 数据
+          final dataItems = huatuoData['data_items'] as List<dynamic>? ?? [];
+          Map<String, dynamic>? crashLogFileData;
+          for (final item in dataItems) {
+            final itemMap = item as Map<String, dynamic>?;
+            if (itemMap != null) {
+              final itemData = itemMap['data'] as Map<String, dynamic>? ?? {};
+              final eventid = (itemData['eventid'] as String? ?? '');
+              if (eventid == 'crashLogFile') {
+                crashLogFileData = itemData;
+                break;
+              }
+            }
+          }
+
+          if (crashLogFileData != null && crashLogFileData.isNotEmpty) {
             buffer.writeln('**华佗日志数据 (crashLogFile)**:');
             buffer.writeln();
-            final dataItems = huatuoData['data_items'] as List<dynamic>? ?? [];
-
-            // 查找 data.eventid 为 "crashLogFile" 的日志
-            Map<String, dynamic>? crashLogFileData;
-            for (final item in dataItems) {
-              final itemMap = item as Map<String, dynamic>?;
-              if (itemMap != null) {
-                final itemData = itemMap['data'] as Map<String, dynamic>? ?? {};
-                final eventid = itemData['eventid'] as String? ?? '';
-                if (eventid == 'crashLogFile') {
-                  crashLogFileData = itemData;
-                  break;
-                }
-              }
-            }
-
-            if (crashLogFileData != null && crashLogFileData.isNotEmpty) {
-              buffer.writeln('```json');
-              buffer.writeln(jsonEncode(crashLogFileData));
-              buffer.writeln('```');
-              buffer.writeln();
-            }
-          }
-        }
-
-        // 异常栈信息
-        final stackStr = sample['stack_top'] as String? ?? '';
-        if (stackStr.isNotEmpty) {
-          buffer.writeln('**异常堆栈** (前部分):');
-          buffer.writeln('```');
-          for (final line in stackStr.split('\n').take(10)) {
-            buffer.writeln(line);
-          }
-          buffer.writeln('```');
-          buffer.writeln();
-        }
-
-        // LLM 根因分析
-        try {
-          debugPrint('[Step4] 调用 LLM 分析 Java 崩溃: $hash');
-
-          // 获取对应的华佗日志数据和解压后的原始日志文件
-          final huatuoAnalysis = (step3Data[hash] ?? {}) as Map<String, dynamic>;
-
-          // 读取解压后的原始日志文件内容，供 LLM 分析使用
-          final extractDir = '$outputDir/03_${hash}_logs';
-          final extractedLogsData = await _getExtractedLogsForLLM(extractDir, stackInfo: stackStr);
-          if (extractedLogsData.isNotEmpty) {
-            huatuoAnalysis['extracted_logs'] = extractedLogsData;
-          }
-
-          final llmAnalysis = await _llmAnalyzer.generateRootCauseAnalysis(
-            digestHash: hash,
-            crashTitle: hash,
-            stackInfo: stackStr,
-            huatuoAnalysis: huatuoAnalysis,
-            userSample: sample,
-          );
-
-          if (llmAnalysis.isNotEmpty) {
-            buffer.writeln('**🤖 智能根因分析**:');
+            const pretty = JsonEncoder.withIndent('  ');
+            buffer.writeln('```json');
+            buffer.writeln(pretty.convert(crashLogFileData));
+            buffer.writeln('```');
             buffer.writeln();
-
-            final summary = llmAnalysis['summary'] as String? ?? '';
-            if (summary.isNotEmpty) {
-              buffer.writeln('**分析摘要**: $summary');
-              buffer.writeln();
-            }
-
-            final possibleCauses = llmAnalysis['possible_causes'] as List<dynamic>? ?? [];
-            if (possibleCauses.isNotEmpty) {
-              buffer.writeln('**可能原因**:');
-              buffer.writeln();
-              for (final cause in possibleCauses) {
-                final causeMap = cause as Map<String, dynamic>?;
-                if (causeMap != null) {
-                  final causeTitle = causeMap['cause'] as String? ?? '';
-                  final detail = causeMap['detail'] as String? ?? '';
-                  final evidence = causeMap['evidence'] as List<dynamic>? ?? [];
-
-                  if (causeTitle.isNotEmpty) {
-                    buffer.writeln('- **$causeTitle**');
-                    if (detail.isNotEmpty) {
-                      buffer.writeln('  $detail');
-                    }
-                    if (evidence.isNotEmpty) {
-                      buffer.writeln('  证据: ${evidence.join(", ")}');
-                    }
-                  }
-                }
-              }
-              buffer.writeln();
-            }
-
-            final fixSuggestions = llmAnalysis['fix_suggestions'] as List<dynamic>? ?? [];
-            if (fixSuggestions.isNotEmpty) {
-              buffer.writeln('**修复建议**:');
-              buffer.writeln();
-              for (final suggestion in fixSuggestions) {
-                final suggestionMap = suggestion as Map<String, dynamic>?;
-                if (suggestionMap != null) {
-                  final suggestionTitle = suggestionMap['suggestion'] as String? ?? '';
-                  final priority = suggestionMap['priority'] as String? ?? 'medium';
-                  final implementation = suggestionMap['implementation'] as String? ?? '';
-
-                  if (suggestionTitle.isNotEmpty) {
-                    final priorityIcon = priority == 'high' ? '🔴' : priority == 'medium' ? '🟡' : '🟢';
-                    buffer.writeln('- **$suggestionTitle** $priorityIcon');
-                    if (implementation.isNotEmpty) {
-                      buffer.writeln('  实现: $implementation');
-                    }
-                  }
-                }
-              }
-              buffer.writeln();
-            }
           }
-        } catch (e) {
-          debugPrint('[Step4] LLM 分析失败: $e');
-          buffer.writeln('**🤖 智能根因分析**:');
-          buffer.writeln();
-          buffer.writeln('分析中...');
-          buffer.writeln();
+        }
+
+        // Agent 根因分析（已并行预计算）
+        final llmAnalysis = agentAnalysisMap[hash];
+        if (llmAnalysis != null && llmAnalysis.isNotEmpty) {
+          _writeAgentAnalysis(buffer, llmAnalysis);
         }
 
         buffer.writeln('---');
@@ -1204,6 +1259,7 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
         final deviceCount = crash['affected_devices'] as int? ?? 0;
         final errorRate = crash['error_rate'] as num? ?? 0.0;
         final version = crash['version'] as String? ?? '';
+        final crashExtractDir = _extractDirForHash(step3Data, hash, outputDir);
 
         buffer.writeln('### Native ${i + 1}. [$hash]');
         buffer.writeln();
@@ -1238,16 +1294,27 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
           buffer.writeln();
         }
 
-        // 堆栈信息
-        final stackTop = sample['stack_top'] as String? ?? '';
+        // 堆栈信息（完整，不省略）
+        final stackTop = (sample['backtrace_full'] ?? sample['stack_top']) as String? ?? '';
         if (stackTop.isNotEmpty) {
-          buffer.writeln('**关键堆栈**:');
+          buffer.writeln('**完整崩溃堆栈**:');
           buffer.writeln('```');
-          for (final line in stackTop.split('\n').take(15)) {
-            buffer.writeln(line);
-          }
+          buffer.writeln(stackTop.trim());
           buffer.writeln('```');
           buffer.writeln();
+        }
+
+        // tombstone 关键数据（完整展示崩溃主日志）
+        final tombstoneTextNative = await _readTombstoneContent(crashExtractDir);
+        if (tombstoneTextNative.trim().isNotEmpty) {
+          final keySections = _extractTombstoneForReport(tombstoneTextNative);
+          if (keySections.trim().isNotEmpty) {
+            buffer.writeln('**📄 tombstone 崩溃主日志（关键数据）**:');
+            buffer.writeln('```');
+            buffer.writeln(keySections);
+            buffer.writeln('```');
+            buffer.writeln();
+          }
         }
 
         // 分布分析
@@ -1303,152 +1370,52 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
           }
         }
 
-        // 华佗日志链接
-        buffer.writeln('**华佗日志**:');
-        buffer.writeln();
-        final userId = sample['user_id'] as String? ?? '';
-        final uuid = sample['uuid'] as String? ?? '';
-        if (userId.isNotEmpty && userId != '-') {
-          final clientTime = sample['client_time'] as String? ?? '';
-          String dateStr = '';
-          try {
-            final timestamp = int.parse(clientTime);
-            final dateTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
-            dateStr = '${dateTime.year}${dateTime.month.toString().padLeft(2, '0')}${dateTime.day.toString().padLeft(2, '0')}';
-          } catch (e) {
-            dateStr = '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}';
+        // 华佗日志：链接与数据均来自实际命中并下载成功的那次请求（step3 JSON）。
+        final huatuoData = step3Data[hash] as Map<String, dynamic>?;
+        if (huatuoData != null && huatuoData.isNotEmpty) {
+          final hitQueryUrl = (huatuoData['query_url'] as String? ?? '').trim();
+          final hitDownloadUrl = (huatuoData['download_url'] as String? ?? '').trim();
+          final hitUserId = (huatuoData['user_id'] as String? ?? '').trim();
+          buffer.writeln('**华佗日志**（命中用户: $hitUserId）:');
+          buffer.writeln();
+          if (hitQueryUrl.isNotEmpty) {
+            buffer.writeln('- [🔗 日志列表查询（实际命中请求）]($hitQueryUrl)');
           }
-          buffer.writeln('[🔗 日志列表查询](https://huatuo.xesv5.com/api/1.0/logFile?userId=$userId&devid=8&date=$dateStr)');
+          if (hitDownloadUrl.isNotEmpty) {
+            buffer.writeln('- [⬇️ 崩溃日志压缩包]($hitDownloadUrl)');
+          }
           buffer.writeln();
 
-          // 显示华佗 API 返回的日志数据 - 查找 eventid 为 "crashLogFile" 的数据部分
-          final huatuoData = step3Data[hash] as Map<String, dynamic>?;
-          if (huatuoData != null && huatuoData.isNotEmpty) {
+          // 展示实际命中响应里的 crashLogFile 数据
+          final dataItems = huatuoData['data_items'] as List<dynamic>? ?? [];
+          Map<String, dynamic>? crashLogFileData;
+          for (final item in dataItems) {
+            final itemMap = item as Map<String, dynamic>?;
+            if (itemMap != null) {
+              final itemData = itemMap['data'] as Map<String, dynamic>? ?? {};
+              final eventid = (itemData['eventid'] as String? ?? '');
+              if (eventid == 'crashLogFile') {
+                crashLogFileData = itemData;
+                break;
+              }
+            }
+          }
+
+          if (crashLogFileData != null && crashLogFileData.isNotEmpty) {
             buffer.writeln('**华佗日志数据 (crashLogFile)**:');
             buffer.writeln();
-            final dataItems = huatuoData['data_items'] as List<dynamic>? ?? [];
-
-            // 查找 data.eventid 为 "crashLogFile" 的日志
-            Map<String, dynamic>? crashLogFileData;
-            for (final item in dataItems) {
-              final itemMap = item as Map<String, dynamic>?;
-              if (itemMap != null) {
-                final itemData = itemMap['data'] as Map<String, dynamic>? ?? {};
-                final eventid = itemData['eventid'] as String? ?? '';
-                if (eventid == 'crashLogFile') {
-                  crashLogFileData = itemData;
-                  break;
-                }
-              }
-            }
-
-            if (crashLogFileData != null && crashLogFileData.isNotEmpty) {
-              buffer.writeln('```json');
-              buffer.writeln(jsonEncode(crashLogFileData));
-              buffer.writeln('```');
-              buffer.writeln();
-            }
-          }
-        }
-
-        // 异常栈信息
-        final stackStr = sample['stack_top'] as String? ?? '';
-        if (stackStr.isNotEmpty) {
-          buffer.writeln('**异常堆栈** (前部分):');
-          buffer.writeln('```');
-          for (final line in stackStr.split('\n').take(10)) {
-            buffer.writeln(line);
-          }
-          buffer.writeln('```');
-          buffer.writeln();
-        }
-
-        // LLM 根因分析
-        try {
-          debugPrint('[Step4] 调用 LLM 分析 Native 崩溃: $hash');
-
-          // 获取对应的华佗日志数据和解压后的原始日志文件
-          final huatuoAnalysis = (step3Data[hash] ?? {}) as Map<String, dynamic>;
-
-          // 读取解压后的原始日志文件内容，供 LLM 分析使用
-          final extractDir = '$outputDir/03_${hash}_logs';
-          final extractedLogsData = await _getExtractedLogsForLLM(extractDir, stackInfo: stackStr);
-          if (extractedLogsData.isNotEmpty) {
-            huatuoAnalysis['extracted_logs'] = extractedLogsData;
-          }
-
-          final llmAnalysis = await _llmAnalyzer.generateRootCauseAnalysis(
-            digestHash: hash,
-            crashTitle: hash,
-            stackInfo: stackStr,
-            huatuoAnalysis: huatuoAnalysis,
-            userSample: sample,
-          );
-
-          if (llmAnalysis.isNotEmpty) {
-            buffer.writeln('**🤖 智能根因分析**:');
+            const pretty = JsonEncoder.withIndent('  ');
+            buffer.writeln('```json');
+            buffer.writeln(pretty.convert(crashLogFileData));
+            buffer.writeln('```');
             buffer.writeln();
-
-            final summary = llmAnalysis['summary'] as String? ?? '';
-            if (summary.isNotEmpty) {
-              buffer.writeln('**分析摘要**: $summary');
-              buffer.writeln();
-            }
-
-            final possibleCauses = llmAnalysis['possible_causes'] as List<dynamic>? ?? [];
-            if (possibleCauses.isNotEmpty) {
-              buffer.writeln('**可能原因**:');
-              buffer.writeln();
-              for (final cause in possibleCauses) {
-                final causeMap = cause as Map<String, dynamic>?;
-                if (causeMap != null) {
-                  final causeTitle = causeMap['cause'] as String? ?? '';
-                  final detail = causeMap['detail'] as String? ?? '';
-                  final evidence = causeMap['evidence'] as List<dynamic>? ?? [];
-
-                  if (causeTitle.isNotEmpty) {
-                    buffer.writeln('- **$causeTitle**');
-                    if (detail.isNotEmpty) {
-                      buffer.writeln('  $detail');
-                    }
-                    if (evidence.isNotEmpty) {
-                      buffer.writeln('  证据: ${evidence.join(", ")}');
-                    }
-                  }
-                }
-              }
-              buffer.writeln();
-            }
-
-            final fixSuggestions = llmAnalysis['fix_suggestions'] as List<dynamic>? ?? [];
-            if (fixSuggestions.isNotEmpty) {
-              buffer.writeln('**修复建议**:');
-              buffer.writeln();
-              for (final suggestion in fixSuggestions) {
-                final suggestionMap = suggestion as Map<String, dynamic>?;
-                if (suggestionMap != null) {
-                  final suggestionTitle = suggestionMap['suggestion'] as String? ?? '';
-                  final priority = suggestionMap['priority'] as String? ?? 'medium';
-                  final implementation = suggestionMap['implementation'] as String? ?? '';
-
-                  if (suggestionTitle.isNotEmpty) {
-                    final priorityIcon = priority == 'high' ? '🔴' : priority == 'medium' ? '🟡' : '🟢';
-                    buffer.writeln('- **$suggestionTitle** $priorityIcon');
-                    if (implementation.isNotEmpty) {
-                      buffer.writeln('  实现: $implementation');
-                    }
-                  }
-                }
-              }
-              buffer.writeln();
-            }
           }
-        } catch (e) {
-          debugPrint('[Step4] LLM 分析失败: $e');
-          buffer.writeln('**🤖 智能根因分析**:');
-          buffer.writeln();
-          buffer.writeln('分析中...');
-          buffer.writeln();
+        }
+
+        // Agent 根因分析（已并行预计算）
+        final llmAnalysis = agentAnalysisMap[hash];
+        if (llmAnalysis != null && llmAnalysis.isNotEmpty) {
+          _writeAgentAnalysis(buffer, llmAnalysis);
         }
 
         buffer.writeln('---');
@@ -1590,129 +1557,375 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
         lower.contains('stack');
   }
 
-  /// 从解压目录读取原始日志文件供 LLM 分析，根据堆栈关键词智能截取
-  Future<Map<String, dynamic>> _getExtractedLogsForLLM(String extractDir, {String stackInfo = ''}) async {
+  /// 从解压目录读取 tombstone 文件内容。
+  /// 解析某个 hash 对应的日志解压目录。
+  ///
+  /// 优先用 Step 3 落盘 JSON 里记录的 extract_dir（目录名含原始压缩包名），
+  /// 回退到旧的 03_<hash>_logs 命名。
+  String _extractDirForHash(Map<String, dynamic> step3Data, String hash, String outputDir) {
+    final entry = step3Data[hash];
+    if (entry is Map<String, dynamic>) {
+      final d = entry['extract_dir']?.toString() ?? '';
+      if (d.isNotEmpty) return d;
+    }
+    return '$outputDir/03_${hash}_logs';
+  }
+
+  Future<String> _readTombstoneContent(String extractDir) async {
+    final dir = Directory(extractDir);
+    if (!await dir.exists()) return '';
     try {
-      final dir = Directory(extractDir);
-      if (!await dir.exists()) {
-        return {};
-      }
-
-      final List<String> files = [];
-      final Map<String, String> fileContents = {};
-
-      // 从堆栈中提取关键词用于日志过滤
-      final keywords = _extractKeywordsFromStack(stackInfo);
-      debugPrint('[getExtractedLogs] 从堆栈提取关键词: $keywords');
-
-      // 读取目录中的所有文件
       final entities = dir.listSync(recursive: true, followLinks: false);
+      // 只读 tombstone 文件（目录里还包含按日期分割的大日志文件，避免误读）
       for (final entity in entities) {
-        if (entity is File) {
-          final fileName = entity.path.split('/').last;
-          final relativePath = entity.path.replaceFirst('$extractDir/', '');
-
-          files.add(relativePath);
-
-          try {
-            // 读取文件内容
-            final bytes = await entity.readAsBytes();
-            final fullContent = String.fromCharCodes(bytes);
-
-            // 根据关键词智能截取相关日志行
-            final relevantContent = _filterLogContentByKeywords(fullContent, keywords);
-            fileContents[relativePath] = relevantContent.isEmpty ? fullContent : relevantContent;
-          } catch (e) {
-            debugPrint('[getExtractedLogs] 读取文件失败 $relativePath: $e');
-          }
+        if (entity is File &&
+            entity.path.split('/').last.toLowerCase().contains('tombstone')) {
+          final bytes = await entity.readAsBytes();
+          return String.fromCharCodes(bytes);
         }
       }
+    } catch (e) {
+      debugPrint('[Step4] 读取 tombstone 内容失败: $e');
+    }
+    return '';
+  }
+
+  /// 从完整 tombstone 中提取报告展示用的关键数据。
+  ///
+  /// 保留：头部标识（Build fingerprint / pid / tid / signal）、完整异常堆栈
+  /// （java stacktrace / Caused by / backtrace）、以及崩溃时间点附近的 logcat
+  /// 关键行（error/fatal/exception/页面切换/Activity 生命周期），过滤重复埋点噪音。
+  String _extractTombstoneForReport(String tombstone, {int maxChars = 12000}) {
+    final lines = tombstone.split('\n');
+    final out = <String>[];
+    var inStack = false;
+    var stackLines = 0;
+
+    for (final line in lines) {
+      final t = line.trim();
+      final lower = t.toLowerCase();
+
+      final isHeader = lower.startsWith('build fingerprint') ||
+          lower.startsWith('pid:') ||
+          lower.startsWith('signal') ||
+          lower.startsWith('abort message') ||
+          lower.startsWith('name:');
+
+      final isStackStart = lower.contains('stacktrace') ||
+          lower.contains('caused by') ||
+          lower.contains('backtrace:') ||
+          lower.contains('fatal exception');
+
+      if (isHeader || isStackStart) {
+        inStack = true;
+        stackLines = 0;
+        out.add(line);
+        continue;
+      }
+
+      if (inStack) {
+        final isStackLine = t.startsWith('at ') ||
+            line.startsWith('\t') ||
+            line.startsWith('    ') ||
+            t.startsWith('#') ||
+            t.startsWith('Caused by');
+        if (isStackLine || (t.isNotEmpty && stackLines < 80)) {
+          out.add(line);
+          stackLines++;
+          continue;
+        }
+        inStack = false;
+      }
+
+      if (t.isEmpty) continue;
+
+      // logcat：过滤重复埋点噪音，保留崩溃相关与用户操作时间线
+      final isNoise = lower.contains('@basebury') ||
+          lower.contains('realinnelbasebury') ||
+          lower.contains('buryentity');
+      final isMeaningful = lower.contains('error') ||
+          lower.contains('fatal') ||
+          lower.contains('exception') ||
+          lower.contains('crash') ||
+          lower.contains('onactivity') ||
+          lower.contains('onfragment') ||
+          lower.contains('activity') ||
+          lower.contains('fragment') ||
+          lower.contains('page') ||
+          (t.startsWith('---------') && lower.contains('log'));
+      if (isNoise && !isMeaningful) continue;
+      if (isMeaningful) out.add(line);
+    }
+
+    var result = out.join('\n');
+    if (result.length > maxChars) {
+      result = '${result.substring(0, maxChars)}\n...[已截断，原文共 ${tombstone.length} 字符]';
+    }
+    return result;
+  }
+
+  /// 并行预计算所有 crash 的 Agent 分析，最多 [maxConcurrency] 个同时进行。
+  /// 返回 hash → 分析结果 map；单个失败不影响其他 crash。
+  Future<Map<String, Map<String, dynamic>>> _runAgentAnalysesInParallel(
+    List<Map<String, dynamic>> crashes,
+    String outputDir,
+    Map<String, dynamic> step3Data, {
+    int maxConcurrency = 3,
+  }) async {
+    final result = <String, Map<String, dynamic>>{};
+    if (crashes.isEmpty) return result;
+
+    // 去重（同一 hash 可能在 java/native 列表里重复）
+    final unique = <String, Map<String, dynamic>>{};
+    for (final c in crashes) {
+      final hash = c['digest_hash'] as String? ?? '';
+      if (hash.isNotEmpty && !unique.containsKey(hash)) {
+        unique[hash] = c;
+      }
+    }
+
+    final entries = unique.entries.toList();
+    int cursor = 0;
+
+    Future<void> worker() async {
+      while (true) {
+        _checkCancelled();
+        final int idx = cursor;
+        cursor++;
+        if (idx >= entries.length) return;
+
+        final entry = entries[idx];
+        final hash = entry.key;
+        final crash = entry.value;
+        final sample = (crash['latest_user_sample'] as Map<String, dynamic>?) ?? {};
+        final stackStr =
+            ((sample['backtrace_full'] ?? sample['stack_top']) as String?) ?? '';
+        final extractDir = _extractDirForHash(step3Data, hash, outputDir);
+        try {
+          debugPrint('[Step4] 并行分析 crash: $hash');
+          _updateProgress(AnalysisProgress(
+            status: AnalysisSessionStatus.generating,
+            currentStep: 4,
+            totalSteps: 4,
+            message: '📋 Step 4: 智能分析中... (${idx + 1}/${entries.length})',
+          ));
+          final analysis = await _analyzeWithAgent(
+            hash: hash,
+            stackStr: stackStr,
+            sample: sample,
+            extractDir: extractDir,
+          );
+          result[hash] = analysis;
+        } on AnalysisCancelledException {
+          rethrow;
+        } catch (e) {
+          debugPrint('[Step4] 并行分析失败 ($hash): $e');
+          result[hash] = {
+            'summary': '智能分析失败：$e',
+            'error': '$e',
+            'possible_causes': <dynamic>[],
+            'fix_suggestions': <dynamic>[],
+          };
+        }
+      }
+    }
+
+    final workers = List.generate(
+      entries.length < maxConcurrency ? entries.length : maxConcurrency,
+      (_) => worker(),
+    );
+    await Future.wait(workers);
+
+    return result;
+  }
+
+  /// 使用崩溃分析 Agent 生成根因分析，返回报告消费的 map 结构。
+  Future<Map<String, dynamic>> _analyzeWithAgent({
+    required String hash,
+    required String stackStr,
+    required Map<String, dynamic> sample,
+    required String extractDir,
+  }) async {
+    try {
+      final tombstoneContent = await _readTombstoneContent(extractDir);
+
+      final result = await _crashAnalysisAgent.analyze(
+        digestHash: hash,
+        stackInfo: stackStr,
+        tombstoneContent: tombstoneContent,
+        userSample: sample,
+        // 报告生成阶段不做源码检索（源码分析作为独立功能，由用户手动触发）。
+        enableSourceAnalysis: false,
+      );
 
       return {
-        'extracted_files': files,
-        'file_contents': fileContents,
+        'summary': result.summary,
+        'error': result.isError ? result.error : null,
+        'root_cause': result.rootCause,
+        'investigation': result.investigation,
+        'source_analysis': result.sourceAnalysis,
+        'conclusion': result.conclusion,
+        'tool_trace': result.toolTrace,
+        'possible_causes': result.possibleCauses
+            .map((c) => {
+                  'cause': c.cause,
+                  'detail': c.detail,
+                  'evidence': c.evidence,
+                })
+            .toList(),
+        'fix_suggestions': result.fixSuggestions
+            .map((s) => {
+                  'suggestion': s.suggestion,
+                  'priority': s.priority,
+                  'implementation': s.implementation,
+                  'file': s.file ?? '',
+                  'code_diff': s.codeDiff ?? '',
+                })
+            .toList(),
       };
     } catch (e) {
-      debugPrint('[getExtractedLogs] 读取解压日志失败: $e');
-      return {};
+      // 不再回退到写死模板，直接返回真实错误，避免误导。
+      debugPrint('[Step4] Agent 分析异常: $e');
+      return {
+        'summary': '智能分析调用异常：$e',
+        'error': '$e',
+        'possible_causes': <dynamic>[],
+        'fix_suggestions': <dynamic>[],
+      };
     }
   }
 
-  /// 从堆栈信息中提取关键词
-  List<String> _extractKeywordsFromStack(String stackInfo) {
-    final keywords = <String>{};
+  /// 将 Agent 分析结果完整写入报告（根因、可能原因+证据、修复建议+代码改动）。
+  void _writeAgentAnalysis(StringBuffer buffer, Map<String, dynamic> llmAnalysis) {
+    buffer.writeln('**🤖 智能根因分析**:');
+    buffer.writeln();
 
-    if (stackInfo.isEmpty) return [];
+    final isError = llmAnalysis['error'] != null;
 
-    // 提取异常类型
-    final exceptionMatch = RegExp(r'(Exception|Error|Throwable|RuntimeException|NullPointerException|IndexOutOfBoundsException|IllegalArgumentException|IOException|FileNotFoundException)\b').allMatches(stackInfo);
-    for (final match in exceptionMatch) {
-      keywords.add(match.group(1)!);
+    final summary = (llmAnalysis['summary'] as String? ?? '').trim();
+    if (summary.isNotEmpty) {
+      buffer.writeln('**分析摘要**: $summary');
+      buffer.writeln();
     }
 
-    // 提取关键类名（通常在 at 行中）
-    final classMatches = RegExp(r'at\s+([\w.]+)').allMatches(stackInfo);
-    for (final match in classMatches) {
-      final className = match.group(1)!;
-      // 只提取应用相关的类，不要 framework 类
-      if (!className.startsWith('java.') && !className.startsWith('android.') && !className.startsWith('com.android.')) {
-        final simpleName = className.split('.').last;
-        if (simpleName.length > 3) {
-          keywords.add(simpleName);
-        }
-      }
+    final rootCause = (llmAnalysis['root_cause'] as String? ?? '').trim();
+    if (rootCause.isNotEmpty) {
+      buffer.writeln('**根本原因分析**:');
+      buffer.writeln();
+      buffer.writeln(rootCause);
+      buffer.writeln();
     }
 
-    // 提取方法名
-    final methodMatches = RegExp(r'at\s+[\w.]+\.([\w<>$]+)\(').allMatches(stackInfo);
-    for (final match in methodMatches) {
-      keywords.add(match.group(1)!);
-    }
-
-    return keywords.toList();
-  }
-
-  /// 根据关键词过滤日志内容，返回相关行
-  String _filterLogContentByKeywords(String content, List<String> keywords) {
-    if (keywords.isEmpty) {
-      return content.length > 8000 ? content.substring(0, 8000) : content;
-    }
-
-    final lines = content.split('\n');
-    final relevantLines = <String>[];
-    const contextLines = 5;
-
-    for (int i = 0; i < lines.length; i++) {
-      final line = lines[i].toLowerCase();
-      bool isRelevant = false;
-
-      // 检查该行是否包含任何关键词
-      for (final keyword in keywords) {
-        if (line.contains(keyword.toLowerCase())) {
-          isRelevant = true;
-          break;
-        }
+    if (!isError) {
+      // 排查过程
+      final investigation = (llmAnalysis['investigation'] as String? ?? '').trim();
+      if (investigation.isNotEmpty) {
+        buffer.writeln('**🔍 排查过程**:');
+        buffer.writeln();
+        buffer.writeln(investigation);
+        buffer.writeln();
       }
 
-      if (isRelevant) {
-        // 加入前文和后文
-        final startIdx = (i - contextLines).clamp(0, lines.length - 1);
-        final endIdx = (i + contextLines + 1).clamp(0, lines.length);
+      // 源码分析
+      final sourceAnalysis = (llmAnalysis['source_analysis'] as String? ?? '').trim();
+      if (sourceAnalysis.isNotEmpty) {
+        buffer.writeln('**📂 结合源码分析**:');
+        buffer.writeln();
+        buffer.writeln(sourceAnalysis);
+        buffer.writeln();
+      }
 
-        for (int j = startIdx; j < endIdx; j++) {
-          if (!relevantLines.contains(lines[j])) {
-            relevantLines.add(lines[j]);
+      // 源码检索轨迹（模型实际 grep/read 了哪些文件）
+      final toolTrace = (llmAnalysis['tool_trace'] as String? ?? '').trim();
+      if (toolTrace.isNotEmpty) {
+        buffer.writeln('<details><summary>源码检索轨迹</summary>');
+        buffer.writeln();
+        buffer.writeln('```');
+        buffer.writeln(toolTrace);
+        buffer.writeln('```');
+        buffer.writeln();
+        buffer.writeln('</details>');
+        buffer.writeln();
+      }
+
+      final possibleCauses = llmAnalysis['possible_causes'] as List<dynamic>? ?? [];
+      if (possibleCauses.isNotEmpty) {
+        buffer.writeln('**可能原因**:');
+        buffer.writeln();
+        for (final cause in possibleCauses) {
+          final causeMap = cause as Map<String, dynamic>?;
+          if (causeMap == null) continue;
+          final causeTitle = (causeMap['cause'] as String? ?? '').trim();
+          final detail = (causeMap['detail'] as String? ?? '').trim();
+          final evidence = causeMap['evidence'] as List<dynamic>? ?? [];
+
+          if (causeTitle.isNotEmpty) {
+            buffer.writeln('- **$causeTitle**');
+            if (detail.isNotEmpty) {
+              buffer.writeln('  $detail');
+            }
+            if (evidence.isNotEmpty) {
+              buffer.writeln();
+              buffer.writeln('  **证据**:');
+              for (final ev in evidence) {
+                final evStr = ev.toString().trim();
+                if (evStr.isNotEmpty) {
+                  buffer.writeln('  - $evStr');
+                }
+              }
+            }
           }
         }
+        buffer.writeln();
+      }
+
+      final fixSuggestions = llmAnalysis['fix_suggestions'] as List<dynamic>? ?? [];
+      if (fixSuggestions.isNotEmpty) {
+        buffer.writeln('**修复建议**:');
+        buffer.writeln();
+        for (final suggestion in fixSuggestions) {
+          final m = suggestion as Map<String, dynamic>?;
+          if (m == null) continue;
+          final title = (m['suggestion'] as String? ?? '').trim();
+          final priority = (m['priority'] as String? ?? 'medium').trim();
+          final implementation = (m['implementation'] as String? ?? '').trim();
+          final file = (m['file'] as String? ?? '').trim();
+          final codeDiff = (m['code_diff'] as String? ?? '').trim();
+
+          if (title.isEmpty) continue;
+          final priorityIcon = priority == 'high'
+              ? '🔴'
+              : priority == 'medium'
+                  ? '🟡'
+                  : '🟢';
+          buffer.writeln('- **$title** $priorityIcon');
+          if (file.isNotEmpty) {
+            buffer.writeln('  涉及文件: `$file`');
+          }
+          if (implementation.isNotEmpty) {
+            buffer.writeln('  实现建议: $implementation');
+          }
+          if (codeDiff.isNotEmpty) {
+            buffer.writeln();
+            buffer.writeln('  ```diff');
+            for (final line in codeDiff.split('\n')) {
+              buffer.writeln('  $line');
+            }
+            buffer.writeln('  ```');
+          }
+        }
+        buffer.writeln();
+      }
+
+      // 最终结论
+      final conclusion = (llmAnalysis['conclusion'] as String? ?? '').trim();
+      if (conclusion.isNotEmpty) {
+        buffer.writeln('**✅ 结论**:');
+        buffer.writeln();
+        buffer.writeln(conclusion);
+        buffer.writeln();
       }
     }
-
-    if (relevantLines.isEmpty) {
-      return content.length > 8000 ? content.substring(0, 8000) : content;
-    }
-
-    final result = relevantLines.join('\n');
-    return result.length > 15000 ? '${result.substring(0, 15000)}\n...[已截断，共 ${lines.length} 行]' : result;
   }
 
   void _updateProgress(AnalysisProgress progress) {
@@ -1722,10 +1935,22 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
 
   bool _cancelRequested = false;
 
+  /// 用户取消时抛出，用于中断各步骤内部的长耗时循环。
+  void _checkCancelled() {
+    if (_cancelRequested) {
+      throw AnalysisCancelledException();
+    }
+  }
+
   void cancelAnalysis() {
     _cancelRequested = true;
     _currentSession?.status = AnalysisSessionStatus.cancelled;
-    notifyListeners();
+    _updateProgress(AnalysisProgress(
+      status: AnalysisSessionStatus.cancelled,
+      currentStep: _currentProgress?.currentStep ?? 1,
+      totalSteps: 4,
+      message: '⏹️ 正在取消…',
+    ));
   }
 
   /// 提取 ZIP 文件 - 使用 unzip 命令行工具

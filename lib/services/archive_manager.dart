@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:archive/archive_io.dart';
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
 
 /// 压缩包管理服务
 class ArchiveManager {
@@ -76,7 +77,11 @@ class ArchiveManager {
     return [];
   }
 
-  /// 解压压缩包到指定目录
+  /// 解压压缩包到指定目录。
+  ///
+  /// 手动逐文件写出，而不是用 extractArchiveToDisk：华佗日志包里的按日期
+  /// 文件条目（无扩展名、目录条目标记不标准）会导致 extractArchiveToDisk
+  /// 静默跳过（0 个文件），手动遍历写出可正确处理。
   static Future<bool> extractArchive(String archivePath, String extractPath) async {
     try {
       final archive = File(archivePath);
@@ -90,21 +95,86 @@ class ArchiveManager {
       final lower = archivePath.toLowerCase();
       final bytes = await archive.readAsBytes();
 
+      Archive decoded;
       if (lower.endsWith('.zip')) {
-        final zipArchive = ZipDecoder().decodeBytes(bytes);
-        extractArchiveToDisk(zipArchive, extractPath);
+        decoded = ZipDecoder().decodeBytes(bytes);
       } else if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
-        final tarArchive = TarDecoder().decodeBytes(GZipDecoder().decodeBytes(bytes));
-        extractArchiveToDisk(tarArchive, extractPath);
+        decoded = TarDecoder().decodeBytes(GZipDecoder().decodeBytes(bytes));
       } else if (lower.endsWith('.tar')) {
-        final tarArchive = TarDecoder().decodeBytes(bytes);
-        extractArchiveToDisk(tarArchive, extractPath);
+        decoded = TarDecoder().decodeBytes(bytes);
+      } else {
+        return false;
       }
 
-      return true;
+      var fileCount = 0;
+      for (final f in decoded.files) {
+        if (f.isFile) {
+          // 规范化路径分隔符，并防止 zip slip（路径越界）
+          final rel = f.name.replaceAll('\\', '/');
+          final outPath = p.join(extractPath, rel);
+          final outFile = File(outPath);
+          outFile.parent.createSync(recursive: true);
+          outFile.writeAsBytesSync(f.content as List<int>, flush: true);
+          fileCount++;
+        } else {
+          final rel = f.name.replaceAll('\\', '/');
+          final dir = Directory(p.join(extractPath, rel));
+          if (!dir.existsSync()) dir.createSync(recursive: true);
+        }
+      }
+
+      debugPrint('[ArchiveManager] 解压完成：$fileCount 个文件 -> $extractPath');
+      return fileCount > 0;
     } catch (e) {
       debugPrint('[ArchiveManager] 解压失败: $e');
       return false;
+    }
+  }
+
+  /// 从压缩包内存归档中仅提取 tombstone 文件，写入 [destDir]，返回其文件名。
+  ///
+  /// 不做全量磁盘解压（华佗日志包内含大量按日期分割的超大文件，全量解压极慢）。
+  static Future<String?> extractTombstoneOnly(String archivePath, String destDir) async {
+    try {
+      final lower = archivePath.toLowerCase();
+      final bytes = await File(archivePath).readAsBytes();
+
+      Archive archive;
+      if (lower.endsWith('.zip')) {
+        archive = ZipDecoder().decodeBytes(bytes);
+      } else if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
+        archive = TarDecoder().decodeBytes(GZipDecoder().decodeBytes(bytes));
+      } else if (lower.endsWith('.tar')) {
+        archive = TarDecoder().decodeBytes(bytes);
+      } else {
+        return null;
+      }
+
+      ArchiveFile? tomb;
+      for (final f in archive.files) {
+        if (!f.isFile) continue;
+        final name = f.name.split('/').last.toLowerCase();
+        if (name.contains('tombstone')) {
+          tomb = f;
+          break;
+        }
+      }
+
+      if (tomb == null) {
+        debugPrint('[ArchiveManager] 压缩包内无 tombstone 文件');
+        return null;
+      }
+
+      final tombName = tomb.name.split('/').last;
+      final dir = Directory(destDir);
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+      }
+      await File('$destDir/$tombName').writeAsBytes(tomb.content as List<int>);
+      return tombName;
+    } catch (e) {
+      debugPrint('[ArchiveManager] 提取 tombstone 失败: $e');
+      return null;
     }
   }
 

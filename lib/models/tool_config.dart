@@ -32,6 +32,7 @@ class ToolConfig {
     this.agentFixedArgs = '[]',
     this.wallpaperId = '',
     this.localProjectPath = '',
+    this.sourceAnalysisPrompt = '',
     this.uiPrimaryRailWidth,
     this.uiWorkbenchSidebarWidth,
     Map<String, dynamic>? mcpServers,
@@ -47,6 +48,42 @@ class ToolConfig {
             ? Map<String, dynamic>.from(mcpServers)
             : const {},
         grayTestTasks = grayTestTasks ?? const [];
+
+  /// 源码分析项目说明默认提示词（学而思网校 Android 项目）。
+  static const defaultSourceAnalysisPrompt = '''
+学而思网校 Android 项目架构与业务说明（供源码检索参考）
+
+一、项目基本信息
+- 项目路径根目录：xueersiwangxiao
+- 主包名：com.xueersi.parentsmeeting（另含素质、高中、创新、科技、在线、素养 6 个变体包）
+- 语言：Java + Kotlin 混合开发；跨端集成 React Native、Flutter（可配置混编）、Unity
+- 架构：多仓库多模块 + 壳工程 AAR 聚合的巨型单体；核心模块由独立 Git 仓库维护（repo_projects.xml 动态 include）
+
+二、整体分层（自上而下）
+1. 壳工程 app/：7 类变体打包配置，启动初始化 Sophix 热修复、ARouter 路由、RN/Flutter 混编、华为 HMS
+2. businessinterface/：业务协议层（接口/实体/路由；含 captureview 拍照裁剪、share 跨业务事件总线、practice 练习问答、quickhandwriting、pschat、publiclive、home tab 协议）
+3. common/：公共基础层（网络/工具/配置；含 BLE 蓝牙、Cocos 课件下载、CPS 代理、FLog 监控、HD 大屏适配、手写组件）
+4. business-base/：基础业务仓（contentcommon 内容社区、unitybridge Unity 桥接、xesprivacy 隐私合规；以及 home 首页、browser 浏览器、login 登录、player 播放器、cloud 云、livebasics/liveframework 直播框架、advertmanager 广告、addressmanager 地址、sharedresources 共享资源、unityframework、verticalresource、publiclive 等 AAR）
+5. business/：业务子仓（40+，直播/点播/学习/商城等，见下）
+6. library/：基础库仓（40+ AAR：framework、uicomponent、xesrouter 路由、network、xcrash/bytehook 崩溃、xrsbury/analytics 埋点、psijkplayer 播放器、libpag 动画、agora/webrtc 音视频、aiteacher/aipartner/aitalk AI 等）
+
+三、核心业务模块与检索线索
+- 直播 Live：livevideo、publiclive(公域)、livebusiness、liveexperience、liverecord；连麦 pschat/webrtc/agora，弹幕 danmaku；基础框架 livebasics/liveframework
+- 点播/录播 VOD：instantvideo、newinstantvideo；统一播放器 player（ExoPlayer/IJKPlayer），下载 download
+- AI 互动教学：aiteacher（AI 老师）、aipartner（AI 伙伴）、aitalk（口语对话）；MediaPipe + STMobile + ByteDance CV 手势/表情识别；语音 speechrecognizer 系列 + texttospeech
+- 语言学习：englishmorningread(晨读)、englishdailyreading(日常阅读)、englishbook(英语书)、endictation(听写)、listenread(听说)、chineserecite(语文背诵)、reader/legadoread/readpartner(读书房)
+- 练习/作业/考试：exercise(题库)、answer(答题)、homeworkpapertest(纸质拍照测)、examquestion(考题)、quickhandwriting(手写识别)、captureview(拍照多拍裁剪)
+- 首页/个性化：home（Tab 切换、年级/地区选择）、personals(个人中心)、studycenter(学习中心)、discover(发现)、creative(创作社区)
+- 电商：xesmall(学而思商城)、goldshop(金币商城)、addressmanager(地址)
+- 内容社区：contentcommon（评论/表情/图文/语音评论/点赞 PK/Lottie 动画表情）
+- 多端适配：手机 + 平板 Pad/XPad（common/customxpad 定制登录态同步）；HD 大屏（common/base/hd）
+
+四、检索建议
+- 堆栈中类名形如 com.xueersi.parentsmeeting.module.xxx.yyy.ZzzBinder/Activity/Fragment，可按模块名/类名用 grep 搜索（如 StreakFlameCalendarBinder 搜 CalendarBinder）
+- 系统/第三方库帧（java.*/android.*/org.libpag 等）应结合业务调用栈定位到对应的 module 目录
+- 崩溃相关基础库：XrsCrashReport + xcrash + bytehook；埋点 xrsbury/analytics；热修复 Sophix(HotFixApplication)
+- 先 list_directory 看顶层模块布局，再按业务域到对应 business/business-base 子仓 grep 类名或关键词，最后 read_file 读关键方法
+''';
 
   static const _defaultSystemPrompt = '''
 你是资深移动端崩溃分析工程师，擅长 Android/iOS 原生与跨端栈。回答使用简体中文。
@@ -113,6 +150,7 @@ class ToolConfig {
       agentFixedArgs: agent['agentFixedArgs']!,
       wallpaperId: j['wallpaperId']?.toString() ?? '',
       localProjectPath: j['localProjectPath']?.toString() ?? '',
+      sourceAnalysisPrompt: j['sourceAnalysisPrompt']?.toString() ?? '',
       uiPrimaryRailWidth: _optDouble(j['uiPrimaryRailWidth']),
       uiWorkbenchSidebarWidth: _optDouble(j['uiWorkbenchSidebarWidth']),
       mcpServers: _mcpServersFromJson(j),
@@ -263,6 +301,9 @@ class ToolConfig {
   /// 本地项目路径（Git 仓库根目录），用于本地项目配置替代 GitLab API。
   String localProjectPath;
 
+  /// 源码分析项目说明提示词：告诉模型当前项目类型、目录结构、业务模块与检索方式。
+  String sourceAnalysisPrompt;
+
   /// 主导航栏（工作台 / 配置）像素宽度；null 表示使用界面默认约 88。
   double? uiPrimaryRailWidth;
 
@@ -338,6 +379,7 @@ class ToolConfig {
         'agentFixedArgs': agentFixedArgs,
         'wallpaperId': wallpaperId,
         if (localProjectPath.isNotEmpty) 'localProjectPath': localProjectPath,
+        if (sourceAnalysisPrompt.trim().isNotEmpty) 'sourceAnalysisPrompt': sourceAnalysisPrompt,
         if (uiPrimaryRailWidth != null) 'uiPrimaryRailWidth': uiPrimaryRailWidth,
         if (uiWorkbenchSidebarWidth != null) 'uiWorkbenchSidebarWidth': uiWorkbenchSidebarWidth,
         'mcpServers': mcpServers,

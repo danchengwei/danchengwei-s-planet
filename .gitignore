@@ -37,6 +37,7 @@ local.properties
 crash-tools-test-config.json
 crash-tools-test-config.json.bak
 crash-tools-test-config.sample.json
+crash-tools-builtin-config.json
 skills-lock.json
 local.properties
 

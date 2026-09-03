@@ -81,6 +81,7 @@ class _SettingsTabState extends State<SettingsTab> {
   late TextEditingController _agentMode;
   late TextEditingController _agentArgs;
   late TextEditingController _localProjectPath;
+  late TextEditingController _sourceAnalysisPrompt;
 
   /// clipboard | claude_stdin | custom（与下方配置字段联动；已去掉 Cursor CLI 预设）。
   String _agentPreset = 'clipboard';
@@ -123,6 +124,7 @@ class _SettingsTabState extends State<SettingsTab> {
     _agentMode.dispose();
     _agentArgs.dispose();
     _localProjectPath.dispose();
+    _sourceAnalysisPrompt.dispose();
     _fieldControllersReady = false;
   }
 
@@ -151,6 +153,12 @@ class _SettingsTabState extends State<SettingsTab> {
     _agentMode = TextEditingController(text: c.agentMode);
     _agentArgs = TextEditingController(text: c.agentFixedArgs);
     _localProjectPath = TextEditingController(text: c.localProjectPath);
+    // 未自定义项目说明时，预填内置默认提示词，便于用户查看与编辑。
+    _sourceAnalysisPrompt = TextEditingController(
+      text: c.sourceAnalysisPrompt.trim().isNotEmpty
+          ? c.sourceAnalysisPrompt
+          : ToolConfig.defaultSourceAnalysisPrompt,
+    );
     _migrateLegacyCursorAgentConfig();
     _inferAgentPresetFromControllers();
     _mockCrash = c.emasUseMockCrashData;
@@ -305,6 +313,7 @@ class _SettingsTabState extends State<SettingsTab> {
       agentMode: _agentMode.text,
       agentFixedArgs: _agentArgs.text,
       localProjectPath: _localProjectPath.text,
+      sourceAnalysisPrompt: _sourceAnalysisPrompt.text,
       wallpaperId: widget.controller.config.wallpaperId,
       uiPrimaryRailWidth: widget.controller.config.uiPrimaryRailWidth,
       uiWorkbenchSidebarWidth: widget.controller.config.uiWorkbenchSidebarWidth,
@@ -617,7 +626,12 @@ class _SettingsTabState extends State<SettingsTab> {
                           ),
                         ),
                       ),
-                    _fieldOpt(_llmKey, 'API Key', obscure: true),
+                    _fieldOpt(
+                      _llmKey,
+                      'API Key',
+                      obscure: true,
+                      helperText: '内网网关（ai-service.tal.com）需填 appId:appKey 完整格式（冒号拼接）；智谱等直接填 Key。',
+                    ),
                     _fieldOpt(_llmModel, '模型'),
                     _fieldOpt(
                       _llmSystem,
@@ -661,6 +675,28 @@ class _SettingsTabState extends State<SettingsTab> {
                             ),
                           ),
                         ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: TextField(
+                        controller: _sourceAnalysisPrompt,
+                        minLines: 6,
+                        maxLines: 16,
+                        decoration: InputDecoration(
+                          labelText: '项目说明 / 源码分析提示词',
+                          prefixIcon: Icon(
+                            Icons.psychology_outlined,
+                            size: 22,
+                            color: cs.primary.withValues(alpha: kOpacityHeavy),
+                          ),
+                          alignLabelWithHint: true,
+                          hintText: '已默认填充内置的学而思网校项目结构说明，可按你的项目实际情况修改覆盖。',
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          border: OutlineInputBorder(borderRadius: AppBorderRadius.xs),
+                          helperText: '告诉模型：这是什么项目、整体结构、各目录/模块对应什么业务、该如何检索（先看哪些目录、按什么规则搜文件/内容）。源码分析时 Agent 支持项目结构、文件、内容搜索与读取。',
+                          helperMaxLines: 4,
+                        ),
                       ),
                     ),
                   ],
