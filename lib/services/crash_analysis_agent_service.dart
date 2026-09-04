@@ -20,6 +20,7 @@ class CrashAnalysisResult {
     this.toolTrace = '',
     this.sourceEvidences = const [],
     this.otherDetails = '',
+    this.crashContext = '',
     this.raw,
     this.error,
   });
@@ -34,6 +35,9 @@ class CrashAnalysisResult {
 
   /// 模型返回的、未归入标准字段的其余有内容字段（保证不遗漏）。
   final String otherDetails;
+
+  /// 崩溃现场信息（crash_type/signal/faulting_thread/崩溃时间/tombstone 要点等）。
+  final String crashContext;
 
   /// 分析过程/思路（模型如何逐步排查）。
   final String investigation;
@@ -650,6 +654,27 @@ $projectSection
       var sourceAnalysis = pick(['source_analysis', 'sourceAnalysis', 'code_analysis']);
       var conclusion = pick(['conclusion', 'final_conclusion', 'verdict']);
 
+      // 崩溃现场信息（模型分析返回）：崩溃类型、信号、出错线程、时间、logcat/tombstone 要点等。
+      final ctxKeys = <String>[
+        'crash_type', 'crashType', 'signal', 'signal_info', 'signalInfo',
+        'faulting_thread', 'faultingThread', 'fault_thread', 'crash_time', 'crashTime',
+        'process', 'package_name', 'app_version', 'device', 'os_version',
+        'tombstone', 'tombstone_analysis', 'logcat', 'logcat_analysis',
+        'user_trace', 'stack_trace', 'thread_info', 'memory_info',
+      ];
+      final ctxBuf = StringBuffer();
+      for (final k in ctxKeys) {
+        final v = parsed[k];
+        if (v == null) continue;
+        var s = v is String ? v.trim() : jsonEncode(v);
+        s = s.trim();
+        if (s.isNotEmpty && s != 'null' && s != '[]' && s != '{}' && s != '""') {
+          ctxBuf.writeln('**$k**：$s');
+          ctxBuf.writeln();
+        }
+      }
+      final crashContext = ctxBuf.toString().trim();
+
       // 影响模块/严重程度/相关文件并入 sourceAnalysis
       final affected = parsed['affected_modules'];
       final relatedFiles = parsed['related_files'];
@@ -674,7 +699,13 @@ $projectSection
         'possible_causes','causes','possible_reasons',
         'fix_suggestions','fix_recommendations','recommendations','fixes','suggestions','solutions',
         'source_code_evidence','code_evidence','source_evidences','code_snippets',
-        'affected_modules','related_files','severity','crash_type','signal_info','faulting_thread',
+        'affected_modules','related_files','severity',
+        // crashContext 已消费的现场字段
+        'crash_type','crashType','signal','signal_info','signalInfo',
+        'faulting_thread','faultingThread','fault_thread','crash_time','crashTime',
+        'process','package_name','app_version','device','os_version',
+        'tombstone','tombstone_analysis','logcat','logcat_analysis',
+        'user_trace','stack_trace','thread_info','memory_info',
       };
       final other = StringBuffer();
       parsed.forEach((k, v) {
@@ -698,6 +729,7 @@ $projectSection
         fixSuggestions: fixes,
         sourceEvidences: evidences,
         otherDetails: otherDetails,
+        crashContext: crashContext,
         raw: response,
       );
     } catch (e) {

@@ -111,6 +111,12 @@ class _AnalysisReportTabState extends State<AnalysisReportTab> {
       b.writeln('**总结**: ${result.summary}');
       b.writeln();
     }
+    if (result.crashContext.isNotEmpty) {
+      b.writeln('### 🧩 崩溃现场');
+      b.writeln();
+      b.writeln(result.crashContext);
+      b.writeln();
+    }
     if (result.investigation.isNotEmpty) {
       b.writeln('### 源码排查过程');
       b.writeln();

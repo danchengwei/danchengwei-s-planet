@@ -928,6 +928,12 @@ class _HtmlReportAnalysisTabState extends State<HtmlReportAnalysisTab> with Sing
           section.writeln('**总结**: ${result.summary}');
           section.writeln();
         }
+        if (result.crashContext.isNotEmpty) {
+          section.writeln('### 🧩 崩溃现场');
+          section.writeln();
+          section.writeln(result.crashContext);
+          section.writeln();
+        }
         if (result.investigation.isNotEmpty) {
           section.writeln('### 源码排查过程');
           section.writeln(result.investigation);

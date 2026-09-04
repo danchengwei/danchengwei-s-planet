@@ -204,6 +204,7 @@ class _IssueDetailPageState extends State<IssueDetailPage> {
         out.writeln(result.summary);
       } else {
         if (result.summary.isNotEmpty) out.writeln('【总结】${result.summary}\n');
+        if (result.crashContext.isNotEmpty) out.writeln('【崩溃现场】\n${result.crashContext}\n');
         if (result.investigation.isNotEmpty) out.writeln('【源码排查过程】\n${result.investigation}\n');
         if (result.rootCause.isNotEmpty) out.writeln('【源码级根因】\n${result.rootCause}\n');
         if (result.sourceAnalysis.isNotEmpty) out.writeln('【结合源码分析】\n${result.sourceAnalysis}\n');

@@ -1767,6 +1767,7 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
                 })
             .toList(),
         'other_details': result.otherDetails,
+        'crash_context': result.crashContext,
         'possible_causes': result.possibleCauses
             .map((c) => {
                   'cause': c.cause,
