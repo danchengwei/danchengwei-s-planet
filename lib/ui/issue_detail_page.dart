@@ -6,12 +6,11 @@ import 'package:url_launcher/url_launcher.dart';
 import '../app_controller.dart';
 import '../constants/app_constants.dart';
 import '../models/tool_config.dart';
-import '../services/ai_source_code_analyzer.dart';
 import '../services/analysis_prompt_builder.dart';
+import '../services/crash_analysis_agent_service.dart';
 import '../services/console_links.dart';
 import '../services/llm_client.dart';
 import '../services/outbound_http_client_for_config.dart';
-import '../services/report_manager.dart';
 import '../services/security_redaction.dart';
 import '../services/stack_clarity.dart';
 import 'llm_output_sections.dart';
@@ -184,42 +183,70 @@ class _IssueDetailPageState extends State<IssueDetailPage> {
     setState(() => _llmBusy = true);
 
     try {
-      final issueData = <String, dynamic>{
-        'digestHash': widget.digestHash,
-        'issueType': widget.title,
-        'errorCount': widget.errorCount ?? 0,
-        'affectedDevices': widget.errorDeviceCount ?? 0,
-        'stackTrace': _stackText(),
-        'versionDistribution': _issueJson?['VersionDistribution'] ?? [],
-      };
+      final stackText = _stackText();
+      final pseudoReport = '## 崩溃信息\n\n'
+          '**Digest Hash**: `${widget.digestHash}`\n\n'
+          '**问题**: ${widget.title}\n\n'
+          '### 完整崩溃堆栈\n```\n$stackText\n```\n';
 
-      final analyzer = AiSourceCodeAnalyzer(
-        reportManager: ReportManager(),
-        config: _cfg,
+      // 复用基于工具调用（grep/read_file 检索本地源码）的源码分析 Agent。
+      final agent = CrashAnalysisAgentService(config: _cfg);
+      final result = await agent.analyzeSource(
+        digestHash: widget.digestHash,
+        reportContent: pseudoReport,
       );
-      final report = await analyzer.performAnalysis(
-        issueData: issueData,
-        projectPath: projectPath,
-        bizModule: widget.controller.activeBizModule,
-        llmBaseUrl: _cfg.llmBaseUrl.trim(),
-        llmApiKey: _cfg.llmApiKey.trim(),
-        llmModel: _cfg.llmModel.trim(),
-        projectId: widget.controller.activeProject.id,
-      );
+
+      final out = StringBuffer()
+        ..writeln('===== 本地源码 AI 分析 =====')
+        ..writeln();
+      if (result.isError) {
+        out.writeln('分析失败：');
+        out.writeln(result.summary);
+      } else {
+        if (result.summary.isNotEmpty) out.writeln('【总结】${result.summary}\n');
+        if (result.investigation.isNotEmpty) out.writeln('【源码排查过程】\n${result.investigation}\n');
+        if (result.rootCause.isNotEmpty) out.writeln('【源码级根因】\n${result.rootCause}\n');
+        if (result.sourceAnalysis.isNotEmpty) out.writeln('【结合源码分析】\n${result.sourceAnalysis}\n');
+        if (result.possibleCauses.isNotEmpty) {
+          out.writeln('【可能原因】');
+          for (final c in result.possibleCauses) {
+            out.writeln('• ${c.cause}');
+            if (c.detail.isNotEmpty) out.writeln('  ${c.detail}');
+            for (final ev in c.evidence) {
+              out.writeln('  - $ev');
+            }
+          }
+          out.writeln();
+        }
+        if (result.fixSuggestions.isNotEmpty) {
+          out.writeln('【代码修改建议】');
+          for (final s in result.fixSuggestions) {
+            final icon = s.priority == 'high' ? '🔴' : s.priority == 'medium' ? '🟡' : '🟢';
+            out.writeln('• ${s.suggestion} $icon');
+            if (s.file != null && s.file!.isNotEmpty) out.writeln('  涉及文件: ${s.file}');
+            if (s.implementation.isNotEmpty) out.writeln('  ${s.implementation}');
+            if (s.codeDiff != null && s.codeDiff!.isNotEmpty) {
+              out.writeln();
+              out.writeln('  代码对比:');
+              out.writeln(s.codeDiff);
+            }
+          }
+          out.writeln();
+        }
+        if (result.conclusion.isNotEmpty) out.writeln('【结论】\n${result.conclusion}\n');
+        if (result.toolTrace.isNotEmpty) {
+          out.writeln('【源码检索轨迹】');
+          out.writeln(result.toolTrace);
+        }
+      }
 
       if (!mounted) return;
 
       setState(() {
         _llmOut.clear();
-        _llmOut.writeln(report);
+        _llmOut.writeln(out.toString());
         _llmBusy = false;
       });
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('分析报告已保存到报告中心')),
-        );
-      }
     } catch (e) {
       if (!mounted) return;
       setState(() {

@@ -445,27 +445,37 @@ class AgentToolRegistry {
   static Future<String> _searchFiles(String pattern, String? dir, String base) async {
     final sp = _resolvePath(dir ?? '', base);
     try {
-      // 优先用 rg --files + 匹配（快、自动忽略噪声）；回退 find（带排除和超时）。
-      final rgAvailable = await Process.run('which', ['rg']).then((r) => r.exitCode == 0).catchError((_) => false);
-      String out;
-      if (rgAvailable) {
-        final result = await Process.run('rg',
-          ['--files', sp, ..._excludeDirs.expand((d) => ['--glob', '!**/$d/**'])],
-          runInShell: false).timeout(const Duration(seconds: 20));
-        final all = (result.stdout as String).trim();
-        out = all.split('\n').where((l) {
-          final name = l.split('/').last;
-          return RegExp(pattern.replaceAll('*', '.*')).hasMatch(name);
-        }).join('\n');
-      } else {
-        final args = <String>[sp, '-type', 'f', '-name', pattern];
-        for (final d in _excludeDirs) {
-          args.addAll(['-not', '-path', '*/$d/*']);
+      // 直接用 find 在项目内全量按文件名搜索（不遵循 .gitignore，适配多仓库多模块/子模块）。
+      // 只在 .java / .kt 源码文件中查询，并排除明显的构建产物目录。
+      final pruneDirs = const ['build', '.gradle', '.git', 'node_modules', 'Pods', 'target', '.dart_tool'];
+      final args = <String>[
+        sp, '-type', 'f',
+        '(', '-iname', pattern, ')',
+        '(', '-name', '*.java', '-o', '-name', '*.kt', ')',
+        for (final d in pruneDirs) ...['-not', '-path', '*/$d/*'],
+      ];
+      final result = await Process.run('find', args, runInShell: false)
+          .timeout(const Duration(seconds: 25));
+      if (result.exitCode != 0 && (result.stderr?.toString().isNotEmpty ?? false)) {
+        return '搜索失败: ${result.stderr}';
+      }
+      var out = (result.stdout as String).trim();
+      if (out.isEmpty) {
+        // 兜底：用 glob 通配符模糊匹配文件名包含关键词的文件
+        final p2 = pattern.replaceAll(RegExp(r'\*'), '');
+        if (p2.isNotEmpty) {
+          final args2 = <String>[
+            sp, '-type', 'f',
+            '(', '-iname', '*$p2*', ')',
+            '(', '-name', '*.java', '-o', '-name', '*.kt', ')',
+          ];
+          for (final d in const ['build', '.gradle', '.git', 'node_modules', 'Pods', 'target', '.dart_tool']) {
+            args2.addAll(['-not', '-path', '*/$d/*']);
+          }
+          final r2 = await Process.run('find', args2, runInShell: false)
+              .timeout(const Duration(seconds: 25));
+          out = (r2.stdout as String).trim();
         }
-        final result = await Process.run('find', args, runInShell: false)
-            .timeout(const Duration(seconds: 20));
-        if (result.exitCode != 0) return '搜索失败: ${result.stderr}';
-        out = (result.stdout as String).trim();
       }
       if (out.isEmpty) return '未找到匹配 "$pattern" 的文件';
       final lines = out.split('\n');
@@ -490,7 +500,8 @@ class AgentToolRegistry {
       // 优先使用 ripgrep（rg）：默认跳过 .git/二进制/忽略文件，速度极快。
       final rgAvailable = await Process.run('which', ['rg']).then((r) => r.exitCode == 0).catchError((_) => false);
       if (rgAvailable) {
-        final args = <String>['rg', '-n', '--no-heading', '--color=never',
+        // --no-ignore：不遵循 .gitignore，适配多仓库多模块/子模块（业务源码可能被忽略）。
+        final args = <String>['rg', '-n', '--no-heading', '--no-ignore', '--color=never',
           '-m', maxResults.toString(),
           for (final d in _excludeDirs) ...['--glob', '!**/$d/**'],
         ];

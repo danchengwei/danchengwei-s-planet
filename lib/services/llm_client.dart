@@ -26,6 +26,7 @@ class LlmMessage {
     required this.content,
     this.name,
     this.toolCallId,
+    this.toolCalls,
   });
 
   final String role;
@@ -33,11 +34,17 @@ class LlmMessage {
   final String? name;
   final String? toolCallId;
 
+  /// assistant 发起工具调用时携带（OpenAI function calling 多轮对话必需，
+  /// 后续 role=tool 消息通过 tool_call_id 与之关联）。
+  final List<LlmToolCall>? toolCalls;
+
   Map<String, dynamic> toJson() => {
     'role': role,
     'content': content,
     if (name != null) 'name': name,
     if (toolCallId != null) 'tool_call_id': toolCallId,
+    if (toolCalls != null && toolCalls!.isNotEmpty)
+      'tool_calls': toolCalls!.map((c) => c.toJson()).toList(),
   };
 
   Map<String, String> toSimpleMap() => {'role': role, 'content': content};
@@ -74,6 +81,16 @@ class LlmToolCall {
   final String arguments;
 
   Map<String, dynamic> get parsedArgs => jsonDecode(arguments) as Map<String, dynamic>;
+
+  /// 回传给模型的 tool_calls 结构（多轮工具对话必需）。
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'type': 'function',
+        'function': {
+          'name': name,
+          'arguments': arguments,
+        },
+      };
 }
 
 /// Chat 响应

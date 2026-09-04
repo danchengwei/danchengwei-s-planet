@@ -3,6 +3,7 @@ import 'dart:convert';
 import '../models/tool_config.dart';
 import 'agent_engine.dart';
 import 'agent_tool_registry.dart';
+import 'http_retry_policy.dart';
 import 'llm_client.dart';
 import 'outbound_http_client_for_config.dart';
 
@@ -264,13 +265,27 @@ class CrashAnalysisAgentService {
 
   /// 将底层异常转为可读的中文错误。
   String _friendlyError(Object e) {
-    final s = e.toString();
-    if (s.contains('ApiRetryExhausted')) {
-      return '大模型多次请求均失败（可能是网络超时、网关限流 429/5xx，或源码分析工具调用轮次较多导致响应慢）。'
-          '请稍后重试；若频繁出现，请检查网络/代理或减少同时分析的崩溃数量。';
+    // 从重试耗尽异常中提取真实状态码。
+    var cause = e;
+    if (e is ApiRetryExhaustedException) {
+      cause = e.cause;
+    }
+    final s = cause.toString();
+    if (cause is TransientHttpStatusException) {
+      final code = cause.statusCode;
+      if (code == 429) {
+        return '大模型限流（HTTP 429）：当前网关配额/频率已达上限，请等待约 1 分钟后重试。'
+            '源码分析涉及多轮请求，短时间内频繁点击容易触发限流。';
+      }
+      return '大模型网关暂态错误（HTTP $code），请稍后重试。';
+    }
+    if (e is ApiRetryExhaustedException) {
+      return '大模型多次请求均失败（网络超时或网关 5xx/限流）。请稍后重试。';
     }
     if (s.contains('401')) return '大模型认证失败（HTTP 401）：请检查配置里的 API Key / Base URL / 模型名是否匹配。';
-    if (s.contains('429')) return '大模型限流（HTTP 429）：请求过于频繁，请稍后重试。';
+    if (s.contains('429')) {
+      return '大模型限流（HTTP 429）：请求过于频繁，请稍后重试。';
+    }
     return s;
   }
 

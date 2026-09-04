@@ -213,6 +213,7 @@ class _AnalysisReportTabState extends State<AnalysisReportTab> {
                 modified: stat.modified,
                 content: content,
                 source: ReportSource.htmlAnalysis,
+                hashes: _extractHashesFromReport(content),
               ));
             }
           }
@@ -240,6 +241,7 @@ class _AnalysisReportTabState extends State<AnalysisReportTab> {
               modified: stat.modified,
               content: content,
               source: ReportSource.intelligentAnalysis,
+              hashes: _extractHashesFromReport(content),
             ));
           }
         }
@@ -447,9 +449,12 @@ class _AnalysisReportTabState extends State<AnalysisReportTab> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          session.id,
-                          style: theme.textTheme.bodySmall?.copyWith(fontFamily: 'monospace'),
-                          maxLines: 1,
+                          session.displayName,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            fontFamily: 'monospace',
+                            fontWeight: session.hashes.isNotEmpty ? FontWeight.w700 : null,
+                          ),
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 4),
@@ -497,6 +502,7 @@ class _SessionInfo {
   final DateTime modified;
   String content;
   final ReportSource source;
+  final List<String> hashes;
 
   _SessionInfo({
     required this.id,
@@ -505,7 +511,27 @@ class _SessionInfo {
     required this.modified,
     required this.content,
     required this.source,
+    this.hashes = const [],
   });
+
+  /// 列表展示名：优先展示崩溃 hash（多个则拼接），否则回退到 id。
+  String get displayName {
+    if (hashes.isEmpty) return id;
+    return hashes.join('  ·  ');
+  }
+}
+
+/// 从报告内容中提取崩溃 digest hash（形如 `0S21LKTSQ736B`，去重保序）。
+List<String> _extractHashesFromReport(String content) {
+  final seen = <String>[];
+  for (final m in RegExp(r'`([0-9A-Za-z]{10,32})`').allMatches(content)) {
+    final h = m.group(1)!;
+    // 排除明显非 hash 的长 token（如文件路径、JSON 键），只保留全大写数字或混合且无路径特征的
+    if (!h.contains('/') && !h.contains('.')) {
+      if (!seen.contains(h)) seen.add(h);
+    }
+  }
+  return seen.take(6).toList();
 }
 
 /// 清理 markdown，移除可能触发 flutter_markdown `_inlines.isEmpty` 断言的构造。

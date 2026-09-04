@@ -5,9 +5,7 @@ import 'package:intl/intl.dart';
 import '../aliyun/emas_appmonitor_client.dart';
 import '../app_controller.dart';
 import '../constants/app_constants.dart';
-import 'batch_analysis_page.dart';
 import 'issue_detail_page.dart';
-import 'issue_quick_analysis_page.dart';
 import 'widgets/version_filter_widget.dart';
 
 
@@ -161,50 +159,6 @@ class IssuesTab extends StatelessWidget {
                     ),
                   ),
                 _IssueListSliver(controller: controller),
-                // 批量操作栏
-                if (controller.selectedDigestHashes.isNotEmpty)
-                  SliverPadding(
-                    padding: EdgeInsets.fromLTRB(kSpacing24, kSpacing12, kSpacing24, kSpacing8),
-                    sliver: SliverToBoxAdapter(
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              '已选中 ${controller.selectedDigestHashes.length} 个问题',
-                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                                  ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          FilledButton.icon(
-                            onPressed: () {
-                              final hashes = controller.selectedDigestHashes.toList();
-                              if (hashes.isEmpty) return;
-                              Navigator.of(context).push<void>(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => BatchAnalysisPage(
-                                    controller: controller,
-                                    digestHashes: hashes,
-                                    bizModule: controller.activeBizModule,
-                                    startTimeMs: controller.rangeStartMs,
-                                    endTimeMs: controller.rangeEndMs,
-                                  ),
-                                ),
-                              );
-                            },
-                            icon: const Icon(Icons.psychology_rounded, size: 18),
-                            label: const Text('智能分析'),
-                          ),
-                          const SizedBox(width: 8),
-                          OutlinedButton(
-                            onPressed: controller.clearSelectedDigestHashes,
-                            child: const Text('清空'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
               ],
               SliverPadding(
                 padding: EdgeInsets.fromLTRB(kSpacing24, kSpacing8, kSpacing24, kSpacing24),
@@ -830,24 +784,6 @@ class _IssueEmasListCard extends StatelessWidget {
     final primaryTitle = titles.$1;
     final secondaryLine = titles.$2;
 
-    void openQuick() {
-      if (digest == null) return;
-      Navigator.of(context).push<void>(
-        MaterialPageRoute<void>(
-          builder: (_) => IssueQuickAnalysisPage(
-            controller: controller,
-            digestHash: digest,
-            title: primaryTitle,
-            listStack: item.stack,
-            errorCount: item.errorCount,
-            errorDeviceCount: item.errorDeviceCount,
-            bizModule: controller.activeBizModule,
-            pageNum: controller.pageIndex,
-          ),
-        ),
-      );
-    }
-
     void openDetail() {
       if (digest == null) return;
       Navigator.of(context).push<void>(
@@ -889,17 +825,6 @@ class _IssueEmasListCard extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Padding(
-                  padding: EdgeInsets.only(right: kSpacing2, top: kSpacing2),
-                  child: Checkbox(
-                    value: selected,
-                    onChanged: digest == null
-                        ? null
-                        : (_) {
-                            controller.toggleDigestSelection(digest);
-                          },
-                  ),
-                ),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -995,23 +920,15 @@ class _IssueEmasListCard extends StatelessWidget {
             const SizedBox(height: 10),
             Row(
               children: [
-                FilledButton(
-                  onPressed: digest == null ? null : openQuick,
+                FilledButton.icon(
+                  onPressed: digest == null ? null : openDetail,
                   style: FilledButton.styleFrom(
                     padding: EdgeInsets.symmetric(horizontal: kSpacing18, vertical: kSpacing10),
                   ),
-                    child: const Text('智能分析'),
-                ),
-                const SizedBox(width: 10),
-                TextButton(
-                  onPressed: digest == null ? null : openDetail,
-                  child: const Text('详情'),
+                  icon: const Icon(Icons.article_outlined, size: 18),
+                  label: const Text('详情'),
                 ),
                 const Spacer(),
-                Text(
-                  '勾选参与批量 LLM',
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(color: cs.outline),
-                ),
               ],
             ),
           ],

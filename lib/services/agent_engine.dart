@@ -50,6 +50,10 @@ class AgentEngine {
     final tools = toolRegistry.llmTools;
 
     for (int iter = 0; iter < maxToolIterations; iter++) {
+      // 轮次间稍作等待，避免连续请求触发网关 429 限流。
+      if (iter > 0) {
+        await Future<void>.delayed(const Duration(milliseconds: 600));
+      }
       yield AgentStep(type: 'thinking');
 
       final resp = await llmClient.chatFull(
@@ -67,7 +71,11 @@ class AgentEngine {
         return;
       }
 
-      _messages.add(LlmMessage(role: 'assistant', content: resp.content ?? ''));
+      _messages.add(LlmMessage(
+        role: 'assistant',
+        content: resp.content ?? '',
+        toolCalls: resp.hasToolCalls ? resp.toolCalls : null,
+      ));
 
       for (final tc in resp.toolCalls!) {
         yield AgentStep(
@@ -101,6 +109,7 @@ class AgentEngine {
           role: 'tool',
           content: result,
           toolCallId: tc.id,
+          name: tc.name,
         ));
       }
     }
