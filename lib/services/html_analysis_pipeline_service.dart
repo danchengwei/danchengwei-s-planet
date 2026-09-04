@@ -1423,15 +1423,6 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
       }
     }
 
-    // 后续步骤说明
-    buffer.writeln('## 📌 后续分析');
-    buffer.writeln();
-    buffer.writeln('1. 点击上方"华佗日志"链接查看完整日志列表');
-    buffer.writeln('2. 在"下载日志"标签中查看已下载的压缩包');
-    buffer.writeln('3. 解压并分析日志内容定位根因');
-    buffer.writeln('4. 根据用户样本信息追踪特定设备/版本问题');
-    buffer.writeln();
-
     return buffer.toString();
   }
 
@@ -1765,6 +1756,7 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
         'investigation': result.investigation,
         'source_analysis': result.sourceAnalysis,
         'conclusion': result.conclusion,
+        'raw_reply': result.raw ?? '',
         'tool_trace': result.toolTrace,
         'possible_causes': result.possibleCauses
             .map((c) => {
@@ -1838,13 +1830,11 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
       // 源码检索轨迹（模型实际 grep/read 了哪些文件）
       final toolTrace = (llmAnalysis['tool_trace'] as String? ?? '').trim();
       if (toolTrace.isNotEmpty) {
-        buffer.writeln('<details><summary>源码检索轨迹</summary>');
+        buffer.writeln('**🧭 源码检索轨迹**:');
         buffer.writeln();
-        buffer.writeln('```');
+        buffer.writeln('```text');
         buffer.writeln(toolTrace);
         buffer.writeln('```');
-        buffer.writeln();
-        buffer.writeln('</details>');
         buffer.writeln();
       }
 

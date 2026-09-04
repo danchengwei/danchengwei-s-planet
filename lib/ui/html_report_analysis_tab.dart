@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
-import 'package:markdown/markdown.dart' as md;
 import 'package:file_selector/file_selector.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -981,12 +980,12 @@ class _HtmlReportAnalysisTabState extends State<HtmlReportAnalysisTab> with Sing
           section.writeln();
         }
         if (result.toolTrace.isNotEmpty) {
-          section.writeln('<details><summary>源码检索轨迹</summary>');
           section.writeln();
-          section.writeln('```');
+          section.writeln('**🧭 源码检索轨迹**');
+          section.writeln();
+          section.writeln('```text');
           section.writeln(result.toolTrace);
           section.writeln('```');
-          section.writeln('</details>');
         }
       }
 
@@ -1029,27 +1028,38 @@ class _HtmlReportAnalysisTabState extends State<HtmlReportAnalysisTab> with Sing
           children: [
             Expanded(
               child: Markdown(
-                data: reportContent,
+                data: _sanitizeMarkdown(reportContent),
                 selectable: true,
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
                 onTapLink: (text, href, title) async {
                   if (href == null) return;
                   final uri = Uri.tryParse(href);
                   if (uri == null) return;
                   await launchUrl(uri, mode: LaunchMode.externalApplication);
                 },
-                styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-                  codeblockPadding: const EdgeInsets.all(10),
-                  codeblockDecoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(8),
+                styleSheet: MarkdownStyleSheet.fromTheme(
+                  Theme.of(context).copyWith(
+                    textTheme: Theme.of(context).textTheme.apply(fontSizeFactor: 1.02),
                   ),
-                  code: const TextStyle(fontFamily: 'monospace', fontSize: 12, height: 1.4),
-                  a: TextStyle(color: Theme.of(context).colorScheme.primary, decoration: TextDecoration.underline),
+                ).copyWith(
+                  codeblockPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  code: const TextStyle(
+                    fontFamily: 'monospace',
+                    fontFamilyFallback: ['Menlo', 'Courier New'],
+                    fontSize: 12.5,
+                    height: 1.45,
+                    color: Color(0xFFD63384),
+                  ),
+                  codeblockDecoration: BoxDecoration(
+                    color: Colors.grey.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.grey.withValues(alpha: 0.25)),
+                  ),
+                  a: TextStyle(
+                    color: Theme.of(context).colorScheme.primary,
+                    decoration: TextDecoration.underline,
+                  ),
                 ),
-                builders: {
-                  'pre': _WrappingCodeBlockBuilder(),
-                },
               ),
             ),
             Padding(
@@ -1288,30 +1298,13 @@ class _HtmlReportAnalysisTabState extends State<HtmlReportAnalysisTab> with Sing
 
 /// 让 Markdown 代码块（```...```）内的长文本自动换行、可选中复制，
 /// 避免长 URL/JSON 需要横向滑动。
-class _WrappingCodeBlockBuilder extends MarkdownElementBuilder {
-  @override
-  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
-    final cs = WidgetsBinding.instance.platformDispatcher.platformBrightness == Brightness.dark
-        ? const ColorScheme.dark()
-        : const ColorScheme.light();
-    final codeText = element.textContent.trimRight();
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.symmetric(vertical: 6),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: cs.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: SelectableText(
-        codeText,
-        style: const TextStyle(
-          fontFamily: 'monospace',
-          fontFamilyFallback: ['Menlo', 'Courier New', 'monospace'],
-          fontSize: 12,
-          height: 1.4,
-        ),
-      ),
-    );
-  }
+/// 清理 markdown，移除 flutter_markdown 无法处理、可能触发 `_inlines.isEmpty`
+/// 断言的构造（空代码块、空链接等），避免报告渲染崩溃。
+String _sanitizeMarkdown(String input) {
+  var text = input;
+  // 空代码块（``` 紧跟 ```）会让 inline 解析为空，移除之。
+  text = text.replaceAll(RegExp(r'```[^\n`]*\n\s*```'), '');
+  // 空链接 [文字]() 兜底补一个占位。
+  text = text.replaceAll(RegExp(r'\[([^\]]+)\]\(\s*\)'), r'$1');
+  return text;
 }

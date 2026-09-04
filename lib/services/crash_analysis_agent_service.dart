@@ -199,7 +199,7 @@ class CrashAnalysisAgentService {
       return _errorResult('未配置本地源码仓库路径（配置 → 源码分析 → 本地项目路径），无法进行源码分析。');
     }
 
-    final registry = AgentToolRegistry.createStandard(
+    final registry = AgentToolRegistry.createReadOnlySourceTools(
       config: config,
       projectPath: projectPath,
     );
@@ -216,7 +216,7 @@ class CrashAnalysisAgentService {
       llmClient: client,
       toolRegistry: registry,
       systemPrompt: _buildSystemPrompt(sourceMode: true),
-      maxToolIterations: 8,
+      maxToolIterations: 5,
       temperature: 0.3,
     );
 
@@ -314,6 +314,8 @@ class CrashAnalysisAgentService {
       return '''
 你是一名资深的 Android / iOS 移动应用崩溃分析专家。请仅根据提供的崩溃堆栈和 tombstone 崩溃主日志进行**深入、细致**的分析（本次不检索源码）。
 
+**所有分析内容必须使用简体中文回复。**
+
 ## 分析要点
 
 1. 通读堆栈与 tombstone，识别异常类型、崩溃线程、信号、关键系统/第三方库帧。
@@ -368,6 +370,8 @@ $projectHint
 你是一名资深的 Android / iOS 移动应用崩溃分析专家。你将拿到一份**已有初步分析的崩溃报告**，
 任务是结合本地源码仓库 $repoHint，对崩溃做进一步的源码级分析，给出可落地的代码修改建议。
 
+**所有分析内容必须使用简体中文回复。**
+
 $projectSection
 ## 可用工具（支持项目搜索、文件搜索、内容搜索与读取）
 
@@ -376,14 +380,17 @@ $projectSection
 - grep(query, path, fileTypes, maxResults)：按关键词/正则在文件**内容**中搜索（类名、方法名、字符串）
 - read_file(path)：读取定位到的文件内容做代码级分析
 
-## 分析流程（自主执行）
+## 分析流程（自主执行，注意高效）
 
-先用 list_directory 了解项目布局，再按上面项目说明中的模块位置，用 grep/search_files 精确定位，最后 read_file 读关键代码。
+**重要：工具调用要精简高效，总工具调用控制在 3-5 次内，不要反复搜索。**
+直接用 grep 搜堆栈中的关键类名/方法名定位（一次 grep 用对关键词即可，通常无需 list_directory 逐层浏览），
+找到目标文件后直接 read_file 读取关键片段，随即给出分析结论。
 
-1. 从报告/堆栈中提取应用自身的关键类名、方法名、异常类型。
-2. 调用 grep / search_files 在本地仓库定位对应的源码文件，用 read_file 读取关键代码。
-3. 分析相关代码逻辑，定位具体的缺陷行/缺陷分支（空指针、生命周期、并发、资源释放等）。
+1. 从报告/堆栈中提取应用自身的关键类名、方法名、异常类型（如 StreakFlameCalendarBinder、playTodayTickPag）。
+2. 用 grep 搜索该类名（fileTypes 限定 .kt/.java）定位源码文件。
+3. 用 read_file 读取目标文件的关键方法，分析缺陷逻辑（空指针、生命周期、并发、跨线程/资源释放等）。
 4. 给出具体的代码修改方案，尽量给出修复前后对比。
+5. 检索不到时如实说明，不要反复搜索。
 
 ## 输出要求（极其重要）
 
@@ -533,32 +540,81 @@ $projectSection
       }
       final parsed = data;
 
-      final causes = (parsed['possible_causes'] as List? ?? [])
-          .map((c) => CauseAnalysis(
-                cause: (c['cause'] ?? '').toString(),
-                detail: (c['detail'] ?? '').toString(),
-                evidence: (c['evidence'] as List? ?? [])
-                    .map((e) => e.toString())
-                    .toList(),
-              ))
-          .toList();
+      String pick(List<String> keys) {
+        for (final k in keys) {
+          final v = parsed[k];
+          if (v != null && v.toString().trim().isNotEmpty) return v.toString();
+        }
+        return '';
+      }
 
-      final fixes = (parsed['fix_suggestions'] as List? ?? [])
-          .map((s) => FixSuggestion(
-                suggestion: (s['suggestion'] ?? '').toString(),
-                priority: (s['priority'] ?? 'medium').toString(),
-                implementation: (s['implementation'] ?? '').toString(),
-                file: s['file']?.toString(),
-                codeDiff: s['code_diff']?.toString(),
-              ))
-          .toList();
+      // possible_causes / causes：兼容 List<Map>、List<String>、Map
+      final causes = <CauseAnalysis>[];
+      final rawCauses = parsed['possible_causes'] ?? parsed['causes'] ?? parsed['possible_reasons'];
+      if (rawCauses is List) {
+        for (final c in rawCauses) {
+          if (c is Map) {
+            causes.add(CauseAnalysis(
+              cause: (c['cause'] ?? c['reason'] ?? c['title'] ?? '').toString(),
+              detail: (c['detail'] ?? c['description'] ?? c['analysis'] ?? '').toString(),
+              evidence: _asStringList(c['evidence'] ?? c['evidences'] ?? c['signs']),
+            ));
+          } else if (c != null && c.toString().trim().isNotEmpty) {
+            causes.add(CauseAnalysis(cause: c.toString(), detail: '', evidence: const []));
+          }
+        }
+      }
+
+      // fix_suggestions / suggestions / fixes：兼容 List<Map>、List<String>
+      final fixes = <FixSuggestion>[];
+      final rawFixes = parsed['fix_suggestions'] ?? parsed['fixes'] ?? parsed['suggestions'] ?? parsed['solutions'];
+      if (rawFixes is List) {
+        for (final s in rawFixes) {
+          if (s is Map) {
+            fixes.add(FixSuggestion(
+              suggestion: (s['suggestion'] ?? s['title'] ?? s['action'] ?? s['fix'] ?? '').toString(),
+              priority: (s['priority'] ?? s['level'] ?? 'medium').toString(),
+              implementation: (s['implementation'] ?? s['detail'] ?? s['description'] ?? s['how'] ?? '').toString(),
+              file: s['file']?.toString() ?? s['file_path']?.toString(),
+              codeDiff: s['code_diff']?.toString() ?? s['codeDiff']?.toString() ?? s['diff']?.toString(),
+            ));
+          } else if (s != null && s.toString().trim().isNotEmpty) {
+            fixes.add(FixSuggestion(suggestion: s.toString(), priority: 'medium', implementation: ''));
+          }
+        }
+      }
+
+      var summary = pick(['summary', 'crash_summary', 'conclusion_summary', 'title']);
+      var rootCause = pick(['root_cause', 'rootCause', 'root_cause_analysis', 'cause_analysis', 'stack_trace_analysis']);
+      var investigation = pick(['investigation', 'analysis_process', 'troubleshooting', 'analysis']);
+      var sourceAnalysis = pick(['source_analysis', 'sourceAnalysis', 'code_analysis']);
+      var conclusion = pick(['conclusion', 'final_conclusion', 'verdict']);
+
+      // 兜底：模型用了非标准字段名且 causes/fixes 为空时，把其余有内容的字段汇总，避免报告空白。
+      if (causes.isEmpty && fixes.isEmpty && rootCause.isEmpty && investigation.isEmpty) {
+        final known = {'summary','crash_summary','crash_type','signal_info','faulting_thread','root_cause',
+          'rootCause','investigation','source_analysis','conclusion','possible_causes','causes',
+          'fix_suggestions','fixes','suggestions','solutions'};
+        final extra = StringBuffer();
+        parsed.forEach((k, v) {
+          if (known.contains(k)) return;
+          final s = v is String ? v.trim() : jsonEncode(v);
+          if (s.isNotEmpty && s != 'null' && s != '[]' && s != '{}') {
+            extra.writeln('**$k**：$s');
+            extra.writeln();
+          }
+        });
+        if (extra.isNotEmpty) {
+          rootCause = '以下为模型返回的分析内容：\n\n${extra.toString().trim()}';
+        }
+      }
 
       return CrashAnalysisResult(
-        summary: (parsed['summary'] ?? '').toString(),
-        rootCause: (parsed['root_cause'] ?? '').toString(),
-        investigation: (parsed['investigation'] ?? '').toString(),
-        sourceAnalysis: (parsed['source_analysis'] ?? '').toString(),
-        conclusion: (parsed['conclusion'] ?? '').toString(),
+        summary: summary,
+        rootCause: rootCause,
+        investigation: investigation,
+        sourceAnalysis: sourceAnalysis,
+        conclusion: conclusion,
         possibleCauses: causes,
         fixSuggestions: fixes,
         raw: response,
@@ -569,6 +625,14 @@ $projectSection
       final preview = snippet.length > 500 ? '${snippet.substring(0, 500)}…' : snippet;
       return _errorResult('模型返回内容无法解析为结构化报告。解析错误：$e\n\n模型原始回复（前 500 字）：\n$preview');
     }
+  }
+
+  /// 将 evidence 等字段安全转为字符串列表（兼容 List / String / 单值）。
+  List<String> _asStringList(dynamic v) {
+    if (v == null) return const [];
+    if (v is List) return v.map((e) => e.toString()).where((s) => s.trim().isNotEmpty).toList();
+    final s = v.toString().trim();
+    return s.isEmpty ? const [] : [s];
   }
 
   /// 从文本中提取最后一个平衡的 JSON 对象（模型可能在 JSON 外附加说明文字）。

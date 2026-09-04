@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -35,6 +36,87 @@ class AgentToolRegistry {
     final tool = _tools[name];
     if (tool == null) return Future.value('未知工具: $name');
     return tool.handler(params);
+  }
+
+  /// 创建仅含源码分析所需的「只读检索」工具（grep/read_file/list_directory/search_files）。
+  /// 不含 shell/write/claude/EMAS/GitLab 等工具，请求体更小、无副作用，专供源码智能分析。
+  static AgentToolRegistry createReadOnlySourceTools({
+    required ToolConfig config,
+    required String projectPath,
+  }) {
+    final r = AgentToolRegistry(config: config, projectPath: projectPath);
+
+    r.register(AgentTool(
+      name: 'list_directory',
+      description: '列出目录内容与子目录结构，用于了解项目布局',
+      parameters: {
+        'type': 'object',
+        'properties': {
+          'path': {'type': 'string', 'description': '目录路径，默认项目根目录'},
+          'recursive': {'type': 'boolean', 'description': '是否递归'},
+          'maxDepth': {'type': 'integer', 'description': '递归深度，默认 2'},
+        },
+      },
+      handler: (p) => _listDirectory(
+        p['path']?.toString(),
+        projectPath,
+        recursive: p['recursive'] == true,
+        maxDepth: (p['maxDepth'] as num?)?.toInt() ?? 2,
+      ),
+    ));
+
+    r.register(AgentTool(
+      name: 'search_files',
+      description: '按文件名/通配符搜索文件（如 *Activity*.kt、*.java）',
+      parameters: {
+        'type': 'object',
+        'properties': {
+          'pattern': {'type': 'string', 'description': '文件名通配符'},
+          'directory': {'type': 'string', 'description': '搜索起始目录'},
+        },
+        'required': ['pattern'],
+      },
+      handler: (p) => _searchFiles(
+        p['pattern']?.toString() ?? '*',
+        p['directory']?.toString(),
+        projectPath,
+      ),
+    ));
+
+    r.register(AgentTool(
+      name: 'grep',
+      description: '在源码内容中搜索关键词/正则（基于 ripgrep，自动跳过 build/.git 等目录）',
+      parameters: {
+        'type': 'object',
+        'properties': {
+          'query': {'type': 'string', 'description': '搜索关键词或正则'},
+          'path': {'type': 'string', 'description': '搜索目录，默认项目根'},
+          'fileTypes': {'type': 'string', 'description': '文件类型过滤，如 .kt,.java（逗号分隔）'},
+          'maxResults': {'type': 'integer', 'description': '最大结果数，默认 30'},
+        },
+        'required': ['query'],
+      },
+      handler: (p) => _grep(
+        p['query']?.toString() ?? '',
+        p['path']?.toString(),
+        projectPath,
+        fileTypes: p['fileTypes']?.toString(),
+        maxResults: (p['maxResults'] as num?)?.toInt() ?? 30,
+      ),
+    ));
+
+    r.register(AgentTool(
+      name: 'read_file',
+      description: '读取指定文件内容（自动截断超大文件）',
+      parameters: {
+        'type': 'object',
+        'properties': {'path': {'type': 'string', 'description': '文件绝对路径或相对项目根目录的路径'}},
+        'required': ['path'],
+      },
+      handler: (p) => _readFile(p['path']?.toString() ?? '', projectPath),
+    ));
+
+    return r;
   }
 
   /// 创建包含全套通用工具 + EMAS/GitLab/华佗工具的注册表
@@ -363,34 +445,88 @@ class AgentToolRegistry {
   static Future<String> _searchFiles(String pattern, String? dir, String base) async {
     final sp = _resolvePath(dir ?? '', base);
     try {
-      final result = await Process.run('find', [sp, '-type', 'f', '-name', pattern, '-not', '-path', '*/.git/*', '-not', '-path', '*/node_modules/*'],
-          runInShell: false);
-      if (result.exitCode != 0) return '搜索失败: ${result.stderr}';
-      final out = (result.stdout as String).trim();
+      // 优先用 rg --files + 匹配（快、自动忽略噪声）；回退 find（带排除和超时）。
+      final rgAvailable = await Process.run('which', ['rg']).then((r) => r.exitCode == 0).catchError((_) => false);
+      String out;
+      if (rgAvailable) {
+        final result = await Process.run('rg',
+          ['--files', sp, ..._excludeDirs.expand((d) => ['--glob', '!**/$d/**'])],
+          runInShell: false).timeout(const Duration(seconds: 20));
+        final all = (result.stdout as String).trim();
+        out = all.split('\n').where((l) {
+          final name = l.split('/').last;
+          return RegExp(pattern.replaceAll('*', '.*')).hasMatch(name);
+        }).join('\n');
+      } else {
+        final args = <String>[sp, '-type', 'f', '-name', pattern];
+        for (final d in _excludeDirs) {
+          args.addAll(['-not', '-path', '*/$d/*']);
+        }
+        final result = await Process.run('find', args, runInShell: false)
+            .timeout(const Duration(seconds: 20));
+        if (result.exitCode != 0) return '搜索失败: ${result.stderr}';
+        out = (result.stdout as String).trim();
+      }
       if (out.isEmpty) return '未找到匹配 "$pattern" 的文件';
       final lines = out.split('\n');
       if (lines.length > 100) return '${lines.take(100).join('\n')}\n\n... (共 ${lines.length} 个结果)';
       return out;
+    } on TimeoutException {
+      return '文件搜索超时，请指定更具体的目录或文件名。';
     } catch (e) {
       return '搜索失败: $e';
     }
   }
 
+  /// 搜索时应跳过的噪声目录（构建产物、版本控制、依赖、IDE 等）。
+  static const _excludeDirs = [
+    '.git', '.gradle', '.idea', '.vscode', 'build', 'node_modules',
+    '.dart_tool', 'Pods', '.hg', '.svn', '.agents', '.claude',
+  ];
+
   static Future<String> _grep(String query, String? path, String base, {String? fileTypes, int maxResults = 30}) async {
     final sp = _resolvePath(path ?? '', base);
-    final args = <String>['grep', '-rn', '-I', '--color=never', '-m', maxResults.toString()];
-    if (fileTypes != null && fileTypes.isNotEmpty) {
-      for (final ext in fileTypes.split(',')) {
-        args.addAll(['--include', '*${ext.trim()}']);
-      }
-    }
-    args.addAll([query, sp]);
     try {
-      final result = await Process.run(args.first, args.sublist(1), runInShell: false);
+      // 优先使用 ripgrep（rg）：默认跳过 .git/二进制/忽略文件，速度极快。
+      final rgAvailable = await Process.run('which', ['rg']).then((r) => r.exitCode == 0).catchError((_) => false);
+      if (rgAvailable) {
+        final args = <String>['rg', '-n', '--no-heading', '--color=never',
+          '-m', maxResults.toString(),
+          for (final d in _excludeDirs) ...['--glob', '!**/$d/**'],
+        ];
+        if (fileTypes != null && fileTypes.isNotEmpty) {
+          for (final ext in fileTypes.split(',')) {
+            args.addAll(['--glob', '*${ext.trim()}']);
+          }
+        }
+        args.addAll([query, sp]);
+        final result = await Process.run(args.first, args.sublist(1),
+            runInShell: false).timeout(const Duration(seconds: 25));
+        if (result.exitCode > 1) return '搜索异常: ${result.stderr}';
+        final out = (result.stdout as String).trim();
+        if (out.isEmpty) return '未找到匹配 "$query" 的内容';
+        return out.length > 12000 ? '${out.substring(0, 12000)}\n...(结果截断)' : out;
+      }
+
+      // 回退：系统 grep，显式排除噪声目录并加超时，避免扫描大仓库卡死。
+      final args = <String>['grep', '-rn', '-I', '--color=never',
+        '-m', maxResults.toString(),
+        for (final d in _excludeDirs) ...['--exclude-dir=$d'],
+      ];
+      if (fileTypes != null && fileTypes.isNotEmpty) {
+        for (final ext in fileTypes.split(',')) {
+          args.addAll(['--include', '*${ext.trim()}']);
+        }
+      }
+      args.addAll([query, sp]);
+      final result = await Process.run(args.first, args.sublist(1),
+          runInShell: false).timeout(const Duration(seconds: 25));
       if (result.exitCode > 1) return '搜索异常: ${result.stderr}';
       final out = (result.stdout as String).trim();
       if (out.isEmpty) return '未找到匹配 "$query" 的内容';
-      return out;
+      return out.length > 12000 ? '${out.substring(0, 12000)}\n...(结果截断)' : out;
+    } on TimeoutException {
+      return '搜索超时（仓库较大），请用更精确的关键词或指定子目录后重试。';
     } catch (e) {
       return 'grep 失败: $e';
     }

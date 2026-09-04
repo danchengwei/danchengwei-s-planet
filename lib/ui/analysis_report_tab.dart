@@ -167,13 +167,11 @@ class _AnalysisReportTabState extends State<AnalysisReportTab> {
       b.writeln();
     }
     if (result.toolTrace.isNotEmpty) {
-      b.writeln('<details><summary>源码检索轨迹</summary>');
+      b.writeln('**🧭 源码检索轨迹**');
       b.writeln();
-      b.writeln('```');
+      b.writeln('```text');
       b.writeln(result.toolTrace);
       b.writeln('```');
-      b.writeln();
-      b.writeln('</details>');
       b.writeln();
     }
     return b.toString();
@@ -382,7 +380,7 @@ class _AnalysisReportTabState extends State<AnalysisReportTab> {
           ),
           Expanded(
             child: Markdown(
-              data: _selectedReportContent!,
+              data: _sanitizeMd(_selectedReportContent!),
               selectable: true,
               padding: const EdgeInsets.all(16),
               onTapLink: (text, href, title) async {
@@ -508,4 +506,12 @@ class _SessionInfo {
     required this.content,
     required this.source,
   });
+}
+
+/// 清理 markdown，移除可能触发 flutter_markdown `_inlines.isEmpty` 断言的构造。
+String _sanitizeMd(String input) {
+  var text = input;
+  text = text.replaceAll(RegExp(r'```[^\n`]*\n\s*```'), '');
+  text = text.replaceAll(RegExp(r'\[([^\]]+)\]\(\s*\)'), r'$1');
+  return text;
 }

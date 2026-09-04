@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'agent_tool_registry.dart';
 import 'llm_client.dart';
 
@@ -76,9 +78,17 @@ class AgentEngine {
 
         String result;
         try {
-          result = await toolRegistry.execute(tc.name, tc.parsedArgs);
+          result = await toolRegistry
+              .execute(tc.name, tc.parsedArgs)
+              .timeout(const Duration(seconds: 30));
+        } on TimeoutException {
+          result = '工具执行超时（>30s）：请缩小搜索范围（指定子目录/更精确关键词）后重试。';
         } catch (e) {
           result = '工具执行异常: $e';
+        }
+        // 限制工具结果大小，避免多轮工具结果累积导致后续请求体过大/超时。
+        if (result.length > 6000) {
+          result = '${result.substring(0, 6000)}\n...(结果过长已截断；如需更多信息请直接 read_file 关键文件)';
         }
 
         yield AgentStep(
@@ -95,13 +105,26 @@ class AgentEngine {
       }
     }
 
+    // 工具轮次耗尽：追加明确指令后再请求一次，要求基于已收集信息给出最终回复。
+    _messages.add(LlmMessage(
+      role: 'user',
+      content: '你已完成必要的源码检索。请基于以上堆栈、tombstone 与读取到的源码，'
+          '给出最终分析结论，并按系统提示要求输出一个完整 JSON 对象（直接以 { 开头、} 结尾）。',
+    ));
     final finalResp = await llmClient.chatFull(
       _messages,
       temperature: temperature,
     );
-    final text = finalResp.content ?? '已达到最大工具调用次数';
-    _messages.add(LlmMessage(role: 'assistant', content: text));
-    yield AgentStep(type: 'response', content: text);
+    final text = (finalResp.content ?? '').trim();
+    if (text.isEmpty) {
+      yield AgentStep(
+        type: 'response',
+        content: '模型在工具调用后未返回有效文本结论（可能因轮次或上下文过长）。请重试或减少分析范围。',
+      );
+    } else {
+      _messages.add(LlmMessage(role: 'assistant', content: text));
+      yield AgentStep(type: 'response', content: text);
+    }
   }
 
   /// 重置对话
