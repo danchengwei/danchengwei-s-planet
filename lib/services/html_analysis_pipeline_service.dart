@@ -1758,6 +1758,15 @@ class HtmlAnalysisPipelineService extends ChangeNotifier {
         'conclusion': result.conclusion,
         'raw_reply': result.raw ?? '',
         'tool_trace': result.toolTrace,
+        'source_evidences': result.sourceEvidences
+            .map((e) => {
+                  'file_path': e.filePath,
+                  'line_range': e.lineRange,
+                  'code_snippet': e.codeSnippet,
+                  'explanation': e.explanation,
+                })
+            .toList(),
+        'other_details': result.otherDetails,
         'possible_causes': result.possibleCauses
             .map((c) => {
                   'cause': c.cause,

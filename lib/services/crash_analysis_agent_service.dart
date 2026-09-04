@@ -18,6 +18,8 @@ class CrashAnalysisResult {
     this.sourceAnalysis = '',
     this.conclusion = '',
     this.toolTrace = '',
+    this.sourceEvidences = const [],
+    this.otherDetails = '',
     this.raw,
     this.error,
   });
@@ -26,6 +28,12 @@ class CrashAnalysisResult {
   final String rootCause;
   final List<CauseAnalysis> possibleCauses;
   final List<FixSuggestion> fixSuggestions;
+
+  /// 模型定位到的源码证据（文件、行号、代码片段、解释）。
+  final List<SourceEvidence> sourceEvidences;
+
+  /// 模型返回的、未归入标准字段的其余有内容字段（保证不遗漏）。
+  final String otherDetails;
 
   /// 分析过程/思路（模型如何逐步排查）。
   final String investigation;
@@ -91,6 +99,20 @@ class FixSuggestion {
         if (file != null && file!.isNotEmpty) 'file': file,
         if (codeDiff != null && codeDiff!.isNotEmpty) 'code_diff': codeDiff,
       };
+}
+
+/// 源码证据：模型定位到的文件、行号范围、代码片段与解释。
+class SourceEvidence {
+  SourceEvidence({
+    required this.filePath,
+    this.lineRange = '',
+    this.codeSnippet = '',
+    this.explanation = '',
+  });
+  final String filePath;
+  final String lineRange;
+  final String codeSnippet;
+  final String explanation;
 }
 
 /// 崩溃分析 Agent 服务。
@@ -217,8 +239,10 @@ class CrashAnalysisAgentService {
       llmClient: client,
       toolRegistry: registry,
       systemPrompt: _buildSystemPrompt(sourceMode: true),
-      maxToolIterations: 5,
+      maxToolIterations: 4,
       temperature: 0.3,
+      // 小配额网关（如 RPM 5）下，轮次间隔拉开，避免 429。
+      interRequestDelay: const Duration(milliseconds: 1200),
     );
 
     // 只投喂崩溃关键信息（堆栈/tombstone/结论），避免整篇报告导致请求体过大、超时。
@@ -580,18 +604,21 @@ $projectSection
         }
       }
 
-      // fix_suggestions / suggestions / fixes：兼容 List<Map>、List<String>
+      // fix_suggestions / fix_recommendations / suggestions / fixes
       final fixes = <FixSuggestion>[];
-      final rawFixes = parsed['fix_suggestions'] ?? parsed['fixes'] ?? parsed['suggestions'] ?? parsed['solutions'];
+      final rawFixes = parsed['fix_suggestions'] ?? parsed['fix_recommendations'] ??
+          parsed['recommendations'] ?? parsed['fixes'] ?? parsed['suggestions'] ?? parsed['solutions'];
       if (rawFixes is List) {
         for (final s in rawFixes) {
           if (s is Map) {
             fixes.add(FixSuggestion(
-              suggestion: (s['suggestion'] ?? s['title'] ?? s['action'] ?? s['fix'] ?? '').toString(),
-              priority: (s['priority'] ?? s['level'] ?? 'medium').toString(),
-              implementation: (s['implementation'] ?? s['detail'] ?? s['description'] ?? s['how'] ?? '').toString(),
+              suggestion: (s['suggestion'] ?? s['strategy'] ?? s['action'] ?? s['title'] ?? s['fix'] ?? '').toString(),
+              priority: (s['priority'] ?? s['severity'] ?? s['level'] ?? 'medium').toString(),
+              implementation: (s['implementation'] ?? s['implementation_detail'] ?? s['description'] ??
+                  s['detail'] ?? s['how'] ?? '').toString(),
               file: s['file']?.toString() ?? s['file_path']?.toString(),
-              codeDiff: s['code_diff']?.toString() ?? s['codeDiff']?.toString() ?? s['diff']?.toString(),
+              codeDiff: s['code_diff']?.toString() ?? s['code_example']?.toString() ??
+                  s['codeDiff']?.toString() ?? s['diff']?.toString(),
             ));
           } else if (s != null && s.toString().trim().isNotEmpty) {
             fixes.add(FixSuggestion(suggestion: s.toString(), priority: 'medium', implementation: ''));
@@ -599,30 +626,67 @@ $projectSection
         }
       }
 
+      // source_code_evidence / code_evidence：模型定位到的源码证据
+      final evidences = <SourceEvidence>[];
+      final rawEvidence = parsed['source_code_evidence'] ?? parsed['code_evidence'] ?? parsed['source_evidences'] ?? parsed['code_snippets'];
+      if (rawEvidence is List) {
+        for (final e in rawEvidence) {
+          if (e is Map) {
+            final fp = (e['file_path'] ?? e['file'] ?? e['path'] ?? '').toString();
+            if (fp.isEmpty) continue;
+            evidences.add(SourceEvidence(
+              filePath: fp,
+              lineRange: (e['line_range'] ?? e['line_number'] ?? e['line'] ?? e['lines'] ?? '').toString(),
+              codeSnippet: (e['code_snippet'] ?? e['code'] ?? e['snippet'] ?? '').toString(),
+              explanation: (e['explanation'] ?? e['context'] ?? e['detail'] ?? e['analysis'] ?? '').toString(),
+            ));
+          }
+        }
+      }
+
       var summary = pick(['summary', 'crash_summary', 'conclusion_summary', 'title']);
-      var rootCause = pick(['root_cause', 'rootCause', 'root_cause_analysis', 'cause_analysis', 'stack_trace_analysis']);
-      var investigation = pick(['investigation', 'analysis_process', 'troubleshooting', 'analysis']);
+      var rootCause = pick(['crash_root_cause', 'root_cause', 'rootCause', 'root_cause_analysis', 'cause_analysis', 'stack_trace_analysis', 'detailedAnalysis', 'detailed_analysis']);
+      var investigation = pick(['investigation', 'analysis_process', 'troubleshooting', 'analysis', 'technical_analysis']);
       var sourceAnalysis = pick(['source_analysis', 'sourceAnalysis', 'code_analysis']);
       var conclusion = pick(['conclusion', 'final_conclusion', 'verdict']);
 
-      // 兜底：模型用了非标准字段名且 causes/fixes 为空时，把其余有内容的字段汇总，避免报告空白。
-      if (causes.isEmpty && fixes.isEmpty && rootCause.isEmpty && investigation.isEmpty) {
-        final known = {'summary','crash_summary','crash_type','signal_info','faulting_thread','root_cause',
-          'rootCause','investigation','source_analysis','conclusion','possible_causes','causes',
-          'fix_suggestions','fixes','suggestions','solutions'};
-        final extra = StringBuffer();
-        parsed.forEach((k, v) {
-          if (known.contains(k)) return;
-          final s = v is String ? v.trim() : jsonEncode(v);
-          if (s.isNotEmpty && s != 'null' && s != '[]' && s != '{}') {
-            extra.writeln('**$k**：$s');
-            extra.writeln();
-          }
-        });
-        if (extra.isNotEmpty) {
-          rootCause = '以下为模型返回的分析内容：\n\n${extra.toString().trim()}';
-        }
+      // 影响模块/严重程度/相关文件并入 sourceAnalysis
+      final affected = parsed['affected_modules'];
+      final relatedFiles = parsed['related_files'];
+      final severity = parsed['severity'];
+      final extraCtx = StringBuffer();
+      if (severity != null && severity.toString().trim().isNotEmpty) {
+        extraCtx.writeln('严重程度: $severity');
       }
+      if (affected != null) extraCtx.writeln('影响模块: ${affected is List ? affected.join(', ') : affected}');
+      if (relatedFiles != null) extraCtx.writeln('相关文件: ${relatedFiles is List ? relatedFiles.join(', ') : relatedFiles}');
+      if (extraCtx.isNotEmpty) {
+        sourceAnalysis = '${extraCtx.toString()}${sourceAnalysis.isNotEmpty ? '\n$sourceAnalysis' : ''}';
+      }
+
+      // 始终收集「已结构化消费」之外仍有内容的字段，保证不遗漏模型返回的任何信息。
+      final consumedKeys = <String>{
+        'summary','crash_summary','conclusion_summary','title',
+        'crash_root_cause','root_cause','rootCause','root_cause_analysis','cause_analysis',
+        'stack_trace_analysis','detailedAnalysis','detailed_analysis',
+        'investigation','analysis_process','troubleshooting','analysis','technical_analysis',
+        'source_analysis','sourceAnalysis','code_analysis','conclusion','final_conclusion','verdict',
+        'possible_causes','causes','possible_reasons',
+        'fix_suggestions','fix_recommendations','recommendations','fixes','suggestions','solutions',
+        'source_code_evidence','code_evidence','source_evidences','code_snippets',
+        'affected_modules','related_files','severity','crash_type','signal_info','faulting_thread',
+      };
+      final other = StringBuffer();
+      parsed.forEach((k, v) {
+        if (consumedKeys.contains(k)) return;
+        var s = v is String ? v.trim() : jsonEncode(v);
+        s = s.trim();
+        if (s.isNotEmpty && s != 'null' && s != '[]' && s != '{}' && s != '""') {
+          other.writeln('**$k**：$s');
+          other.writeln();
+        }
+      });
+      final otherDetails = other.toString().trim();
 
       return CrashAnalysisResult(
         summary: summary,
@@ -632,6 +696,8 @@ $projectSection
         conclusion: conclusion,
         possibleCauses: causes,
         fixSuggestions: fixes,
+        sourceEvidences: evidences,
+        otherDetails: otherDetails,
         raw: response,
       );
     } catch (e) {

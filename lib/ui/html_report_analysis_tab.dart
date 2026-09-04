@@ -943,6 +943,26 @@ class _HtmlReportAnalysisTabState extends State<HtmlReportAnalysisTab> with Sing
           section.writeln(result.sourceAnalysis);
           section.writeln();
         }
+        if (result.sourceEvidences.isNotEmpty) {
+          section.writeln('### 📌 源码证据');
+          section.writeln();
+          for (final e in result.sourceEvidences) {
+            section.writeln('**📄 `${e.filePath.split('/').last}`**'
+                '${e.filePath != e.filePath.split('/').last ? " · ${e.filePath}" : ''}'
+                '${e.lineRange.isNotEmpty ? ' · 行 ${e.lineRange}' : ''}');
+            section.writeln();
+            if (e.codeSnippet.isNotEmpty) {
+              section.writeln('```kotlin');
+              section.writeln(e.codeSnippet.trim());
+              section.writeln('```');
+            }
+            if (e.explanation.isNotEmpty) {
+              section.writeln('> ${e.explanation.trim()}');
+              section.writeln();
+            }
+            section.writeln();
+          }
+        }
         if (result.possibleCauses.isNotEmpty) {
           section.writeln('### 可能原因');
           section.writeln();
@@ -956,27 +976,42 @@ class _HtmlReportAnalysisTabState extends State<HtmlReportAnalysisTab> with Sing
           section.writeln();
         }
         if (result.fixSuggestions.isNotEmpty) {
-          section.writeln('### 代码修改建议');
+          section.writeln('### 🛠️ 代码修改建议');
           section.writeln();
-          for (final s in result.fixSuggestions) {
-            final icon = s.priority == 'high' ? '🔴' : s.priority == 'medium' ? '🟡' : '🟢';
-            section.writeln('- **${s.suggestion}** $icon');
-            if (s.file != null && s.file!.isNotEmpty) section.writeln('  - 涉及文件: `${s.file}`');
-            if (s.implementation.isNotEmpty) section.writeln('  - ${s.implementation}');
-            if (s.codeDiff != null && s.codeDiff!.isNotEmpty) {
+          for (var i = 0; i < result.fixSuggestions.length; i++) {
+            final s = result.fixSuggestions[i];
+            final icon = s.priority.toLowerCase() == 'high'
+                ? '🔴 高'
+                : s.priority.toLowerCase() == 'low'
+                    ? '🟢 低'
+                    : '🟡 中';
+            section.writeln('**${i + 1}. ${s.suggestion}** $icon');
+            section.writeln();
+            if (s.file != null && s.file!.isNotEmpty) {
+              section.writeln('涉及文件: `${s.file}`');
               section.writeln();
-              section.writeln('  ```diff');
-              for (final line in s.codeDiff!.split('\n')) {
-                section.writeln('  $line');
-              }
-              section.writeln('  ```');
+            }
+            if (s.implementation.isNotEmpty) {
+              section.writeln(s.implementation.trim());
+              section.writeln();
+            }
+            if (s.codeDiff != null && s.codeDiff!.isNotEmpty) {
+              section.writeln('```kotlin');
+              section.writeln(s.codeDiff!.trim());
+              section.writeln('```');
+              section.writeln();
             }
           }
-          section.writeln();
         }
         if (result.conclusion.isNotEmpty) {
           section.writeln('### 结论');
           section.writeln(result.conclusion);
+          section.writeln();
+        }
+        if (result.otherDetails.isNotEmpty) {
+          section.writeln('### 其他分析信息');
+          section.writeln();
+          section.writeln(result.otherDetails);
           section.writeln();
         }
         if (result.toolTrace.isNotEmpty) {

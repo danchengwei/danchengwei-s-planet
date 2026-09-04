@@ -24,6 +24,7 @@ class AgentEngine {
     this.systemPrompt = '',
     this.maxToolIterations = 10,
     this.temperature = 0.3,
+    this.interRequestDelay = const Duration(milliseconds: 800),
   });
 
   final LlmClient llmClient;
@@ -31,6 +32,9 @@ class AgentEngine {
   final String systemPrompt;
   final int maxToolIterations;
   final double temperature;
+
+  /// 两次 LLM 请求之间的间隔，用于适配小配额网关（如 RPM 5 → 间隔约 13s）。
+  final Duration interRequestDelay;
 
   final List<LlmMessage> _messages = [];
 
@@ -50,9 +54,9 @@ class AgentEngine {
     final tools = toolRegistry.llmTools;
 
     for (int iter = 0; iter < maxToolIterations; iter++) {
-      // 轮次间稍作等待，避免连续请求触发网关 429 限流。
+      // 轮次间稍作等待，避免连续请求触发网关限流（可通过 interRequestDelay 适配配额）。
       if (iter > 0) {
-        await Future<void>.delayed(const Duration(milliseconds: 600));
+        await Future<void>.delayed(interRequestDelay);
       }
       yield AgentStep(type: 'thinking');
 

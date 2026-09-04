@@ -207,6 +207,15 @@ class _IssueDetailPageState extends State<IssueDetailPage> {
         if (result.investigation.isNotEmpty) out.writeln('【源码排查过程】\n${result.investigation}\n');
         if (result.rootCause.isNotEmpty) out.writeln('【源码级根因】\n${result.rootCause}\n');
         if (result.sourceAnalysis.isNotEmpty) out.writeln('【结合源码分析】\n${result.sourceAnalysis}\n');
+        if (result.sourceEvidences.isNotEmpty) {
+          out.writeln('【源码证据】');
+          for (final e in result.sourceEvidences) {
+            out.writeln('📄 ${e.filePath}${e.lineRange.isNotEmpty ? "（行 ${e.lineRange}）" : ""}');
+            if (e.codeSnippet.isNotEmpty) out.writeln(e.codeSnippet);
+            if (e.explanation.isNotEmpty) out.writeln(e.explanation);
+            out.writeln();
+          }
+        }
         if (result.possibleCauses.isNotEmpty) {
           out.writeln('【可能原因】');
           for (final c in result.possibleCauses) {
@@ -234,6 +243,7 @@ class _IssueDetailPageState extends State<IssueDetailPage> {
           out.writeln();
         }
         if (result.conclusion.isNotEmpty) out.writeln('【结论】\n${result.conclusion}\n');
+        if (result.otherDetails.isNotEmpty) out.writeln('【其他分析信息】\n${result.otherDetails}\n');
         if (result.toolTrace.isNotEmpty) {
           out.writeln('【源码检索轨迹】');
           out.writeln(result.toolTrace);

@@ -129,6 +129,25 @@ class _AnalysisReportTabState extends State<AnalysisReportTab> {
       b.writeln(result.sourceAnalysis);
       b.writeln();
     }
+    if (result.sourceEvidences.isNotEmpty) {
+      b.writeln('### 📌 源码证据');
+      b.writeln();
+      for (final e in result.sourceEvidences) {
+        final short = e.filePath.split('/').last;
+        b.writeln('**📄 `$short` · ${e.filePath}${e.lineRange.isNotEmpty ? ' · 行 ${e.lineRange}' : ''}**');
+        b.writeln();
+        if (e.codeSnippet.isNotEmpty) {
+          b.writeln('```kotlin');
+          b.writeln(e.codeSnippet.trim());
+          b.writeln('```');
+        }
+        if (e.explanation.isNotEmpty) {
+          b.writeln('> ${e.explanation.trim()}');
+          b.writeln();
+        }
+        b.writeln();
+      }
+    }
     if (result.possibleCauses.isNotEmpty) {
       b.writeln('### 可能原因');
       b.writeln();
@@ -142,28 +161,43 @@ class _AnalysisReportTabState extends State<AnalysisReportTab> {
       b.writeln();
     }
     if (result.fixSuggestions.isNotEmpty) {
-      b.writeln('### 代码修改建议');
+      b.writeln('### 🛠️ 代码修改建议');
       b.writeln();
-      for (final s in result.fixSuggestions) {
-        final icon = s.priority == 'high' ? '🔴' : s.priority == 'medium' ? '🟡' : '🟢';
-        b.writeln('- **${s.suggestion}** $icon');
-        if (s.file != null && s.file!.isNotEmpty) b.writeln('  - 涉及文件: `${s.file}`');
-        if (s.implementation.isNotEmpty) b.writeln('  - ${s.implementation}');
-        if (s.codeDiff != null && s.codeDiff!.isNotEmpty) {
+      for (var i = 0; i < result.fixSuggestions.length; i++) {
+        final s = result.fixSuggestions[i];
+        final icon = s.priority.toLowerCase() == 'high'
+            ? '🔴 高'
+            : s.priority.toLowerCase() == 'low'
+                ? '🟢 低'
+                : '🟡 中';
+        b.writeln('**${i + 1}. ${s.suggestion}** $icon');
+        b.writeln();
+        if (s.file != null && s.file!.isNotEmpty) {
+          b.writeln('涉及文件: `${s.file}`');
           b.writeln();
-          b.writeln('  ```diff');
-          for (final line in s.codeDiff!.split('\n')) {
-            b.writeln('  $line');
-          }
-          b.writeln('  ```');
+        }
+        if (s.implementation.isNotEmpty) {
+          b.writeln(s.implementation.trim());
+          b.writeln();
+        }
+        if (s.codeDiff != null && s.codeDiff!.isNotEmpty) {
+          b.writeln('```kotlin');
+          b.writeln(s.codeDiff!.trim());
+          b.writeln('```');
+          b.writeln();
         }
       }
-      b.writeln();
     }
     if (result.conclusion.isNotEmpty) {
       b.writeln('### 结论');
       b.writeln();
       b.writeln(result.conclusion);
+      b.writeln();
+    }
+    if (result.otherDetails.isNotEmpty) {
+      b.writeln('### 其他分析信息');
+      b.writeln();
+      b.writeln(result.otherDetails);
       b.writeln();
     }
     if (result.toolTrace.isNotEmpty) {
